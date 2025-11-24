@@ -189,22 +189,22 @@ const startServer = async () => {
     await resetAllUsersLeagueScoresForNewWeek();
     // await resetAllChampionshipScoresToZero(); // One-time Champ Score reset (disabled after manual run)
     
-    // --- 1회성: 모든 유저의 경쟁 상대 봇에 3일치 점수 부여 (3~150점) ---
-    const { grantThreeDaysBotScores } = await import('./scheduledTasks.js');
-    await grantThreeDaysBotScores();
-    
+    // --- 봇 점수 관련 로직은 이미 개선되어 서버 시작 시 실행 불필요 ---
+    // const { grantThreeDaysBotScores } = await import('./scheduledTasks.js');
+    // await grantThreeDaysBotScores();
+    // 
     // --- 모든 유저의 경쟁 상대 봇 점수 즉시 계산 및 업데이트 ---
-    console.log(`[Server Startup] Updating bot scores for all users...`);
-    const { updateBotLeagueScores } = await import('./scheduledTasks.js');
-    let botScoreUpdateCount = 0;
-    for (const user of allDbUsers) {
-        const updatedUser = await updateBotLeagueScores(user);
-        if (JSON.stringify(user) !== JSON.stringify(updatedUser)) {
-            await db.updateUser(updatedUser);
-            botScoreUpdateCount++;
-        }
-    }
-    console.log(`[Server Startup] Bot scores update complete. ${botScoreUpdateCount} user(s) had their bot scores updated.`);
+    // console.log(`[Server Startup] Updating bot scores for all users...`);
+    // const { updateBotLeagueScores } = await import('./scheduledTasks.js');
+    // let botScoreUpdateCount = 0;
+    // for (const user of allDbUsers) {
+    //     const updatedUser = await updateBotLeagueScores(user);
+    //     if (JSON.stringify(user) !== JSON.stringify(updatedUser)) {
+    //         await db.updateUser(updatedUser);
+    //         botScoreUpdateCount++;
+    //     }
+    // }
+    // console.log(`[Server Startup] Bot scores update complete. ${botScoreUpdateCount} user(s) had their bot scores updated.`);
 
     const app = express();
     console.log(`[Server] process.env.PORT: ${process.env.PORT}`);
@@ -1248,7 +1248,21 @@ const startServer = async () => {
             console.error('[/api/auth/login] Error stack:', e?.stack);
             console.error('[/api/auth/login] Error message:', e?.message);
             if (!responseSent) {
-                sendResponse(500, { message: '서버 로그인 처리 중 오류가 발생했습니다.', error: process.env.NODE_ENV === 'development' ? e?.message : undefined });
+                try {
+                    sendResponse(500, { message: '서버 로그인 처리 중 오류가 발생했습니다.', error: process.env.NODE_ENV === 'development' ? e?.message : undefined });
+                } catch (sendError: any) {
+                    console.error('[/api/auth/login] Failed to send error response:', sendError);
+                    if (!res.headersSent) {
+                        try {
+                            res.status(500).json({ message: '서버 로그인 처리 중 오류가 발생했습니다.' });
+                        } catch (finalError: any) {
+                            console.error('[/api/auth/login] Failed to send final error response:', finalError);
+                            if (!res.headersSent) {
+                                res.status(500).end();
+                            }
+                        }
+                    }
+                }
             }
         }
     });

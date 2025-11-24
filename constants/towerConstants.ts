@@ -65,7 +65,7 @@ export const TOWER_STAGES: SinglePlayerStageInfo[] = [
         placements: { black: 1, white: 4, blackPattern: 0, whitePattern: 0, centerBlackStoneChance: 0 },
         timeControl: { type: 'byoyomi', mainTime: 5, byoyomiTime: 30, byoyomiCount: 5 },
         blackTurnLimit: 15,
-        rewards: { firstClear: { gold: 0, exp: 30, items: [{ itemId: '골드꾸러미1', quantity: 1 }] }, repeatClear: { gold: 10, exp: 30 } }
+        rewards: { firstClear: { gold: 0, exp: 30, items: [{ itemId: '골드 꾸러미1', quantity: 1 }] }, repeatClear: { gold: 10, exp: 30 } }
     },
     // 6층
     {
@@ -331,7 +331,7 @@ export const TOWER_STAGES: SinglePlayerStageInfo[] = [
         autoScoringTurns: 40,
         missileCount: 1,
         hiddenCount: 1,
-        rewards: { firstClear: { gold: 0, exp: 50, items: [{ itemId: '골드꾸러미2', quantity: 1 }] }, repeatClear: { gold: 20, exp: 50 } }
+        rewards: { firstClear: { gold: 0, exp: 50, items: [{ itemId: '골드 꾸러미2', quantity: 1 }] }, repeatClear: { gold: 20, exp: 50 } }
     },
     {
         id: 'tower-26',
@@ -612,7 +612,7 @@ export const TOWER_STAGES: SinglePlayerStageInfo[] = [
         autoScoringTurns: 50,
         missileCount: 1,
         hiddenCount: 1,
-        rewards: { firstClear: { gold: 0, exp: 80, items: [{ itemId: '골드꾸러미3', quantity: 1 }] }, repeatClear: { gold: 30, exp: 80 } }
+        rewards: { firstClear: { gold: 0, exp: 80, items: [{ itemId: '골드 꾸러미3', quantity: 1 }] }, repeatClear: { gold: 30, exp: 80 } }
     },
     {
         id: 'tower-46',
@@ -894,7 +894,7 @@ export const TOWER_STAGES: SinglePlayerStageInfo[] = [
         autoScoringTurns: 70,
         missileCount: 1,
         hiddenCount: 1,
-        rewards: { firstClear: { gold: 0, exp: 150, items: [{ itemId: '골드꾸러미4', quantity: 1 }] }, repeatClear: { gold: 50, exp: 150 } }
+        rewards: { firstClear: { gold: 0, exp: 150, items: [{ itemId: '골드 꾸러미4', quantity: 1 }] }, repeatClear: { gold: 50, exp: 150 } }
     },
     {
         id: 'tower-66',

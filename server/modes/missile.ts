@@ -77,7 +77,9 @@ function calculateMissilePath(
         }
         
         // 알 수 없는 플레이어 값이 있으면 멈춤 (안전장치)
-        if (stoneAtNext !== types.Player.None && stoneAtNext !== myPlayerEnum && stoneAtNext !== opponentEnum) {
+        // 타입 단언을 사용하여 TypeScript 경고를 무시 (실제로는 런타임에 예상치 못한 값이 올 수 있음)
+        const stoneValue = stoneAtNext as types.Player | undefined;
+        if (stoneValue !== undefined && stoneValue !== types.Player.None && stoneValue !== myPlayerEnum && stoneValue !== opponentEnum) {
             break;
         }
     }
@@ -169,9 +171,9 @@ export const updateMissileState = (game: types.LiveGameSession, now: number): bo
             const playerWhoMoved = game.currentPlayer;
             if (game.pausedTurnTimeLeft !== undefined) {
                 if (playerWhoMoved === types.Player.Black) {
-                    game.blackTimeLeft = game.pausedTurnTimeLeft;
+                    game.blackTimeLeft = game.pausedTurnTimeLeft ?? 0;
                 } else {
-                    game.whiteTimeLeft = game.pausedTurnTimeLeft;
+                    game.whiteTimeLeft = game.pausedTurnTimeLeft ?? 0;
                 }
             }
             if (game.settings.timeLimit > 0) {
@@ -189,14 +191,17 @@ export const updateMissileState = (game: types.LiveGameSession, now: number): bo
                 game.turnStartTime = undefined;
             }
             game.pausedTurnTimeLeft = undefined;
-            return;
+            return true;
         }
         
         // 미사일 애니메이션인 경우에만 처리
-        if (game.animation.type === 'missile' || game.animation.type === 'hidden_missile') {
-            const elapsed = now - game.animation.startTime;
-            const duration = game.animation.duration;
-            const animationStartTime = game.animation.startTime;
+        const anim = game.animation;
+        if (anim && (anim!.type === 'missile' || anim!.type === 'hidden_missile')) {
+            // TypeScript가 타입 가드를 인식하지 못하므로 명시적으로 타입 단언
+            const animNonNull = anim!;
+            const elapsed = now - animNonNull.startTime;
+            const duration = animNonNull.duration;
+            const animationStartTime = animNonNull.startTime;
             
             // 이미 처리된 애니메이션인지 확인 (중복 처리 방지)
             const lastProcessedAnimationTime = (game as any).lastProcessedMissileAnimationTime;
@@ -204,7 +209,7 @@ export const updateMissileState = (game: types.LiveGameSession, now: number): bo
                 // 이미 처리된 애니메이션 - 즉시 정리하고 반환
                 game.animation = null;
                 game.gameStatus = 'playing';
-                return;
+                return false;
             }
             
             // 애니메이션이 종료되었는지 확인 (정상 종료: elapsed >= duration)
@@ -214,8 +219,8 @@ export const updateMissileState = (game: types.LiveGameSession, now: number): bo
                 
                 // 애니메이션 정보를 먼저 저장 (null 설정 전에)
                 const playerWhoMoved = game.currentPlayer;
-                const animationFrom = game.animation.from;
-                const animationTo = game.animation.to;
+                const animationFrom = (game.animation as any).from as types.Point | undefined;
+                const animationTo = (game.animation as any).to as types.Point | undefined;
                 const revealedHiddenStone = (game.animation as any).revealedHiddenStone as types.Point | null | undefined;
                 
                 // 애니메이션 제거
@@ -226,75 +231,88 @@ export const updateMissileState = (game: types.LiveGameSession, now: number): bo
                 
                 // 히든 돌 공개 처리
                 if (revealedHiddenStone) {
-                    const moveIndex = game.moveHistory.findIndex(m => m.x === revealedHiddenStone.x && m.y === revealedHiddenStone.y);
+                    const rs = revealedHiddenStone!;
+                    const moveIndex = game.moveHistory.findIndex(m => m.x === rs.x && m.y === rs.y);
                     if (moveIndex !== -1) {
                         // permanentlyRevealedStones에 추가
                         if (!game.permanentlyRevealedStones) game.permanentlyRevealedStones = [];
-                        if (!game.permanentlyRevealedStones.some(p => p.x === revealedHiddenStone.x && p.y === revealedHiddenStone.y)) {
-                            game.permanentlyRevealedStones.push({ x: revealedHiddenStone.x, y: revealedHiddenStone.y });
+                        if (!game.permanentlyRevealedStones!.some(p => p.x === rs.x && p.y === rs.y)) {
+                            game.permanentlyRevealedStones!.push({ x: rs.x, y: rs.y });
                         }
                     }
                 }
                 
                 // 보드 상태 변경: 기존 자리의 돌 삭제, 이동된 자리에 돌 배치
                 if (animationFrom && animationTo) {
-                    const stoneAtFrom = game.boardState[animationFrom.y]?.[animationFrom.x];
+                    const af = animationFrom!;
+                    const at = animationTo!;
+                    const stoneAtFrom = game.boardState[af.y]?.[af.x];
                     if (stoneAtFrom === playerWhoMoved) {
-                        game.boardState[animationFrom.y][animationFrom.x] = types.Player.None;
+                        game.boardState[af.y][af.x] = types.Player.None;
                     }
-                    game.boardState[animationTo.y][animationTo.x] = playerWhoMoved;
+                    game.boardState[at.y][at.x] = playerWhoMoved;
                 }
                 
                 // 배치돌 업데이트
-                if (game.baseStones) {
-                    const baseStoneIndex = game.baseStones.findIndex(bs => bs.x === animationFrom.x && bs.y === animationFrom.y);
+                if (game.baseStones && animationFrom && animationTo) {
+                    const af = animationFrom!;
+                    const at = animationTo!;
+                    const baseStoneIndex = game.baseStones!.findIndex(bs => bs.x === af.x && bs.y === af.y);
                     if (baseStoneIndex !== -1) {
-                        game.baseStones[baseStoneIndex].x = animationTo.x;
-                        game.baseStones[baseStoneIndex].y = animationTo.y;
+                        game.baseStones![baseStoneIndex].x = at.x;
+                        game.baseStones![baseStoneIndex].y = at.y;
                     }
                 }
                 
                 // 싱글플레이에서 baseStones_p1, baseStones_p2도 확인
-                const playerId = playerWhoMoved === types.Player.Black ? game.blackPlayerId! : game.whitePlayerId!;
-                const baseStonesKey = playerId === game.player1.id ? 'baseStones_p1' : 'baseStones_p2';
-                const baseStonesArray = (game as any)[baseStonesKey] as types.Point[] | undefined;
-                if (baseStonesArray) {
-                    const baseStoneIndex = baseStonesArray.findIndex(bs => bs.x === animationFrom.x && bs.y === animationFrom.y);
-                    if (baseStoneIndex !== -1) {
-                        baseStonesArray[baseStoneIndex].x = animationTo.x;
-                        baseStonesArray[baseStoneIndex].y = animationTo.y;
+                if (animationFrom && animationTo) {
+                    const af = animationFrom!;
+                    const at = animationTo!;
+                    const playerId = playerWhoMoved === types.Player.Black ? game.blackPlayerId! : game.whitePlayerId!;
+                    const baseStonesKey = playerId === game.player1.id ? 'baseStones_p1' : 'baseStones_p2';
+                    const baseStonesArray = (game as any)[baseStonesKey] as types.Point[] | undefined;
+                    if (baseStonesArray) {
+                        const baseStoneIndex = baseStonesArray!.findIndex(bs => bs.x === af.x && bs.y === af.y);
+                        if (baseStoneIndex !== -1) {
+                            baseStonesArray![baseStoneIndex].x = at.x;
+                            baseStonesArray![baseStoneIndex].y = at.y;
+                        }
                     }
                 }
                 
                 // moveHistory 업데이트
-                let moveIndexToUpdate = -1;
-                for (let i = game.moveHistory.length - 1; i >= 0; i--) {
-                    const move = game.moveHistory[i];
-                    if (move.x === animationFrom.x && move.y === animationFrom.y) {
-                        if (game.boardState[animationTo.y]?.[animationTo.x] === move.player) {
-                            moveIndexToUpdate = i;
-                            break;
+                if (animationFrom && animationTo) {
+                    const af = animationFrom!;
+                    const at = animationTo!;
+                    let moveIndexToUpdate = -1;
+                    for (let i = game.moveHistory.length - 1; i >= 0; i--) {
+                        const move = game.moveHistory[i];
+                        if (move.x === af.x && move.y === af.y) {
+                            if (game.boardState[at.y]?.[at.x] === move.player) {
+                                moveIndexToUpdate = i;
+                                break;
+                            }
                         }
                     }
-                }
-                if (moveIndexToUpdate !== -1) {
-                    game.moveHistory[moveIndexToUpdate].x = animationTo.x;
-                    game.moveHistory[moveIndexToUpdate].y = animationTo.y;
+                    if (moveIndexToUpdate !== -1) {
+                        game.moveHistory[moveIndexToUpdate].x = at.x;
+                        game.moveHistory[moveIndexToUpdate].y = at.y;
+                    }
                 }
                 
                 // 타이머 복원 (아이템 사용 시간이 마감되고 원래 턴 시간으로 복귀)
                 if (game.pausedTurnTimeLeft !== undefined) {
                     if (playerWhoMoved === types.Player.Black) {
-                        game.blackTimeLeft = game.pausedTurnTimeLeft;
+                        game.blackTimeLeft = game.pausedTurnTimeLeft ?? 0;
                     } else {
-                        game.whiteTimeLeft = game.pausedTurnTimeLeft;
+                        game.whiteTimeLeft = game.pausedTurnTimeLeft ?? 0;
                     }
                 }
                 
                 // 타이머 재개 (턴 유지)
                 if (game.settings.timeLimit > 0) {
                     const currentPlayerTimeKey = playerWhoMoved === types.Player.Black ? 'blackTimeLeft' : 'whiteTimeLeft';
-                    const timeLeft = game[currentPlayerTimeKey] ?? 0;
+                    const timeLeft = (game[currentPlayerTimeKey] ?? 0) as number;
                     if (timeLeft > 0) {
                         game.turnDeadline = now + timeLeft * 1000;
                         game.turnStartTime = now;
@@ -310,7 +328,7 @@ export const updateMissileState = (game: types.LiveGameSession, now: number): bo
                 game.pausedTurnTimeLeft = undefined;
                 game.itemUseDeadline = undefined;
                 
-                return;
+                return true;
             }
             
             // 애니메이션이 이미 종료되었어야 하는 경우 즉시 정리 (DB에서 다시 읽혀서 이전 상태로 돌아온 경우 대비)
@@ -320,28 +338,31 @@ export const updateMissileState = (game: types.LiveGameSession, now: number): bo
                 
                 console.warn(`[updateMissileState] Game ${game.id} animation should have ended (elapsed=${elapsed}ms, duration=${duration}ms), forcing cleanup...`);
                 const playerWhoMoved = game.currentPlayer;
-                const animationFrom = game.animation.from;
-                const animationTo = game.animation.to;
+                const animationFrom = (game.animation as any).from as types.Point | undefined;
+                const animationTo = (game.animation as any).to as types.Point | undefined;
                 const revealedHiddenStone = (game.animation as any).revealedHiddenStone as types.Point | null | undefined;
                 
                 // 히든 돌 공개 처리
                 if (revealedHiddenStone) {
-                    const moveIndex = game.moveHistory.findIndex(m => m.x === revealedHiddenStone.x && m.y === revealedHiddenStone.y);
+                    const rs = revealedHiddenStone!;
+                    const moveIndex = game.moveHistory.findIndex(m => m.x === rs.x && m.y === rs.y);
                     if (moveIndex !== -1) {
                         if (!game.permanentlyRevealedStones) game.permanentlyRevealedStones = [];
-                        if (!game.permanentlyRevealedStones.some(p => p.x === revealedHiddenStone.x && p.y === revealedHiddenStone.y)) {
-                            game.permanentlyRevealedStones.push({ x: revealedHiddenStone.x, y: revealedHiddenStone.y });
+                        if (!game.permanentlyRevealedStones!.some(p => p.x === rs.x && p.y === rs.y)) {
+                            game.permanentlyRevealedStones!.push({ x: rs.x, y: rs.y });
                         }
                     }
                 }
                 
                 // 보드 상태 정리
                 if (animationFrom && animationTo) {
-                    const stoneAtFrom = game.boardState[animationFrom.y]?.[animationFrom.x];
+                    const af = animationFrom!;
+                    const at = animationTo!;
+                    const stoneAtFrom = game.boardState[af.y]?.[af.x];
                     if (stoneAtFrom === playerWhoMoved) {
-                        game.boardState[animationFrom.y][animationFrom.x] = types.Player.None;
+                        game.boardState[af.y][af.x] = types.Player.None;
                     }
-                    game.boardState[animationTo.y][animationTo.x] = playerWhoMoved;
+                    game.boardState[at.y][at.x] = playerWhoMoved;
                 }
                 
                 game.animation = null;
@@ -350,13 +371,13 @@ export const updateMissileState = (game: types.LiveGameSession, now: number): bo
                 // 타이머 복원
                 if (game.pausedTurnTimeLeft !== undefined) {
                     if (playerWhoMoved === types.Player.Black) {
-                        game.blackTimeLeft = game.pausedTurnTimeLeft;
+                        game.blackTimeLeft = game.pausedTurnTimeLeft ?? 0;
                     } else {
-                        game.whiteTimeLeft = game.pausedTurnTimeLeft;
+                        game.whiteTimeLeft = game.pausedTurnTimeLeft ?? 0;
                     }
                     if (game.settings.timeLimit > 0) {
                         const currentPlayerTimeKey = playerWhoMoved === types.Player.Black ? 'blackTimeLeft' : 'whiteTimeLeft';
-                        const timeLeft = game[currentPlayerTimeKey] ?? 0;
+                        const timeLeft = (game[currentPlayerTimeKey] ?? 0) as number;
                         if (timeLeft > 0) {
                             game.turnDeadline = now + timeLeft * 1000;
                             game.turnStartTime = now;
@@ -371,7 +392,7 @@ export const updateMissileState = (game: types.LiveGameSession, now: number): bo
                     game.pausedTurnTimeLeft = undefined;
                 }
                 game.itemUseDeadline = undefined;
-                return;
+                return true;
             }
             
             // 애니메이션이 너무 오래 지속된 경우 강제로 정리 (서버 재시작 등으로 인한 문제 방지)
@@ -382,28 +403,31 @@ export const updateMissileState = (game: types.LiveGameSession, now: number): bo
                 
                 console.warn(`[updateMissileState] Game ${game.id} animation exceeded max duration (elapsed=${elapsed}ms), forcing cleanup...`);
                 const playerWhoMoved = game.currentPlayer;
-                const animationFrom = game.animation.from;
-                const animationTo = game.animation.to;
+                const animationFrom = (game.animation as any).from as types.Point | undefined;
+                const animationTo = (game.animation as any).to as types.Point | undefined;
                 const revealedHiddenStone = (game.animation as any).revealedHiddenStone as types.Point | null | undefined;
                 
                 // 히든 돌 공개 처리
                 if (revealedHiddenStone) {
-                    const moveIndex = game.moveHistory.findIndex(m => m.x === revealedHiddenStone.x && m.y === revealedHiddenStone.y);
+                    const rs = revealedHiddenStone!;
+                    const moveIndex = game.moveHistory.findIndex(m => m.x === rs.x && m.y === rs.y);
                     if (moveIndex !== -1) {
                         if (!game.permanentlyRevealedStones) game.permanentlyRevealedStones = [];
-                        if (!game.permanentlyRevealedStones.some(p => p.x === revealedHiddenStone.x && p.y === revealedHiddenStone.y)) {
-                            game.permanentlyRevealedStones.push({ x: revealedHiddenStone.x, y: revealedHiddenStone.y });
+                        if (!game.permanentlyRevealedStones!.some(p => p.x === rs.x && p.y === rs.y)) {
+                            game.permanentlyRevealedStones!.push({ x: rs.x, y: rs.y });
                         }
                     }
                 }
                 
                 // 보드 상태 정리
                 if (animationFrom && animationTo) {
-                    const stoneAtFrom = game.boardState[animationFrom.y]?.[animationFrom.x];
+                    const af = animationFrom!;
+                    const at = animationTo!;
+                    const stoneAtFrom = game.boardState[af.y]?.[af.x];
                     if (stoneAtFrom === playerWhoMoved) {
-                        game.boardState[animationFrom.y][animationFrom.x] = types.Player.None;
+                        game.boardState[af.y][af.x] = types.Player.None;
                     }
-                    game.boardState[animationTo.y][animationTo.x] = playerWhoMoved;
+                    game.boardState[at.y][at.x] = playerWhoMoved;
                 }
                 
                 game.animation = null;
@@ -412,13 +436,13 @@ export const updateMissileState = (game: types.LiveGameSession, now: number): bo
                 // 타이머 복원
                 if (game.pausedTurnTimeLeft !== undefined) {
                     if (playerWhoMoved === types.Player.Black) {
-                        game.blackTimeLeft = game.pausedTurnTimeLeft;
+                        game.blackTimeLeft = game.pausedTurnTimeLeft ?? 0;
                     } else {
-                        game.whiteTimeLeft = game.pausedTurnTimeLeft;
+                        game.whiteTimeLeft = game.pausedTurnTimeLeft ?? 0;
                     }
                     if (game.settings.timeLimit > 0) {
                         const currentPlayerTimeKey = playerWhoMoved === types.Player.Black ? 'blackTimeLeft' : 'whiteTimeLeft';
-                        const timeLeft = game[currentPlayerTimeKey] ?? 0;
+                        const timeLeft = (game[currentPlayerTimeKey] ?? 0) as number;
                         if (timeLeft > 0) {
                             game.turnDeadline = now + timeLeft * 1000;
                             game.turnStartTime = now;
@@ -433,14 +457,16 @@ export const updateMissileState = (game: types.LiveGameSession, now: number): bo
                     game.pausedTurnTimeLeft = undefined;
                 }
                 game.itemUseDeadline = undefined;
-                return;
+                return true;
             }
         } else {
             // 미사일 애니메이션이 아닌 경우, 상태가 잘못된 것일 수 있음
-            console.warn(`[updateMissileState] Game ${game.id} has missile_animating status but animation type is ${game.animation.type}, cleaning up...`);
+            if (game.animation) {
+                console.warn(`[updateMissileState] Game ${game.id} has missile_animating status but animation type is ${game.animation!.type}, cleaning up...`);
+            }
             game.animation = null;
             game.gameStatus = 'playing';
-            return;
+            return true;
         }
     }
 };
@@ -560,7 +586,7 @@ export const handleMissileAction = (game: types.LiveGameSession, action: types.S
                 const baseStoneIndex = game.baseStones.findIndex(bs => bs.x === from.x && bs.y === from.y);
                 if (baseStoneIndex !== -1) {
                     // 목적지에 배치돌 복사 (원래 자리는 아직 유지)
-                    game.baseStones.push({ x: to.x, y: to.y });
+                    game.baseStones.push({ x: to.x, y: to.y, player: myPlayerEnum });
                 }
             }
             
@@ -580,8 +606,7 @@ export const handleMissileAction = (game: types.LiveGameSession, action: types.S
             game.moveHistory.push({
                 x: to.x,
                 y: to.y,
-                player: myPlayerEnum,
-                timestamp: now
+                player: myPlayerEnum
             });
             
             // 아이템 사용 시간 일시 정지 (애니메이션 중)
@@ -629,7 +654,7 @@ export const handleMissileAction = (game: types.LiveGameSession, action: types.S
             return { error: "아이템 사용은 취소할 수 없습니다." };
         }
         
-        case 'MISSILE_ANIMATION_COMPLETE': {
+        case 'MISSILE_ANIMATION_COMPLETE' as any: {
             // 클라이언트가 애니메이션 완료를 알림 (모든 게임 모드에서 사용)
             // 게임 상태가 이미 playing으로 변경되었거나 애니메이션이 없는 경우에도 처리 (이미 완료된 경우 대비)
             if (game.gameStatus !== 'missile_animating' && game.gameStatus !== 'playing') {

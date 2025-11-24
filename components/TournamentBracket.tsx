@@ -508,7 +508,7 @@ const PlayerProfilePanel: React.FC<{
     }
     
     return (
-        <div className={`bg-gray-900/50 p-1.5 md:p-2 rounded-lg flex flex-col gap-0.5 md:gap-1 h-full min-h-0 overflow-hidden ${isClickable ? 'cursor-pointer hover:bg-gray-700/50' : ''}`} onClick={isClickable ? () => onViewUser(playerId) : undefined} title={isClickable ? `${playerNickname} 프로필 보기` : ''}>
+        <div className={`bg-gray-900/50 p-1.5 md:p-2 rounded-lg flex flex-col gap-0.5 md:gap-1 h-full min-h-0 ${isClickable ? 'cursor-pointer hover:bg-gray-700/50' : ''}`} onClick={isClickable ? () => onViewUser(playerId) : undefined} title={isClickable ? `${playerNickname} 프로필 보기` : ''} style={{ maxHeight: '100%', overflowY: 'auto', overflowX: 'hidden' }}>
             <div className="flex items-center gap-1 md:gap-2 w-full flex-shrink-0">
                 {leagueInfo && (
                     <img
@@ -566,7 +566,7 @@ const PlayerProfilePanel: React.FC<{
                     </button>
                 )}
             </div>
-            <div className={`w-full grid grid-cols-2 md:grid-cols-4 gap-x-0.5 md:gap-x-1 lg:gap-x-3 gap-y-0.5 ${isMobile ? 'text-[8px]' : 'text-[10px] md:text-xs'} mt-0 border-t border-gray-600 pt-0.5 flex-shrink-0`}>
+            <div className={`w-full grid grid-cols-2 md:grid-cols-4 gap-x-0.5 md:gap-x-1 lg:gap-x-3 gap-y-0.5 ${isMobile ? 'text-[8px]' : 'text-[10px] md:text-xs'} mt-0 border-t border-gray-600 pt-0.5 flex-shrink-0 overflow-hidden`}>
                 {Object.values(CoreStat).map(stat => {
                     try {
                         // 초기값: initialPlayer가 있으면 그것을 사용, 없으면 initialStats 사용

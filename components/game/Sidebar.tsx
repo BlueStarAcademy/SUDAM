@@ -307,9 +307,20 @@ export const ChatPanel: React.FC<Omit<SidebarProps, 'onLeaveOrResign' | 'isNoCon
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, []);
 
-    const isStrategic = SPECIAL_GAME_MODES.some(m => m.mode === mode);
-    const lobbyType = isStrategic ? '전략' : '놀이';
-    const locationPrefix = `[${lobbyType}:${mode}]`;
+    // 싱글플레이, 도전의 탑, 일반 게임 구분
+    let locationPrefix: string;
+    if (session.isSinglePlayer && !session.gameCategory) {
+        // 싱글플레이 게임
+        locationPrefix = '[싱글플레이]';
+    } else if (session.gameCategory === 'tower') {
+        // 도전의 탑
+        locationPrefix = '[도전의탑]';
+    } else {
+        // 일반 게임 (멀티플레이)
+        const isStrategic = SPECIAL_GAME_MODES.some(m => m.mode === mode);
+        const lobbyType = isStrategic ? '전략' : '놀이';
+        locationPrefix = `[${lobbyType}:${mode}]`;
+    }
 
     const handleSend = (message: { text?: string, emoji?: string }) => {
         if(isSpectator || cooldown > 0) return;

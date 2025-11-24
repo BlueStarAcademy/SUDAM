@@ -1,9 +1,10 @@
 // @ts-nocheck
 import type { Prisma } from "@prisma/client";
-import type { User, InventoryItem, Equipment, Mail, QuestLog } from "../../types/index.js";
+import type { User, InventoryItem, Equipment, Mail, QuestLog, EquipmentSlot } from "../../types/index.js";
 import { createDefaultBaseStats, createDefaultSpentStatPoints, createDefaultQuests } from "../initialData.ts";
 import { LeagueTier } from "../../types/enums.js";
 import { SINGLE_PLAYER_STAGES } from "../../constants/singlePlayerConstants.js";
+import { EQUIPMENT_POOL, MATERIAL_ITEMS, CONSUMABLE_ITEMS } from "../../constants/index.js";
 
 const DEFAULT_INVENTORY_SLOTS: User["inventorySlots"] = {
   equipment: 30,
@@ -198,7 +199,22 @@ const ensureEquipment = (value: unknown): Equipment =>
 const ensureMail = (value: unknown): Mail[] =>
   parseJson<Mail[]>(value, []);
 
-export type PrismaUserWithStatus = Prisma.UserGetPayload<{ include: { status: true; guildMember: true } }>;
+// equipment와 inventory는 optional로 처리 (데이터베이스 연결 문제 시에도 작동하도록)
+export type PrismaUserWithStatus = Prisma.UserGetPayload<{ include: { status: true; guildMember: true } }> & {
+  equipment?: Array<{ slot: string; inventoryId: string | null }>;
+  inventory?: Array<{
+    id: string;
+    templateId: string;
+    quantity: number;
+    slot: string | null;
+    enhancementLvl: number;
+    stars: number;
+    rarity: string | null;
+    metadata: any;
+    isEquipped: boolean;
+    createdAt: Date;
+  }>;
+};
 
 const applyDefaults = (
   user: Partial<User>,
@@ -222,7 +238,7 @@ const applyDefaults = (
     inventory:
       user.inventory ??
       status?.serializedUser?.inventory ??
-      parseJson(prismaUser.inventory as any, []),
+      (inventoryFromTable.length > 0 ? inventoryFromTable : parseJson(prismaUser.inventory as any, [])),
     inventorySlots:
       user.inventorySlots ??
       status?.serializedUser?.inventorySlots ??
@@ -230,8 +246,8 @@ const applyDefaults = (
     equipment:
       user.equipment ??
       status?.serializedUser?.equipment ??
-      parseJson(prismaUser.equipment as any, {}),
-    equipmentPresets: user.equipmentPresets ?? [],
+      (Object.keys(equipmentFromTable).length > 0 ? equipmentFromTable : parseJson(prismaUser.equipment as any, {})),
+    equipmentPresets: user.equipmentPresets ?? (presetsFromStatus.length > 0 ? presetsFromStatus : []),
     actionPoints: user.actionPoints ?? {
       current: prismaUser.actionPointCurr ?? 0,
       max: prismaUser.actionPointMax ?? 0
@@ -317,6 +333,64 @@ const ensureAdminSinglePlayerAccess = (user: User): User => {
 
 export function deserializeUser(prismaUser: PrismaUserWithStatus): User {
   const status = (prismaUser.status ?? {}) as SerializedUserStatus;
+  
+  // UserInventory 테이블에서 인벤토리 로드 (있을 경우만)
+  const inventoryFromTable: InventoryItem[] = [];
+  try {
+    if (prismaUser.inventory && Array.isArray(prismaUser.inventory)) {
+      for (const inv of prismaUser.inventory) {
+        // templateId로 아이템 정보 찾기
+        let itemInfo: any = null;
+        if (inv.slot) {
+          // 장비 아이템
+          itemInfo = EQUIPMENT_POOL.find(p => p.name === inv.templateId);
+        } else {
+          // 재료 또는 소모품
+          itemInfo = MATERIAL_ITEMS[inv.templateId] ||
+                     CONSUMABLE_ITEMS.find(c => c.name === inv.templateId);
+        }
+        
+        // UserInventory를 InventoryItem으로 변환
+        const item: InventoryItem = {
+          id: inv.id,
+          name: itemInfo?.name || inv.templateId,
+          description: itemInfo?.description || '',
+          type: inv.slot ? 'equipment' : (itemInfo?.type || 'material'),
+          slot: inv.slot as EquipmentSlot | null,
+          quantity: inv.quantity,
+          level: inv.enhancementLvl,
+          isEquipped: inv.isEquipped,
+          createdAt: inv.createdAt?.getTime ? inv.createdAt.getTime() : (typeof inv.createdAt === 'number' ? inv.createdAt : Date.now()),
+          image: itemInfo?.image || '',
+          grade: (inv.rarity as any) || itemInfo?.grade || 'Normal',
+          stars: inv.stars,
+          options: (inv.metadata as any)?.options || itemInfo?.options || [],
+          enhancementFails: (inv.metadata as any)?.enhancementFails || 0,
+          isDivineMythic: (inv.metadata as any)?.isDivineMythic || false
+        };
+        inventoryFromTable.push(item);
+      }
+    }
+  } catch (e) {
+    // inventory 로드 실패 시 무시 (기존 로직 사용)
+  }
+  
+  // UserEquipment 테이블에서 장비 로드 (있을 경우만)
+  const equipmentFromTable: Equipment = {};
+  try {
+    if (prismaUser.equipment && Array.isArray(prismaUser.equipment)) {
+      for (const eq of prismaUser.equipment) {
+        if (eq.slot && eq.inventoryId) {
+          equipmentFromTable[eq.slot as EquipmentSlot] = eq.inventoryId;
+        }
+      }
+    }
+  } catch (e) {
+    // equipment 로드 실패 시 무시 (기존 로직 사용)
+  }
+  
+  // 프리셋 로드 (status.store.equipmentPresets에서)
+  const presetsFromStatus = status.store?.equipmentPresets || [];
 
   if (status.serializedUser) {
     const cloned = JSON.parse(JSON.stringify(status.serializedUser)) as Partial<User>;
@@ -404,8 +478,12 @@ export function deserializeUser(prismaUser: PrismaUserWithStatus): User {
     pendingPenaltyNotification:
       status.pendingPenaltyNotification ??
       (legacy.pendingPenaltyNotification as string | null | undefined),
-    inventory: ensureInventory(coalesce(status.inventoryRaw, legacy.inventory)),
-    equipment: ensureEquipment(coalesce(status.equipmentRaw, legacy.equipment)),
+    inventory: inventoryFromTable.length > 0 
+      ? inventoryFromTable 
+      : ensureInventory(coalesce(status.inventoryRaw, legacy.inventory)),
+    equipment: Object.keys(equipmentFromTable).length > 0 
+      ? equipmentFromTable 
+      : ensureEquipment(coalesce(status.equipmentRaw, legacy.equipment)),
     mail: ensureMail(coalesce(status.mailRaw, legacy.mail)),
     quests: ensureQuestLog(coalesce(status.questsRaw, legacy.quests)),
     actionPoints: ensureActionPoints(
@@ -518,6 +596,9 @@ export function deserializeUser(prismaUser: PrismaUserWithStatus): User {
     inventorySlotsMigrated:
       status.store?.inventorySlotsMigrated ??
       safeBoolean(legacy.inventorySlotsMigrated, false),
+    equipmentPresets: presetsFromStatus.length > 0 
+      ? presetsFromStatus 
+      : (status.store?.equipmentPresets ?? parseJson(legacy.equipmentPresets, [])),
     dailyRankings: ensureDailyRankings(
       coalesce(status.dailyRankings, legacy.dailyRankings)
     ),

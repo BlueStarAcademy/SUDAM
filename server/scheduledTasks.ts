@@ -722,7 +722,8 @@ export async function grantThreeDaysBotScores(): Promise<void> {
                 
                 hasChanges = true;
                 totalBotsGranted++;
-                console.log(`[OneTimeGrant] Granted ${totalGain} points to bot ${botId} for user ${user.nickname}`);
+                // 로그 제거: 너무 많은 로그 출력 방지
+                // console.log(`[OneTimeGrant] Granted ${totalGain} points to bot ${botId} for user ${user.nickname}`);
             }
         }
         
@@ -771,7 +772,8 @@ export async function grantThreeDaysBotScores(): Promise<void> {
         if (hasChanges) {
             await db.updateUser(updatedUser);
             updatedCount++;
-            console.log(`[OneTimeGrant] Updated user ${user.nickname}: granted scores to ${totalBotsGranted} bots`);
+            // 로그 간소화: 각 사용자마다 로그 출력하지 않음
+            // console.log(`[OneTimeGrant] Updated user ${user.nickname}: granted scores to ${totalBotsGranted} bots`);
         }
     }
     

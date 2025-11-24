@@ -880,7 +880,7 @@ export const handleSinglePlayerAction = async (volatileState: VolatileState, act
                 return { error: 'Invalid single player game.' };
             }
             const { handleSinglePlayerMissileAction } = await import('../modes/singlePlayerMissile.js');
-            const result = handleSinglePlayerMissileAction(game, action, user);
+            const result = await handleSinglePlayerMissileAction(game, action, user);
             
             // 게임 상태가 변경되었을 수 있으므로 저장 및 브로드캐스트
             if (result !== null && result !== undefined && !result.error) {

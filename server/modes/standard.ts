@@ -113,7 +113,7 @@ export const updateStrategicGameState = async (game: types.LiveGameSession, now:
         const { updateSinglePlayerHiddenState } = await import('./singlePlayerHidden.js');
         const { updateSinglePlayerMissileState } = await import('./singlePlayerMissile.js');
         updateSinglePlayerHiddenState(game, now);
-        const missileStateChanged = updateSinglePlayerMissileState(game, now);
+        const missileStateChanged = await updateSinglePlayerMissileState(game, now);
         if (missileStateChanged) {
             (game as any)._missileStateChanged = true;
             // 싱글플레이 게임의 경우 서버 루프에서 브로드캐스트하지 않으므로, 여기서 직접 브로드캐스트

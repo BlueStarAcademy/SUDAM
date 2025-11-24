@@ -403,7 +403,6 @@ export const handleInventoryAction = async (volatileState: VolatileState, action
                         volatileState.waitingRoomChats['global'].shift();
                     }
 
-                    console.log(`[COMBINE_ITEMS] 신화 등급 장비 획득 시스템 메시지 전송: ${user.nickname}님이 ${itemName} 획득 (grade: ${grade}, isDivineMythic: ${isDivineMythic})`);
 
                     // 채팅 메시지를 모든 클라이언트에 브로드캐스트
                     broadcast({
@@ -441,7 +440,18 @@ export const handleInventoryAction = async (volatileState: VolatileState, action
             const useQuantity = Math.min(quantity, availableQuantity);
             if (useQuantity <= 0) return { error: '사용할 수량이 없습니다.' };
 
-            const bundleInfo = currencyBundles[item.name];
+            // 골드 꾸러미 이름 통일: 띄어쓰기 없는 경우도 처리
+            let normalizedItemName = item.name;
+            if (normalizedItemName.startsWith('골드꾸러미')) {
+                normalizedItemName = normalizedItemName.replace('골드꾸러미', '골드 꾸러미');
+            } else if (normalizedItemName.startsWith('다이아꾸러미')) {
+                normalizedItemName = normalizedItemName.replace('다이아꾸러미', '다이아 꾸러미');
+            }
+            
+            // 디버깅: 아이템 이름 확인
+            
+            // 정규화된 이름으로 먼저 찾고, 없으면 원본 이름으로도 시도
+            let bundleInfo = currencyBundles[normalizedItemName] || currencyBundles[item.name];
             if (bundleInfo) {
                 const individualAmounts: number[] = [];
                 let totalGoldGained = 0;
@@ -466,10 +476,19 @@ export const handleInventoryAction = async (volatileState: VolatileState, action
                 }
 
                 // 여러 슬롯에 걸쳐 있을 경우 모든 슬롯에서 정확히 수량만큼 소모
+                // normalizedItemName도 확인하여 띄어쓰기 차이 무시
                 let remainingToRemove = useQuantity;
                 for (let i = user.inventory.length - 1; i >= 0 && remainingToRemove > 0; i--) {
                     const invItem = user.inventory[i];
-                    if (invItem.id === itemId || (invItem.name === item.name && invItem.type === 'consumable')) {
+                    // 아이템 이름 정규화 (띄어쓰기 차이 무시)
+                    let invItemNormalized = invItem.name;
+                    if (invItemNormalized.startsWith('골드꾸러미')) {
+                        invItemNormalized = invItemNormalized.replace('골드꾸러미', '골드 꾸러미');
+                    } else if (invItemNormalized.startsWith('다이아꾸러미')) {
+                        invItemNormalized = invItemNormalized.replace('다이아꾸러미', '다이아 꾸러미');
+                    }
+                    
+                    if (invItem.id === itemId || (invItemNormalized === normalizedItemName && invItem.type === 'consumable')) {
                         const itemQuantity = invItem.quantity || 1;
                         if (itemQuantity <= remainingToRemove) {
                             remainingToRemove -= itemQuantity;

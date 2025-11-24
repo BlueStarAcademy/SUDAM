@@ -777,63 +777,6 @@ export const analyzeGame = async (session: LiveGameSession, options?: { maxVisit
         });
     };
 
-    // HTTP API를 사용하는 경우 queryKataGoViaHttp 함수 정의
-    const queryKataGoViaHttp = async (analysisQuery: any): Promise<any> => {
-        if (!KATAGO_API_URL) {
-            throw new Error('KATAGO_API_URL is not set');
-        }
-        
-        return new Promise((resolve, reject) => {
-            const url = new URL(KATAGO_API_URL);
-            const isHttps = url.protocol === 'https:';
-            const httpModule = isHttps ? https : http;
-            
-            const postData = JSON.stringify(analysisQuery);
-            
-            const options = {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Content-Length': Buffer.byteLength(postData)
-                },
-                timeout: 120000 // 120초 타임아웃 (계가에 더 많은 시간 필요)
-            };
-            
-            const req = httpModule.request(url, options, (res) => {
-                let responseData = '';
-                
-                res.on('data', (chunk) => {
-                    responseData += chunk;
-                });
-                
-                res.on('end', () => {
-                    if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
-                        try {
-                            const parsed = JSON.parse(responseData);
-                            resolve(parsed);
-                        } catch (parseError) {
-                            reject(new Error(`Failed to parse KataGo API response: ${parseError instanceof Error ? parseError.message : String(parseError)}`));
-                        }
-                    } else {
-                        reject(new Error(`KataGo API returned status ${res.statusCode}: ${responseData}`));
-                    }
-                });
-            });
-            
-            req.on('error', (error) => {
-                reject(new Error(`KataGo API request failed: ${error.message}`));
-            });
-            
-            req.on('timeout', () => {
-                req.destroy();
-                reject(new Error('KataGo API request timed out after 120 seconds'));
-            });
-            
-            req.write(postData);
-            req.end();
-        });
-    };
-
     try {
         console.log(`[KataGo] Starting analysis query for game ${session.id} (isSinglePlayer: ${session.isSinglePlayer}, stageId: ${session.stageId})`);
         console.log(`[KataGo] Query details: boardSize=${query.boardXSize}x${query.boardYSize}, moves=${query.moves?.length || 0}, initialStones=${(query as any).initialStones?.length || 0}`);

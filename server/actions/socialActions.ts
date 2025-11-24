@@ -661,8 +661,10 @@ export const tryMatchPlayers = async (volatileState: VolatileState, lobbyType: '
     await db.saveGame(game);
     
     // 큐에서 제거
-    delete volatileState.rankedMatchingQueue![lobbyType][entry1.userId];
-    delete volatileState.rankedMatchingQueue![lobbyType][entry2.userId];
+    if (volatileState.rankedMatchingQueue && volatileState.rankedMatchingQueue[lobbyType]) {
+        delete volatileState.rankedMatchingQueue[lobbyType][entry1.userId];
+        delete volatileState.rankedMatchingQueue[lobbyType][entry2.userId];
+    }
     
     // 사용자 상태 업데이트
     volatileState.userStatuses[game.player1.id] = { status: UserStatus.InGame, mode: game.mode, gameId: game.id };

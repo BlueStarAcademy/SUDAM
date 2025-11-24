@@ -698,7 +698,7 @@ const calculateGameRewards = (
 };
 
 
-const calculateEloChange = (playerRating: number, opponentRating: number, result: 'win' | 'loss' | 'draw'): number => {
+export const calculateEloChange = (playerRating: number, opponentRating: number, result: 'win' | 'loss' | 'draw'): number => {
     const K = 32;
     const expectedScore = 1 / (1 + Math.pow(10, (opponentRating - playerRating) / 400));
     const actualScore = result === 'win' ? 1 : result === 'draw' ? 0.5 : 0;

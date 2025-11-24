@@ -803,9 +803,12 @@ export const handleGuildAction = async (volatileState: VolatileState, action: Se
         }
         
         case 'LIST_GUILDS': {
-            const { searchTerm, page = 1, pageSize = 20 } = payload || {};
+            // 클라이언트에서 searchQuery와 limit을 보낼 수 있으므로 둘 다 지원
+            const { searchTerm, searchQuery, page = 1, pageSize = 20, limit } = payload || {};
+            const search = searchQuery || searchTerm || '';
+            const actualLimit = limit || (pageSize * page);
             // Use Prisma to get guilds list (ensures consistency with delete operations)
-            const allGuildsFromDb = await guildRepo.listGuilds(searchTerm, pageSize * page);
+            const allGuildsFromDb = await guildRepo.listGuilds(search, actualLimit);
             // Merge with KV store data for additional fields (isPublic, members, etc.)
             let filteredGuilds = allGuildsFromDb
                 .map(dbGuild => {
@@ -821,6 +824,8 @@ export const handleGuildAction = async (volatileState: VolatileState, action: Se
                             icon: fixedIcon,
                             level: dbGuild.level,
                             memberCount: dbGuild.memberCount,
+                            // isPublic이 undefined인 경우 기본값으로 true 설정
+                            isPublic: kvGuild.isPublic !== undefined ? kvGuild.isPublic : true,
                         };
                     } else {
                         // Guild exists in DB but not in KV store - create basic object
@@ -840,7 +845,11 @@ export const handleGuildAction = async (volatileState: VolatileState, action: Se
                         };
                     }
                 })
-                .filter(g => g.isPublic !== false); // Only show public guilds
+                .filter(g => {
+                    // isPublic이 undefined이거나 true인 경우 표시 (false인 경우만 필터링)
+                    // KV store에 없는 길드는 기본값으로 isPublic: true이므로 표시됨
+                    return g.isPublic !== false;
+                }); // Only show public guilds
             
             // Sort by level (descending), then by name
             filteredGuilds.sort((a, b) => {

@@ -324,25 +324,35 @@ const TurnDisplay: React.FC<TurnDisplayProps> = ({
         }
 
         const percentage = (timeLeft / 30) * 100;
+        
+        // 전광판 스타일로 아이템 사용시간 표시
+        const tickerText = `${itemText} ${timeLeft}초`;
 
         return wrapContent(
             `${baseClasses} ${themeClasses} px-4 gap-1.5 min-h-[3rem]`,
             <>
-                <div className="flex items-center justify-center gap-2 w-full flex-shrink-0">
-                    <span className={`font-bold ${textClass} tracking-wider text-[clamp(0.7rem,2vmin,0.9rem)] text-center break-words overflow-hidden flex-1`} style={{ 
-                        wordBreak: 'keep-all',
-                        lineHeight: '1.2',
-                        display: '-webkit-box',
-                        WebkitLineClamp: 1,
-                        WebkitBoxOrient: 'vertical',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis'
-                    }}>{itemText}</span>
-                    <span className={`font-mono font-bold text-primary flex-shrink-0 text-[clamp(0.9rem,3vmin,1.1rem)]`}>{timeLeft}초</span>
+                {/* 전광판 스타일 텍스트 */}
+                <div className="w-full overflow-hidden flex-shrink-0 relative h-6">
+                    <div 
+                        className={`font-bold ${textClass} tracking-wider text-[clamp(0.8rem,2.5vmin,1rem)] whitespace-nowrap absolute inset-0 flex items-center`}
+                        style={{
+                            animation: timeLeft > 0 ? 'scroll 10s linear infinite' : 'none',
+                            textShadow: '0 0 8px rgba(255, 255, 255, 0.5), 0 0 16px rgba(255, 255, 255, 0.3)'
+                        }}
+                    >
+                        <span className="inline-block">{tickerText}</span>
+                        <span className="inline-block ml-8">{tickerText}</span>
+                    </div>
                 </div>
                 <div className={`w-full bg-tertiary rounded-full h-[clamp(0.5rem,1.5vh,0.75rem)] relative overflow-hidden border-2 ${isSinglePlayer ? 'border-black/20' : 'border-tertiary'} flex-shrink-0`}>
                     <div className="absolute inset-0 bg-highlight rounded-full" style={{ width: `${percentage}%`, transition: 'width 0.5s linear' }}></div>
                 </div>
+                <style>{`
+                    @keyframes scroll {
+                        0% { transform: translateX(0); }
+                        100% { transform: translateX(-50%); }
+                    }
+                `}</style>
             </>
         );
     }

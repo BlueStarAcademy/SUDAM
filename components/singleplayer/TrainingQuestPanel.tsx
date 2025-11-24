@@ -262,14 +262,14 @@ const TrainingQuestPanel: React.FC<TrainingQuestPanelProps> = ({ currentUser }) 
 
     return (
         <>
-            <div className="bg-panel rounded-lg shadow-lg p-2 sm:p-2.5 h-full flex flex-col">
-                <div className="flex items-center justify-between mb-1.5 sm:mb-2.5 border-b border-color pb-1 sm:pb-1.5">
-                    <h2 className="text-lg sm:text-xl font-bold text-on-panel">수련 과제</h2>
+            <div className="bg-panel rounded-lg shadow-lg p-1.5 sm:p-2 h-full flex flex-col overflow-hidden">
+                <div className="flex items-center justify-between mb-1 sm:mb-1.5 border-b border-color pb-0.5 sm:pb-1 flex-shrink-0">
+                    <h2 className="text-base sm:text-lg font-bold text-on-panel">수련 과제</h2>
                     {claimableQuestsCount > 0 && (
                         <Button
                             onClick={handleClaimAllRewards}
                             colorScheme="green"
-                            className="!text-xs !py-1 !px-2 sm:!text-sm sm:!py-1.5 sm:!px-3 whitespace-nowrap"
+                            className="!text-[10px] !py-0.5 !px-1.5 sm:!text-xs sm:!py-1 sm:!px-2 whitespace-nowrap"
                         >
                             일괄 수령 ({claimableQuestsCount})
                         </Button>
@@ -277,8 +277,8 @@ const TrainingQuestPanel: React.FC<TrainingQuestPanelProps> = ({ currentUser }) 
                 </div>
                 
                 {/* 2x3 그리드 */}
-                <div className="flex-1 overflow-visible">
-                    <div className="grid grid-cols-2 gap-1.5 sm:gap-2">
+                <div className="flex-1 overflow-hidden min-h-0">
+                    <div className="grid grid-cols-2 gap-1 sm:gap-1.5 h-full">
                         {trainingQuests.map((quest) => {
                             const { reward, progress, timeUntilNext, isMax } = calculateRewardAndProgress(quest);
                             const isMaxLevel = quest.currentLevel >= 10;
@@ -289,7 +289,7 @@ const TrainingQuestPanel: React.FC<TrainingQuestPanelProps> = ({ currentUser }) 
                                 <div
                                     key={quest.id}
                                     className={`
-                                        relative bg-tertiary rounded-lg p-1.5 sm:p-1.5 border-2 flex flex-col
+                                        relative bg-tertiary rounded-lg p-1 sm:p-1.5 border-2 flex flex-col min-h-0 overflow-hidden
                                         ${quest.isUnlocked ? 'border-primary' : 'border-gray-600'}
                                     `}
                                 >
@@ -312,7 +312,7 @@ const TrainingQuestPanel: React.FC<TrainingQuestPanelProps> = ({ currentUser }) 
                                     )}
 
                                     {/* 이미지 */}
-                                    <div className={`w-full aspect-square max-w-[60px] sm:max-w-[70px] mx-auto rounded-lg overflow-hidden bg-gray-700 mb-1 sm:mb-1.5 flex-shrink-0 ${!quest.isUnlocked ? 'opacity-50' : ''}`}>
+                                    <div className={`w-full aspect-square max-w-[50px] sm:max-w-[60px] mx-auto rounded-lg overflow-hidden bg-gray-700 mb-0.5 sm:mb-1 flex-shrink-0 ${!quest.isUnlocked ? 'opacity-50' : ''}`}>
                                         <img 
                                             src={quest.image} 
                                             alt={quest.name}
@@ -325,24 +325,24 @@ const TrainingQuestPanel: React.FC<TrainingQuestPanelProps> = ({ currentUser }) 
                                     </div>
 
                                     {/* 제목 및 레벨 */}
-                                    <div className="mb-1 flex-shrink-0">
+                                    <div className="mb-0.5 sm:mb-1 flex-shrink-0">
                                         <div className="flex items-center justify-between mb-0.5">
-                                            <h3 className={`font-bold text-[11px] sm:text-sm truncate ${quest.isUnlocked ? 'text-on-panel' : 'text-gray-400'}`}>
+                                            <h3 className={`font-bold text-[10px] sm:text-xs truncate ${quest.isUnlocked ? 'text-on-panel' : 'text-gray-400'}`}>
                                                 {quest.name}
                                             </h3>
-                                            <span className={`text-[9px] sm:text-xs ml-1 sm:ml-2 whitespace-nowrap ${quest.isUnlocked ? 'text-tertiary' : 'text-gray-500'}`}>
+                                            <span className={`text-[8px] sm:text-[9px] ml-0.5 sm:ml-1 whitespace-nowrap ${quest.isUnlocked ? 'text-tertiary' : 'text-gray-500'}`}>
                                                 Lv.{quest.currentLevel || 0}/10
                                             </span>
                                         </div>
                                     </div>
 
                                     {/* 막대그래프 및 재화 정보 - 항상 표시, 잠김 상태일 때는 비활성화 */}
-                                    <div className={`space-y-1 sm:space-y-1.5 mb-1 sm:mb-1 flex-shrink-0 ${!quest.isUnlocked ? 'opacity-50' : ''}`}>
+                                    <div className={`space-y-0.5 sm:space-y-1 mb-0.5 sm:mb-1 flex-shrink-0 ${!quest.isUnlocked ? 'opacity-50' : ''}`}>
                                         {quest.levelInfo ? (
                                             <>
                                                 {/* 막대그래프 */}
                                                 <div className="relative">
-                                                    <div className="w-full bg-gray-700 rounded-full h-3.5 sm:h-4 overflow-hidden">
+                                                    <div className="w-full bg-gray-700 rounded-full h-3 sm:h-3.5 overflow-hidden">
                                                         {quest.isUnlocked && quest.isStarted ? (
                                                             <div 
                                                                 className={`h-full transition-all duration-300 ${
@@ -358,7 +358,7 @@ const TrainingQuestPanel: React.FC<TrainingQuestPanelProps> = ({ currentUser }) 
                                                         )}
                                                     </div>
                                                     <div className="absolute inset-0 flex items-center justify-center">
-                                                        <span className={`text-[9px] sm:text-[10px] font-bold drop-shadow-md ${
+                                                        <span className={`text-[8px] sm:text-[9px] font-bold drop-shadow-md ${
                                                             !quest.isUnlocked ? 'text-gray-500' : 'text-white'
                                                         }`}>
                                                             {quest.isUnlocked && quest.isStarted 
@@ -370,7 +370,7 @@ const TrainingQuestPanel: React.FC<TrainingQuestPanelProps> = ({ currentUser }) 
                                                 </div>
 
                                                 {/* 생산 정보 */}
-                                                <div className="flex items-center justify-between text-[9px] sm:text-[10px] leading-tight">
+                                                <div className="flex items-center justify-between text-[8px] sm:text-[9px] leading-tight">
                                                     <span className={`flex items-center gap-0.5 ${quest.isUnlocked ? 'text-tertiary' : 'text-gray-500'}`}>
                                                         <span>{quest.levelInfo.productionRateMinutes}분/</span>
                                                         <span className="flex items-center gap-0.5">
@@ -378,7 +378,7 @@ const TrainingQuestPanel: React.FC<TrainingQuestPanelProps> = ({ currentUser }) 
                                                             <img 
                                                                 src={quest.rewardType === 'gold' ? '/images/icon/Gold.png' : '/images/icon/Zem.png'} 
                                                                 alt={quest.rewardType === 'gold' ? '골드' : '다이아'} 
-                                                                className="w-3 h-3 sm:w-3.5 sm:h-3.5 object-contain"
+                                                                className="w-2.5 h-2.5 sm:w-3 sm:h-3 object-contain"
                                                             />
                                                         </span>
                                                     </span>
@@ -401,20 +401,20 @@ const TrainingQuestPanel: React.FC<TrainingQuestPanelProps> = ({ currentUser }) 
                                             </>
                                         ) : (
                                             /* 레벨 0일 때 기본 표시 */
-                                            <div className="space-y-1 sm:space-y-1.5">
+                                            <div className="space-y-0.5 sm:space-y-1">
                                                 <div className="relative">
-                                                    <div className="w-full bg-gray-700 rounded-full h-3.5 sm:h-4 overflow-hidden">
+                                                    <div className="w-full bg-gray-700 rounded-full h-3 sm:h-3.5 overflow-hidden">
                                                         <div className="h-full bg-gray-600" style={{ width: '0%' }} />
                                                     </div>
                                                     <div className="absolute inset-0 flex items-center justify-center">
-                                                        <span className={`text-[9px] sm:text-[10px] font-bold drop-shadow-md ${
+                                                        <span className={`text-[8px] sm:text-[9px] font-bold drop-shadow-md ${
                                                             !quest.isUnlocked ? 'text-gray-500' : 'text-white'
                                                         }`}>
                                                             0 / -
                                                         </span>
                                                     </div>
                                                 </div>
-                                                <div className="flex items-center justify-between text-[9px] sm:text-[10px]">
+                                                <div className="flex items-center justify-between text-[8px] sm:text-[9px]">
                                                     <span className={`flex items-center gap-0.5 ${quest.isUnlocked ? 'text-tertiary' : 'text-gray-500'}`}>
                                                         <span>시작 후 표시</span>
                                                     </span>
@@ -429,14 +429,14 @@ const TrainingQuestPanel: React.FC<TrainingQuestPanelProps> = ({ currentUser }) 
                                     </div>
 
                                     {/* 버튼 - 항상 표시, 잠김 상태일 때는 비활성화 */}
-                                    <div className="mt-auto flex flex-col gap-1 sm:gap-1.5">
+                                    <div className="mt-auto flex flex-col gap-0.5 sm:gap-1 flex-shrink-0">
                                         {!quest.isUnlocked ? (
                                             <>
                                                 {/* 잠김 상태: 수령 및 강화 버튼 표시 (비활성화) */}
                                                 <Button
                                                     disabled
                                                     colorScheme="green"
-                                                    className="w-full !text-[10px] sm:!text-xs !py-0.5 sm:!py-1 opacity-50 flex items-center justify-center"
+                                                    className="w-full !text-[9px] sm:!text-[10px] !py-0.5 sm:!py-0.5 opacity-50 flex items-center justify-center"
                                                 >
                                                     <span className="flex items-center gap-1">
                                                         <span>수령</span>
@@ -451,7 +451,7 @@ const TrainingQuestPanel: React.FC<TrainingQuestPanelProps> = ({ currentUser }) 
                                                 <Button
                                                     disabled
                                                     colorScheme="accent"
-                                                    className="w-full !text-[10px] sm:!text-xs !py-0.5 sm:!py-1 opacity-50 flex items-center justify-center gap-1 !whitespace-nowrap"
+                                                    className="w-full !text-[9px] sm:!text-[10px] !py-0.5 sm:!py-0.5 opacity-50 flex items-center justify-center gap-1 !whitespace-nowrap"
                                                 >
                                                     {quest.levelInfo && quest.currentLevel > 0 ? (
                                                         <div className="w-full flex items-center gap-1 min-w-0">
@@ -474,7 +474,7 @@ const TrainingQuestPanel: React.FC<TrainingQuestPanelProps> = ({ currentUser }) 
                                             <Button
                                                 onClick={() => handleStartMission(quest.id)}
                                                 colorScheme="blue"
-                                                className="w-full !text-[10px] sm:!text-xs !py-0.5 sm:!py-1"
+                                                className="w-full !text-[9px] sm:!text-[10px] !py-0.5 sm:!py-0.5"
                                             >
                                                 시작
                                             </Button>
@@ -483,7 +483,7 @@ const TrainingQuestPanel: React.FC<TrainingQuestPanelProps> = ({ currentUser }) 
                                                 <Button
                                                     onClick={() => handleCollectReward(quest.id)}
                                                     colorScheme="green"
-                                                    className="w-full !text-[10px] sm:!text-xs !py-0.5 sm:!py-1 flex items-center justify-center"
+                                                    className="w-full !text-[9px] sm:!text-[10px] !py-0.5 sm:!py-0.5 flex items-center justify-center"
                                                     disabled={!canCollect}
                                                 >
                                                     <span className="flex items-center gap-1">
@@ -499,21 +499,21 @@ const TrainingQuestPanel: React.FC<TrainingQuestPanelProps> = ({ currentUser }) 
                                                 <Button
                                                     onClick={() => handleLevelUpClick(quest.id)}
                                                     colorScheme="accent"
-                                                    className="w-full !text-[10px] sm:!text-xs !py-0.5 sm:!py-1 flex items-center justify-center gap-1 relative !whitespace-nowrap"
+                                                    className="w-full !text-[9px] sm:!text-[10px] !py-0.5 sm:!py-0.5 flex items-center justify-center gap-0.5 relative !whitespace-nowrap"
                                                     disabled={isMaxLevel}
                                                 >
                                                     {levelUpInfo && !isMaxLevel ? (
-                                                        <div className="w-full flex items-center gap-1 min-w-0">
-                                                            <div className="flex-1 flex items-center gap-1 min-w-0">
-                                                                <div className="flex-1 bg-gray-700/70 rounded-full h-2 overflow-hidden min-w-0">
+                                                        <div className="w-full flex items-center gap-0.5 min-w-0">
+                                                            <div className="flex-1 flex items-center gap-0.5 min-w-0">
+                                                                <div className="flex-1 bg-gray-700/70 rounded-full h-1.5 sm:h-2 overflow-hidden min-w-0">
                                                                     <div 
                                                                         className="h-full bg-gradient-to-r from-yellow-400 to-yellow-500 transition-all duration-300"
                                                                         style={{ width: `${levelUpInfo.progress}%` }}
                                                                     />
                                                                 </div>
-                                                                <span className="text-[10px] text-white font-bold whitespace-nowrap flex-shrink-0">{Math.floor(levelUpInfo.progress)}%</span>
+                                                                <span className="text-[8px] sm:text-[9px] text-white font-bold whitespace-nowrap flex-shrink-0">{Math.floor(levelUpInfo.progress)}%</span>
                                                             </div>
-                                                            <span className="text-sm font-bold flex-shrink-0">↑</span>
+                                                            <span className="text-xs sm:text-sm font-bold flex-shrink-0">↑</span>
                                                         </div>
                                                     ) : (
                                                         <span>강화</span>
