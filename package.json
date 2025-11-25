@@ -25,6 +25,8 @@
     "migrate:to-railway": "npx tsx --tsconfig server/tsconfig.json scripts/migrate-to-railway.ts",
     "optimize-db": "npx tsx --tsconfig server/tsconfig.json server/scripts/optimizeDatabase.ts",
     "optimize-images": "node scripts/optimizeImages.js",
+    "compress-images": "npx tsx --tsconfig server/tsconfig.json scripts/compress-images.ts",
+    "compress-images:dry": "npx tsx --tsconfig server/tsconfig.json scripts/compress-images.ts --dry-run",
     "build:optimized": "npm run optimize-images && vite build"
   },
   "dependencies": {
@@ -53,7 +55,7 @@
   "devDependencies": {
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
-    "@types/node": "^20.12.12",
+    "@types/node": "^20.19.25",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@types/sqlite3": "^3.1.11",
