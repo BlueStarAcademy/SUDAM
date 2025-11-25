@@ -18,17 +18,39 @@ export const updateHiddenState = (game: types.LiveGameSession, now: number) => {
     const isItemMode = ['hidden_placing', 'scanning'].includes(game.gameStatus);
 
     if (isItemMode && game.itemUseDeadline && now > game.itemUseDeadline) {
-        // Item use timed out. Cancel item mode and switch turn.
+        // Item use timed out. 아이템 소멸하고 턴 유지
         const timedOutPlayerEnum = game.currentPlayer;
         const timedOutPlayerId = timedOutPlayerEnum === types.Player.Black ? game.blackPlayerId! : game.whitePlayerId!;
+        const currentItemMode = game.gameStatus; // 현재 아이템 모드 저장 (hidden_placing 또는 scanning)
         
         game.foulInfo = { message: `${game.player1.id === timedOutPlayerId ? game.player1.nickname : game.player2.nickname}님의 아이템 시간 초과!`, expiry: now + 4000 };
         game.gameStatus = 'playing';
-        game.currentPlayer = timedOutPlayerEnum === types.Player.Black ? types.Player.White : types.Player.Black;
         
-        const nextPlayerTimeKey = game.currentPlayer === types.Player.Black ? 'blackTimeLeft' : 'whiteTimeLeft';
-        game.turnDeadline = now + game[nextPlayerTimeKey] * 1000;
-        game.turnStartTime = now;
+        // 아이템 소멸 처리
+        if (currentItemMode === 'hidden_placing') {
+            // 히든 아이템 소멸
+            const hiddenKey = timedOutPlayerId === game.player1.id ? 'hidden_stones_used_p1' : 'hidden_stones_used_p2';
+            game[hiddenKey] = (game[hiddenKey] || 0) + 1;
+        } else if (currentItemMode === 'scanning') {
+            // 스캔 아이템 소멸
+            const scanKey = timedOutPlayerId === game.player1.id ? 'scans_p1' : 'scans_p2';
+            const currentScans = game[scanKey] ?? 0;
+            if (currentScans > 0) {
+                game[scanKey] = currentScans - 1;
+            }
+        }
+        
+        // 원래 경기 시간 복원 (턴 유지)
+        if (game.settings.timeLimit > 0 && game.pausedTurnTimeLeft !== undefined) {
+            const currentPlayerTimeKey = timedOutPlayerEnum === types.Player.Black ? 'blackTimeLeft' : 'whiteTimeLeft';
+            game[currentPlayerTimeKey] = game.pausedTurnTimeLeft;
+            game.turnDeadline = now + game[currentPlayerTimeKey] * 1000;
+            game.turnStartTime = now;
+        } else {
+            game.turnDeadline = undefined;
+            game.turnStartTime = undefined;
+        }
+        
         game.itemUseDeadline = undefined;
         game.pausedTurnTimeLeft = undefined;
         

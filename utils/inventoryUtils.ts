@@ -13,7 +13,27 @@ const MATERIAL_TEMPLATE_MAP: Record<string, Omit<InventoryItem, 'id'|'createdAt'
 export const getItemTemplateByName = (itemName: string) => {
     const trimmedName = itemName?.trim();
     if (!trimmedName) return null;
-    return CONSUMABLE_TEMPLATE_MAP[trimmedName] || MATERIAL_TEMPLATE_MAP[trimmedName] || null;
+    
+    // 먼저 정확한 이름으로 찾기
+    let template = CONSUMABLE_TEMPLATE_MAP[trimmedName] || MATERIAL_TEMPLATE_MAP[trimmedName];
+    if (template) return template;
+    
+    // 이름 불일치 처리: '골드꾸러미1' <-> '골드 꾸러미1'
+    // '골드꾸러미' -> '골드 꾸러미' 변환
+    if (trimmedName.includes('골드꾸러미')) {
+        const withSpace = trimmedName.replace('골드꾸러미', '골드 꾸러미');
+        template = CONSUMABLE_TEMPLATE_MAP[withSpace] || MATERIAL_TEMPLATE_MAP[withSpace];
+        if (template) return template;
+    }
+    
+    // 반대 방향: '골드 꾸러미1' -> '골드꾸러미1'
+    if (trimmedName.includes('골드 꾸러미')) {
+        const withoutSpace = trimmedName.replace('골드 꾸러미', '골드꾸러미');
+        template = CONSUMABLE_TEMPLATE_MAP[withoutSpace] || MATERIAL_TEMPLATE_MAP[withoutSpace];
+        if (template) return template;
+    }
+    
+    return null;
 };
 
 export const addItemsToInventory = (currentInventory: InventoryItem[], inventorySlots: { equipment: number; consumable: number; material: number; }, itemsToAdd: InventoryItem[]): { success: boolean, finalItemsToAdd: InventoryItem[], updatedInventory: InventoryItem[] } => {

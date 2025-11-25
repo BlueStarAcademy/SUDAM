@@ -59,8 +59,9 @@ export const handleUserAction = async (volatileState: types.VolatileState, actio
             if (newNickname.trim().length < NICKNAME_MIN_LENGTH || newNickname.trim().length > NICKNAME_MAX_LENGTH) return { error: `닉네임은 ${NICKNAME_MIN_LENGTH}-${NICKNAME_MAX_LENGTH}자여야 합니다.` };
             if (containsProfanity(newNickname)) return { error: "닉네임에 부적절한 단어가 포함되어 있습니다." };
 
-            const allUsers = await db.getAllUsers();
-            if (allUsers.some(u => u.nickname.toLowerCase() === newNickname.toLowerCase())) {
+            // 닉네임 중복 확인 (DB 쿼리로 최적화)
+            const existingUser = await db.getUserByNickname(newNickname.trim());
+            if (existingUser && existingUser.id !== user.id) {
                 return { error: '이미 사용 중인 닉네임입니다.' };
             }
 
@@ -401,6 +402,155 @@ export const handleUserAction = async (volatileState: types.VolatileState, actio
             broadcast({ type: 'USER_UPDATE', payload: { [user.id]: fullUserForBroadcast } });
             
             return { clientResponse: { success: true } };
+        }
+        case 'CHANGE_USERNAME': {
+            const { newUsername, password } = payload as { newUsername: string; password: string };
+            
+            if (!newUsername || !password) {
+                return { error: '새 아이디와 현재 비밀번호를 입력해주세요.' };
+            }
+            
+            const trimmedUsername = newUsername.trim().toLowerCase();
+            if (trimmedUsername.length < 3 || trimmedUsername.length > 20) {
+                return { error: '아이디는 3-20자여야 합니다.' };
+            }
+            
+            // 현재 비밀번호 확인
+            const credentials = await db.getUserCredentialsByUserId(user.id);
+            if (!credentials || !credentials.passwordHash) {
+                return { error: '비밀번호를 찾을 수 없습니다.' };
+            }
+            
+            const { verifyPassword } = await import('../utils/passwordUtils.js');
+            const isValidPassword = await verifyPassword(password, credentials.passwordHash);
+            if (!isValidPassword) {
+                return { error: '현재 비밀번호가 올바르지 않습니다.' };
+            }
+            
+            // 아이디 중복 확인
+            const existingCredentials = await db.getUserCredentials(trimmedUsername);
+            if (existingCredentials) {
+                return { error: '이미 사용 중인 아이디입니다.' };
+            }
+            
+            // UserCredential의 username 변경
+            const { updateUserCredentialUsername } = await import('../prisma/credentialService.js');
+            await updateUserCredentialUsername(credentials.username, trimmedUsername);
+            
+            user.username = trimmedUsername;
+            await db.updateUser(user);
+            
+            // WebSocket으로 사용자 업데이트 브로드캐스트
+            const fullUserForBroadcast = JSON.parse(JSON.stringify(user));
+            broadcast({ type: 'USER_UPDATE', payload: { [user.id]: fullUserForBroadcast } });
+            
+            return { clientResponse: { success: true, message: '아이디가 변경되었습니다.' } };
+        }
+        case 'CHANGE_PASSWORD': {
+            const { currentPassword, newPassword } = payload as { currentPassword: string; newPassword: string };
+            
+            if (!currentPassword || !newPassword) {
+                return { error: '현재 비밀번호와 새 비밀번호를 입력해주세요.' };
+            }
+            
+            if (newPassword.length < 6) {
+                return { error: '새 비밀번호는 최소 6자 이상이어야 합니다.' };
+            }
+            
+            // 현재 비밀번호 확인
+            const credentials = await db.getUserCredentialsByUserId(user.id);
+            if (!credentials || !credentials.passwordHash) {
+                return { error: '비밀번호를 찾을 수 없습니다.' };
+            }
+            
+            const { verifyPassword, hashPassword } = await import('../utils/passwordUtils.js');
+            const isValidPassword = await verifyPassword(currentPassword, credentials.passwordHash);
+            if (!isValidPassword) {
+                return { error: '현재 비밀번호가 올바르지 않습니다.' };
+            }
+            
+            // 새 비밀번호 해싱 및 저장
+            const newPasswordHash = await hashPassword(newPassword);
+            await db.updateUserCredentialPassword(user.id, { passwordHash: newPasswordHash });
+            
+            return { clientResponse: { success: true, message: '비밀번호가 변경되었습니다.' } };
+        }
+        case 'WITHDRAW_USER': {
+            const { password, confirmText } = payload as { password: string; confirmText: string };
+            
+            if (!password) {
+                return { error: '비밀번호를 입력해주세요.' };
+            }
+            
+            if (confirmText !== '회원탈퇴') {
+                return { error: '확인 문구가 올바르지 않습니다.' };
+            }
+            
+            // 비밀번호 확인
+            const credentials = await db.getUserCredentialsByUserId(user.id);
+            if (!credentials || !credentials.passwordHash) {
+                return { error: '비밀번호를 찾을 수 없습니다.' };
+            }
+            
+            const { verifyPassword } = await import('../utils/passwordUtils.js');
+            const isValidPassword = await verifyPassword(password, credentials.passwordHash);
+            if (!isValidPassword) {
+                return { error: '비밀번호가 올바르지 않습니다.' };
+            }
+            
+            // 이메일 가져오기
+            const userEmail = user.email;
+            if (!userEmail) {
+                return { error: '이메일 정보를 찾을 수 없습니다.' };
+            }
+            
+            // 회원탈퇴 처리
+            // 1. 이메일을 1주일간 가입 제한 목록에 추가
+            const kvRepository = await import('../repositories/kvRepository.js');
+            const withdrawnEmails = await kvRepository.getKV<Record<string, number>>('withdrawnEmails') || {};
+            withdrawnEmails[userEmail.toLowerCase()] = Date.now() + (7 * 24 * 60 * 60 * 1000); // 7일 후
+            await kvRepository.setKV('withdrawnEmails', withdrawnEmails);
+            
+            // 2. 활성 게임 종료 처리
+            const { getAllActiveGames } = await import('../db.js');
+            const activeGames = await getAllActiveGames();
+            for (const game of activeGames) {
+                if (game.player1.id === user.id || game.player2.id === user.id) {
+                    if (game.gameStatus === 'playing' || game.gameStatus === 'paused') {
+                        // 게임 종료 처리
+                        game.gameStatus = 'ended';
+                        game.winner = game.player1.id === user.id ? types.Player.White : types.Player.Black;
+                        await db.saveGame(game);
+                        
+                        // 상대방 상태 업데이트
+                        const opponentId = game.player1.id === user.id ? game.player2.id : game.player1.id;
+                        if (volatileState.userStatuses[opponentId]) {
+                            volatileState.userStatuses[opponentId].status = types.UserStatus.Waiting;
+                            delete volatileState.userStatuses[opponentId].gameId;
+                        }
+                        
+                        broadcast({ type: 'GAME_UPDATE', payload: { [game.id]: game } });
+                    }
+                }
+            }
+            
+            // 3. 사용자 삭제
+            await db.deleteUser(user.id);
+            
+            // 4. 연결 및 상태 정리
+            delete volatileState.userConnections[user.id];
+            delete volatileState.userStatuses[user.id];
+            
+            // 5. 상태 브로드캐스트
+            broadcast({ type: 'USER_STATUS_UPDATE', payload: volatileState.userStatuses });
+            
+            return { 
+                clientResponse: { 
+                    success: true, 
+                    message: '회원탈퇴가 완료되었습니다.',
+                    redirectTo: '#/login'
+                } 
+            };
         }
         default:
             return { error: 'Unknown user action.' };

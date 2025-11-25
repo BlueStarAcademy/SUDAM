@@ -103,7 +103,7 @@ const GuildHome: React.FC<GuildHomeProps> = ({ initialGuild }) => {
     }
 
     // 길드가 있으면 대시보드 표시
-    return <GuildDashboard guild={myGuild} guildDonationAnimation={guildDonationAnimation} onDonationComplete={(coins, research, type) => setGuildDonationAnimation({ coins, research, type })} />;
+    return <GuildDashboard guild={myGuild} guildDonationAnimation={guildDonationAnimation} onDonationComplete={(coins: number, research: number, type: 'gold' | 'diamond') => setGuildDonationAnimation({ coins, research, type })} />;
 };
 
 export default GuildHome;

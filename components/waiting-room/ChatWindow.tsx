@@ -9,7 +9,7 @@ import { useAppContext } from '../../hooks/useAppContext.js';
 interface ChatWindowProps {
     messages: ChatMessage[];
     onAction: (a: ServerAction) => void;
-    mode: GameMode | 'global' | 'strategic' | 'playful';
+    mode: GameMode | 'global' | 'strategic' | 'playful' | 'singleplayer' | 'tower' | 'tournament';
     onViewUser?: (userId: string) => void; // Optional for profile view
     locationPrefix?: string;
 }
@@ -59,7 +59,12 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ messages, onAction, mode, onVie
             case 'global':
                 return '[홈]';
             default:
-                return `[${mode}]`;
+                // 허용된 위치만 반환
+                if (mode === 'singleplayer') return '[싱글플레이]';
+                if (mode === 'tower') return '[도전의탑]';
+                if (mode === 'tournament') return '[챔피언십]';
+                // 알 수 없는 모드는 기본값으로 [홈] 반환
+                return '[홈]';
         }
     };
 

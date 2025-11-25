@@ -16,7 +16,7 @@ interface SettingsModalProps {
     isTopmost?: boolean;
 }
 
-type SettingsTab = 'graphics' | 'sound' | 'features';
+type SettingsTab = 'graphics' | 'sound' | 'features' | 'account';
 
 const THEMES: { id: Theme; name: string; colors: string[] }[] = [
     { id: 'black', name: '슬레이트', colors: ['#0f172a', '#1e293b', '#e2e8f0', '#eab308'] },
@@ -27,8 +27,18 @@ const THEMES: { id: Theme; name: string; colors: string[] }[] = [
 ];
 
 const SettingsModal: React.FC<SettingsModalProps> = ({ onClose, isTopmost }) => {
-    const { settings, updateTheme, updateSoundSetting, updateFeatureSetting, updatePanelColor, updateTextColor, updatePanelEdgeStyle, resetGraphicsToDefault, handlers } = useAppContext();
+    const { settings, updateTheme, updateSoundSetting, updateFeatureSetting, updatePanelColor, updateTextColor, updatePanelEdgeStyle, resetGraphicsToDefault, handlers, currentUserWithStatus } = useAppContext();
     const [activeTab, setActiveTab] = useState<SettingsTab>('graphics');
+    const [showChangeUsername, setShowChangeUsername] = useState(false);
+    const [showChangePassword, setShowChangePassword] = useState(false);
+    const [showWithdraw, setShowWithdraw] = useState(false);
+    const [newUsername, setNewUsername] = useState('');
+    const [currentPassword, setCurrentPassword] = useState('');
+    const [newPassword, setNewPassword] = useState('');
+    const [withdrawPassword, setWithdrawPassword] = useState('');
+    const [withdrawConfirm, setWithdrawConfirm] = useState('');
+    const [error, setError] = useState<string | null>(null);
+    const [isLoading, setIsLoading] = useState(false);
     
     const handleEmergencyExit = async () => {
         if (!window.confirm('비상탈출을 사용하시겠습니까?\n\n모든 플레이 중인 게임이 강제 종료되며, PVP 경기장에서는 기권패 처리됩니다.')) {
@@ -47,11 +57,115 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ onClose, isTopmost }) => 
             window.location.hash = '#/';
         }
     };
+
+    const handleChangeUsername = async () => {
+        if (!newUsername || !currentPassword) {
+            setError('새 아이디와 현재 비밀번호를 입력해주세요.');
+            return;
+        }
+        
+        setIsLoading(true);
+        setError(null);
+        
+        try {
+            const result = await handlers.handleAction({
+                type: 'CHANGE_USERNAME',
+                payload: { newUsername, password: currentPassword }
+            }) as any;
+            
+            if (result?.error) {
+                setError(result.error);
+            } else {
+                alert('아이디가 변경되었습니다.');
+                setShowChangeUsername(false);
+                setNewUsername('');
+                setCurrentPassword('');
+            }
+        } catch (err: any) {
+            setError(err.message || '아이디 변경 중 오류가 발생했습니다.');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleChangePassword = async () => {
+        if (!currentPassword || !newPassword) {
+            setError('현재 비밀번호와 새 비밀번호를 입력해주세요.');
+            return;
+        }
+        
+        if (newPassword.length < 6) {
+            setError('새 비밀번호는 최소 6자 이상이어야 합니다.');
+            return;
+        }
+        
+        setIsLoading(true);
+        setError(null);
+        
+        try {
+            const result = await handlers.handleAction({
+                type: 'CHANGE_PASSWORD',
+                payload: { currentPassword, newPassword }
+            }) as any;
+            
+            if (result?.error) {
+                setError(result.error);
+            } else {
+                alert('비밀번호가 변경되었습니다.');
+                setShowChangePassword(false);
+                setCurrentPassword('');
+                setNewPassword('');
+            }
+        } catch (err: any) {
+            setError(err.message || '비밀번호 변경 중 오류가 발생했습니다.');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleWithdraw = async () => {
+        if (!withdrawPassword || !withdrawConfirm) {
+            setError('비밀번호와 확인 문구를 입력해주세요.');
+            return;
+        }
+        
+        if (withdrawConfirm !== '회원탈퇴') {
+            setError('확인 문구가 올바르지 않습니다. "회원탈퇴"를 정확히 입력해주세요.');
+            return;
+        }
+        
+        if (!window.confirm('정말 회원탈퇴를 하시겠습니까?\n\n회원탈퇴 시 모든 데이터가 삭제되며, 동일한 이메일로는 1주일간 재가입이 불가능합니다.')) {
+            return;
+        }
+        
+        setIsLoading(true);
+        setError(null);
+        
+        try {
+            const result = await handlers.handleAction({
+                type: 'WITHDRAW_USER',
+                payload: { password: withdrawPassword, confirmText: withdrawConfirm }
+            }) as any;
+            
+            if (result?.error) {
+                setError(result.error);
+            } else {
+                alert('회원탈퇴가 완료되었습니다.\n동일한 이메일로는 1주일간 재가입이 불가능합니다.');
+                const redirectTo = result?.clientResponse?.redirectTo || '#/login';
+                window.location.hash = redirectTo;
+            }
+        } catch (err: any) {
+            setError(err.message || '회원탈퇴 중 오류가 발생했습니다.');
+        } finally {
+            setIsLoading(false);
+        }
+    };
     
     const tabs: { id: SettingsTab; label: string }[] = [
         { id: 'graphics', label: '그래픽' },
         { id: 'sound', label: '사운드' },
         { id: 'features', label: '기능' },
+        { id: 'account', label: '계정' },
     ];
 
     const soundCategories: { key: SoundCategory, label: string }[] = [
@@ -237,6 +351,162 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ onClose, isTopmost }) => 
                             >
                                 🚨 비상탈출
                             </Button>
+                        </div>
+                    </div>
+                );
+            case 'account':
+                return (
+                    <div className="space-y-4">
+                        <h3 className="text-lg font-semibold text-text-secondary mb-4">계정 관리</h3>
+                        <div className="flex gap-3 mb-4">
+                            <Button 
+                                onClick={() => {
+                                    setShowChangeUsername(!showChangeUsername);
+                                    setShowChangePassword(false);
+                                    setShowWithdraw(false);
+                                    setError(null);
+                                }}
+                                colorScheme="blue"
+                                className="flex-1"
+                            >
+                                {showChangeUsername ? '아이디 변경 취소' : '아이디 변경'}
+                            </Button>
+                            <Button 
+                                onClick={() => {
+                                    setShowChangePassword(!showChangePassword);
+                                    setShowChangeUsername(false);
+                                    setShowWithdraw(false);
+                                    setError(null);
+                                }}
+                                colorScheme="blue"
+                                className="flex-1"
+                            >
+                                {showChangePassword ? '비밀번호 변경 취소' : '비밀번호 변경'}
+                            </Button>
+                        </div>
+                        {showChangeUsername && (
+                            <div className="bg-tertiary/30 border border-color rounded-lg p-4 mb-4">
+                                <div className="space-y-3">
+                                    <div>
+                                        <label className="block text-sm text-text-secondary mb-1">새 아이디</label>
+                                        <input
+                                            type="text"
+                                            value={newUsername}
+                                            onChange={(e) => setNewUsername(e.target.value)}
+                                            className="w-full px-3 py-2 bg-secondary border border-color rounded text-text-primary"
+                                            placeholder="3-20자"
+                                            disabled={isLoading}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm text-text-secondary mb-1">현재 비밀번호</label>
+                                        <input
+                                            type="password"
+                                            value={currentPassword}
+                                            onChange={(e) => setCurrentPassword(e.target.value)}
+                                            className="w-full px-3 py-2 bg-secondary border border-color rounded text-text-primary"
+                                            disabled={isLoading}
+                                        />
+                                    </div>
+                                    {error && <p className="text-sm text-red-400">{error}</p>}
+                                    <Button 
+                                        onClick={handleChangeUsername}
+                                        colorScheme="blue"
+                                        className="w-full"
+                                        disabled={isLoading}
+                                    >
+                                        {isLoading ? '처리 중...' : '변경하기'}
+                                    </Button>
+                                </div>
+                            </div>
+                        )}
+                        {showChangePassword && (
+                            <div className="bg-tertiary/30 border border-color rounded-lg p-4 mb-4">
+                                <div className="space-y-3">
+                                    <div>
+                                        <label className="block text-sm text-text-secondary mb-1">현재 비밀번호</label>
+                                        <input
+                                            type="password"
+                                            value={currentPassword}
+                                            onChange={(e) => setCurrentPassword(e.target.value)}
+                                            className="w-full px-3 py-2 bg-secondary border border-color rounded text-text-primary"
+                                            disabled={isLoading}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm text-text-secondary mb-1">새 비밀번호</label>
+                                        <input
+                                            type="password"
+                                            value={newPassword}
+                                            onChange={(e) => setNewPassword(e.target.value)}
+                                            className="w-full px-3 py-2 bg-secondary border border-color rounded text-text-primary"
+                                            placeholder="최소 6자"
+                                            disabled={isLoading}
+                                        />
+                                    </div>
+                                    {error && <p className="text-sm text-red-400">{error}</p>}
+                                    <Button 
+                                        onClick={handleChangePassword}
+                                        colorScheme="blue"
+                                        className="w-full"
+                                        disabled={isLoading}
+                                    >
+                                        {isLoading ? '처리 중...' : '변경하기'}
+                                    </Button>
+                                </div>
+                            </div>
+                        )}
+                        <h3 className="text-lg font-semibold text-text-secondary mb-4 pt-4 border-t border-color">회원탈퇴</h3>
+                        <div className="bg-red-900/30 border border-red-700/50 rounded-lg p-4">
+                            <p className="text-sm text-red-200 mb-3">
+                                회원탈퇴 시 모든 데이터가 삭제되며 복구할 수 없습니다. 동일한 이메일로는 1주일간 재가입이 불가능합니다.
+                            </p>
+                            <Button 
+                                onClick={() => {
+                                    setShowWithdraw(!showWithdraw);
+                                    setShowChangeUsername(false);
+                                    setShowChangePassword(false);
+                                    setError(null);
+                                }}
+                                colorScheme="red"
+                                className="w-full"
+                            >
+                                {showWithdraw ? '취소' : '회원탈퇴'}
+                            </Button>
+                            {showWithdraw && (
+                                <div className="space-y-3 mt-4">
+                                    <div>
+                                        <label className="block text-sm text-red-200 mb-1">비밀번호 확인</label>
+                                        <input
+                                            type="password"
+                                            value={withdrawPassword}
+                                            onChange={(e) => setWithdrawPassword(e.target.value)}
+                                            className="w-full px-3 py-2 bg-secondary border border-red-700/50 rounded text-text-primary"
+                                            disabled={isLoading}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm text-red-200 mb-1">확인 문구 입력: "회원탈퇴"</label>
+                                        <input
+                                            type="text"
+                                            value={withdrawConfirm}
+                                            onChange={(e) => setWithdrawConfirm(e.target.value)}
+                                            className="w-full px-3 py-2 bg-secondary border border-red-700/50 rounded text-text-primary"
+                                            placeholder="회원탈퇴"
+                                            disabled={isLoading}
+                                        />
+                                    </div>
+                                    {error && <p className="text-sm text-red-400">{error}</p>}
+                                    <Button 
+                                        onClick={handleWithdraw}
+                                        colorScheme="red"
+                                        className="w-full"
+                                        disabled={isLoading}
+                                    >
+                                        {isLoading ? '처리 중...' : '탈퇴하기'}
+                                    </Button>
+                                </div>
+                            )}
                         </div>
                     </div>
                 );

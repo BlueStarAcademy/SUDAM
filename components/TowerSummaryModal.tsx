@@ -6,6 +6,7 @@ import Avatar from './Avatar.js';
 import { TOWER_STAGES } from '../constants/towerConstants.js';
 import { AVATAR_POOL, BORDER_POOL } from '../constants/ui.js';
 import { AvatarInfo, BorderInfo } from '../types.js';
+import { CONSUMABLE_ITEMS, MATERIAL_ITEMS } from '../constants/items.js';
 
 interface TowerSummaryModalProps {
     session: LiveGameSession;
@@ -332,7 +333,6 @@ const TowerSummaryModal: React.FC<TowerSummaryModalProps> = ({ session, currentU
             onClose={() => handleClose(session, onClose)} 
             windowId="tower-summary-redesigned"
             initialWidth={isMobile ? 600 : 900}
-            initialHeight={isMobile ? 560 : 760}
         >
             <div className={`text-white ${isMobile ? 'text-sm' : 'text-[clamp(0.875rem,2.5vw,1.125rem)]'} flex flex-col ${isMobile ? 'max-h-[85vh]' : 'h-full'} overflow-y-auto`}>
                 {/* Title */}
@@ -388,18 +388,6 @@ const TowerSummaryModal: React.FC<TowerSummaryModalProps> = ({ session, currentU
                                     isMobile={isMobile}
                                     mobileTextScale={mobileTextScale}
                                 />
-                            ) : isEnded && !analysisResult ? (
-                                // 계가 결과가 없지만 게임이 종료된 경우 경기 내용 텍스트 표시
-                                <div className={`${isMobile ? 'p-1' : 'p-1.5'} bg-gray-800/50 rounded-lg space-y-0.5 flex-shrink-0`}>
-                                    <p className="text-center text-gray-300" style={{ fontSize: isMobile ? `${10 * mobileTextScale}px` : '12px' }}>
-                                        {isWinner ? '층을 클리어했습니다!' : '층 클리어에 실패했습니다.'}
-                                    </p>
-                                    {winReasonText || failureReason ? (
-                                        <p className={`text-center font-semibold ${isWinner ? 'text-green-400' : 'text-red-400'}`} style={{ fontSize: isMobile ? `${10 * mobileTextScale}px` : '12px' }}>
-                                            {winReasonText || failureReason}
-                                        </p>
-                                    ) : null}
-                                </div>
                             ) : !isScoring && !isEnded ? (
                                 <p className="text-center text-gray-400">계가 결과가 없습니다.</p>
                             ) : null}
@@ -463,7 +451,7 @@ const TowerSummaryModal: React.FC<TowerSummaryModalProps> = ({ session, currentU
                             {/* 보상 박스들 */}
                             {summary ? (
                                 <>
-                                    {((summary.gold ?? 0) > 0 || (summary.xp && summary.xp.change > 0) || (summary.items && summary.items.length > 0)) ? (
+                                    {((summary.gold ?? 0) > 0 || (summary.xp?.change ?? 0) > 0 || (summary.items && summary.items.length > 0)) ? (
                                         <div className="flex gap-1.5 justify-center items-stretch flex-wrap">
                                             {/* Gold Reward */}
                                             {(summary.gold ?? 0) > 0 && (
@@ -484,20 +472,49 @@ const TowerSummaryModal: React.FC<TowerSummaryModalProps> = ({ session, currentU
                                                 </div>
                                             )}
                                             {/* Item Rewards */}
-                                            {summary.items && summary.items.length > 0 && summary.items.slice(0, 2).map((item, idx) => (
-                                                <div key={item.id || idx} className={`${isMobile ? 'w-16 h-16' : 'w-24 h-24'} bg-gradient-to-br from-purple-600/30 to-purple-800/30 border-2 border-purple-500/50 rounded-lg flex flex-col items-center justify-center ${isMobile ? 'p-1' : 'p-2'} shadow-lg`}>
-                                                    {item.image && (
-                                                        <img 
-                                                            src={item.image} 
-                                                            alt={item.name} 
-                                                            className={`${isMobile ? 'w-8 h-8' : 'w-12 h-12'} mb-0.5 object-contain`}
-                                                        />
-                                                    )}
-                                                    <p className="font-semibold text-purple-300 text-center leading-tight" style={{ fontSize: isMobile ? `${8 * mobileTextScale}px` : '10px' }}>
-                                                        {item.name}
-                                                    </p>
-                                                </div>
-                                            ))}
+                                            {summary.items && summary.items.length > 0 && summary.items.slice(0, 2).map((item, idx) => {
+                                                // 이미지 경로 찾기: item.image가 없으면 CONSUMABLE_ITEMS나 MATERIAL_ITEMS에서 찾기
+                                                // 이름 불일치 처리: '골드꾸러미1' <-> '골드 꾸러미1'
+                                                const nameWithSpace = item.name?.includes('골드꾸러미') 
+                                                    ? item.name.replace('골드꾸러미', '골드 꾸러미')
+                                                    : item.name;
+                                                const nameWithoutSpace = item.name?.includes('골드 꾸러미')
+                                                    ? item.name.replace('골드 꾸러미', '골드꾸러미')
+                                                    : item.name;
+                                                
+                                                const imagePath = item.image || 
+                                                    CONSUMABLE_ITEMS.find(ci => 
+                                                        ci.name === item.name || 
+                                                        ci.name === nameWithSpace || 
+                                                        ci.name === nameWithoutSpace
+                                                    )?.image ||
+                                                    MATERIAL_ITEMS[item.name]?.image ||
+                                                    MATERIAL_ITEMS[nameWithSpace]?.image ||
+                                                    MATERIAL_ITEMS[nameWithoutSpace]?.image;
+                                                
+                                                return (
+                                                    <div key={item.id || idx} className={`${isMobile ? 'w-16 h-16' : 'w-24 h-24'} bg-gradient-to-br from-purple-600/30 to-purple-800/30 border-2 border-purple-500/50 rounded-lg flex flex-col items-center justify-center ${isMobile ? 'p-1' : 'p-2'} shadow-lg`}>
+                                                        {imagePath ? (
+                                                            <img 
+                                                                src={imagePath} 
+                                                                alt={item.name} 
+                                                                className={`${isMobile ? 'w-8 h-8' : 'w-12 h-12'} mb-0.5 object-contain`}
+                                                                onError={(e) => {
+                                                                    console.error(`[TowerSummaryModal] Failed to load image: ${imagePath} for item:`, item);
+                                                                    (e.target as HTMLImageElement).style.display = 'none';
+                                                                }}
+                                                            />
+                                                        ) : (
+                                                            <div className={`${isMobile ? 'w-8 h-8' : 'w-12 h-12'} mb-0.5 flex items-center justify-center`}>
+                                                                <span className="text-xs text-gray-400 text-center px-1">{item.name || 'No Image'}</span>
+                                                            </div>
+                                                        )}
+                                                        <p className="font-semibold text-purple-300 text-center leading-tight" style={{ fontSize: isMobile ? `${8 * mobileTextScale}px` : '10px' }}>
+                                                            {item.name}
+                                                        </p>
+                                                    </div>
+                                                );
+                                            })}
                                         </div>
                                     ) : (
                                         <div className="flex items-center justify-center py-4">

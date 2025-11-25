@@ -42,7 +42,8 @@ export const runGuildBossBattle = (user: User, guild: Guild, boss: GuildBossInfo
 
     const runUserTurn = (isExtra: boolean = false): boolean => {
         let userDamage = (totalStats[CoreStat.CombatPower] * 3.2) + (totalStats[CoreStat.Judgment] * 2.6) + (totalStats[CoreStat.Calculation] * 1.8);
-        const damageBonusPercent = effects.specialStatBonuses[SpecialStat.GuildBossDamage]?.percent || 0;
+        // GuildBossDamage는 SpecialStat에 없으므로 임시로 처리
+        const damageBonusPercent = (effects.specialStatBonuses as any)['GuildBossDamage']?.percent || 0;
         if (damageBonusPercent > 0) userDamage *= (1 + damageBonusPercent / 100);
         userDamage *= (1 + (Math.random() * 0.2 - 0.1));
         const critChance = 15 + (totalStats[CoreStat.Judgment] * 0.03);
@@ -182,10 +183,10 @@ export const runGuildBossBattle = (user: User, guild: Guild, boss: GuildBossInfo
                             turnBossHeal += getRandom(effect.value![0], effect.value![1]);
                             break;
                         case 'debuff':
-                            if (effect.debuffType) {
+                            if (effect.debuffType && (effect.debuffType === 'user_combat_power_reduction_percent' || effect.debuffType === 'user_heal_reduction_percent')) {
                                 const value = getRandom(effect.debuffValue![0], effect.debuffValue![1]);
                                 activeDebuffs[effect.debuffType] = { value, turns: effect.debuffDuration ?? 0 };
-                                debuffsForLog.push({ type: effect.debuffType, value, turns: effect.debuffDuration ?? 0 });
+                                debuffsForLog.push(effect.debuffType);
                             }
                             break;
                     }

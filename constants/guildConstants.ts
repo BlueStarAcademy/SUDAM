@@ -42,7 +42,7 @@ export const GUILD_XP_PER_LEVEL = (level: number): number => {
     return Math.floor(100000 * Math.pow(1.2, level - 1));
 };
 
-export const GUILD_MISSIONS_POOL: Omit<GuildMission, 'id' | 'progress' | 'isCompleted' | 'claimedBy'>[] = [
+export const GUILD_MISSIONS_POOL: Omit<GuildMission, 'id' | 'progress' | 'isCompleted' | 'claimedBy' | 'guildId' | 'missionType' | 'status' | 'createdAt' | 'updatedAt'>[] = [
     { title: '길드출석 50회', description: '길드원들이 총 50회 출석하기', target: 50, personalReward: { guildCoins: 50 }, guildReward: { guildXp: 150 }, progressKey: 'checkIns' },
     { title: '챔피언십(자동대국) 보상수령 30회', description: '길드원들이 챔피언십 보상 총 30회 수령하기', target: 30, personalReward: { guildCoins: 50 }, guildReward: { guildXp: 150 }, progressKey: 'championshipClaims' },
     { title: '길드 보스전 참여 30회', description: '길드원들이 길드 보스전에 총 30회 참여하기', target: 30, personalReward: { guildCoins: 100 }, guildReward: { guildXp: 200 }, progressKey: 'bossAttempts' },

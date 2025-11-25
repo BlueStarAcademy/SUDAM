@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
@@ -52,6 +53,7 @@ const OFFLINE_REGEN_INTERVAL_MS = 60_000; // 1 minute
 let lastOfflineRegenAt = 0;
 const DAILY_TASK_CHECK_INTERVAL_MS = 60_000; // 1 minute
 let lastDailyTaskCheckAt = 0;
+let lastBotScoreUpdateAt = 0;
 
 // 만료된 negotiation 정리 함수
 const cleanupExpiredNegotiations = (volatileState: types.VolatileState, now: number): void => {
@@ -137,6 +139,14 @@ const processSinglePlayerMissions = (user: types.User): types.User => {
 
 
 const startServer = async () => {
+    // --- Debug: Check DATABASE_URL ---
+    const dbUrl = process.env.DATABASE_URL;
+    console.log(`[Server Startup] DATABASE_URL check: ${dbUrl ? `Set (length: ${dbUrl.length}, starts with: ${dbUrl.substring(0, 20)}...)` : 'NOT SET'}`);
+    if (!dbUrl) {
+        console.error("[Server Startup] DATABASE_URL is not set! Please check Railway Variables.");
+        console.error("[Server Startup] All environment variables:", Object.keys(process.env).filter(k => k.includes('DATABASE') || k.includes('POSTGRES')).join(', '));
+    }
+    
     // --- Initialize Database on Start ---
     try {
         await db.initializeDatabase();
@@ -182,12 +192,17 @@ const startServer = async () => {
 
     console.log(`[Server Startup] Base stats update complete. ${usersUpdatedCount} user(s) had their base stats updated.`);
 
-    // --- 1회성 챔피언십 점수 초기화 (주석 해제하여 실행) ---
+    // --- 1회성 작업들 (환경 변수로 제어) ---
+    // 필요시에만 주석을 해제하여 실행하세요.
+    
+    // --- 1회성 챔피언십 점수 초기화 ---
     // await resetAllTournamentScores();
     
-    // --- 1회성: 모든 유저의 리그 점수를 0으로 초기화하여 변화없음으로 표시되도록 함 ---
-    await resetAllUsersLeagueScoresForNewWeek();
-    // await resetAllChampionshipScoresToZero(); // One-time Champ Score reset (disabled after manual run)
+    // --- 1회성: 모든 유저의 리그 점수를 0으로 초기화 ---
+    // await resetAllUsersLeagueScoresForNewWeek();
+    
+    // --- 1회성: 모든 유저의 챔피언십 점수를 0으로 초기화 ---
+    // await resetAllChampionshipScoresToZero();
     
     // --- 봇 점수 관련 로직은 이미 개선되어 서버 시작 시 실행 불필요 ---
     // const { grantThreeDaysBotScores } = await import('./scheduledTasks.js');
@@ -489,7 +504,8 @@ const startServer = async () => {
                         console.log(`[WeeklyLeagueUpdate] Updated ${usersUpdated} users, sent ${mailsSent} mails`);
                         
                         // 2. 티어변동 후 새로운 경쟁상대 매칭 및 모든 점수 리셋
-                        await processWeeklyResetAndRematch();
+                        // force=true로 호출하여 월요일 0시 체크를 건너뛰고 강제 실행
+                        await processWeeklyResetAndRematch(true);
                     }
                 }
                 
@@ -509,8 +525,44 @@ const startServer = async () => {
                 // Handle daily quest reset (매일 0시 KST)
                 await processDailyQuestReset();
 
-                    lastDailyTaskCheckAt = now;
+                lastDailyTaskCheckAt = now;
+            }
+            
+            // 모든 유저의 봇 점수를 주기적으로 업데이트 (매일 0시가 아니어도)
+            // 다른 유저가 볼 때도 정확한 봇 점수가 표시되도록 함
+            // 1시간마다 실행 (과도한 DB 업데이트 방지)
+            const BOT_SCORE_UPDATE_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+            if (!lastBotScoreUpdateAt || (now - lastBotScoreUpdateAt >= BOT_SCORE_UPDATE_INTERVAL_MS)) {
+                const { updateBotLeagueScores } = await import('./scheduledTasks.js');
+                const allUsersForBotUpdate = await db.getAllUsers();
+                let botsUpdated = 0;
+                
+                for (const user of allUsersForBotUpdate) {
+                    if (!user.weeklyCompetitors || user.weeklyCompetitors.length === 0) {
+                        continue;
+                    }
+                    
+                    // 봇 점수가 모두 0인지 확인
+                    const hasZeroBotScores = user.weeklyCompetitors.some(c => 
+                        c.id.startsWith('bot-') && 
+                        (!user.weeklyCompetitorsBotScores?.[c.id] || 
+                         user.weeklyCompetitorsBotScores[c.id].score === 0)
+                    );
+                    
+                    // 봇 점수가 모두 0이면 강제 업데이트
+                    const updatedUser = await updateBotLeagueScores(user, hasZeroBotScores);
+                    if (JSON.stringify(user.weeklyCompetitorsBotScores || {}) !== JSON.stringify(updatedUser.weeklyCompetitorsBotScores || {})) {
+                        await db.updateUser(updatedUser);
+                        botsUpdated++;
+                    }
                 }
+                
+                if (botsUpdated > 0) {
+                    console.log(`[BotScoreUpdate] Updated bot scores for ${botsUpdated} users`);
+                }
+                
+                lastBotScoreUpdateAt = now;
+            }
 
             // Handle user timeouts and disconnections
             const onlineUserIdsBeforeTimeoutCheck = Object.keys(volatileState.userConnections);
@@ -526,6 +578,17 @@ const startServer = async () => {
                 const timeoutDuration = (activeGame || (userStatus?.status === 'in-game' && userStatus?.gameId)) ? GAME_DISCONNECT_TIMEOUT_MS : LOBBY_TIMEOUT_MS;
 
                 if (now - volatileState.userConnections[userId] > timeoutDuration) {
+                    // User timed out. Check if they are in a single player game first.
+                    const isSinglePlayerGame = activeGame && (activeGame.isSinglePlayer || activeGame.gameCategory === 'tower' || activeGame.isAiGame);
+                    
+                    // 싱글플레이 게임에서는 타임아웃이 발생해도 연결을 유지하고 게임을 계속 진행
+                    if (isSinglePlayerGame) {
+                        // 연결 시간을 갱신하여 타임아웃을 방지 (게임이 진행 중이므로)
+                        volatileState.userConnections[userId] = now;
+                        continue;
+                    }
+                    
+                    // 일반 게임에서만 타임아웃 처리
                     // User timed out. They are now disconnected. Remove them from active connections.
                     delete volatileState.userConnections[userId];
                     volatileState.activeTournamentViewers.delete(userId);
@@ -881,6 +944,23 @@ const startServer = async () => {
                 return res.status(409).json({ message: '이미 사용 중인 아이디입니다.' });
             }
     
+            // 회원탈퇴한 이메일인지 확인 (1주일 제한)
+            const kvRepository = await import('./repositories/kvRepository.js');
+            const withdrawnEmails = await kvRepository.getKV<Record<string, number>>('withdrawnEmails') || {};
+            const withdrawnEmailExpiry = withdrawnEmails[trimmedEmail.toLowerCase()];
+            if (withdrawnEmailExpiry && withdrawnEmailExpiry > Date.now()) {
+                const daysLeft = Math.ceil((withdrawnEmailExpiry - Date.now()) / (24 * 60 * 60 * 1000));
+                return res.status(403).json({ 
+                    message: `회원탈퇴한 이메일은 ${daysLeft}일 후에 다시 가입할 수 있습니다.` 
+                });
+            }
+            
+            // 만료된 제한 삭제
+            if (withdrawnEmailExpiry && withdrawnEmailExpiry <= Date.now()) {
+                delete withdrawnEmails[trimmedEmail.toLowerCase()];
+                await kvRepository.setKV('withdrawnEmails', withdrawnEmails);
+            }
+            
             const allUsers = await db.getAllUsers();
             
             // 이메일 중복 확인
@@ -1228,14 +1308,25 @@ const startServer = async () => {
             );
     
             if (activeGame) {
+                // 90초 내에 재접속한 경우 경기 재개
                 if (activeGame.disconnectionState?.disconnectedPlayerId === user!.id) {
-                    activeGame.disconnectionState = null;
-                    const otherPlayerId = activeGame.player1.id === user!.id ? activeGame.player2.id : activeGame.player1.id;
-                    if (activeGame.canRequestNoContest?.[otherPlayerId]) {
-                        delete activeGame.canRequestNoContest[otherPlayerId];
+                    // 90초 내에 재접속했는지 확인
+                    const timeSinceDisconnect = now - activeGame.disconnectionState.timerStartedAt;
+                    if (timeSinceDisconnect <= 90000) {
+                        // 재접속 성공: disconnectionState 제거하고 경기 재개
+                        activeGame.disconnectionState = null;
+                        const otherPlayerId = activeGame.player1.id === user!.id ? activeGame.player2.id : activeGame.player1.id;
+                        if (activeGame.canRequestNoContest?.[otherPlayerId]) {
+                            delete activeGame.canRequestNoContest[otherPlayerId];
+                        }
+                        await db.saveGame(activeGame);
+                        
+                        // 게임 업데이트 브로드캐스트
+                        const { broadcastToGameParticipants } = await import('./socket.js');
+                        broadcastToGameParticipants(activeGame.id, { type: 'GAME_UPDATE', payload: { [activeGame.id]: activeGame } }, activeGame);
                     }
-                    await db.saveGame(activeGame);
                 }
+                // 재접속한 유저를 게임 상태로 설정 (자동으로 게임으로 리다이렉트)
                 volatileState.userStatuses[user!.id] = { status: types.UserStatus.InGame, mode: activeGame.mode, gameId: activeGame.id };
             } else {
                 volatileState.userStatuses[user!.id] = { status: types.UserStatus.Online };
@@ -1344,9 +1435,8 @@ const startServer = async () => {
                 return res.status(400).json({ message: '이메일을 입력해주세요.' });
             }
 
-            // 사용자 확인
-            const allUsers = await db.getAllUsers();
-            const user = allUsers.find(u => u.email?.toLowerCase() === email.toLowerCase());
+            // 사용자 확인 (DB 쿼리로 최적화)
+            const user = await db.getUserByEmail(email.toLowerCase());
             if (!user) {
                 return res.status(404).json({ message: '해당 이메일로 가입된 사용자를 찾을 수 없습니다.' });
             }
@@ -1406,10 +1496,9 @@ const startServer = async () => {
                 return res.status(404).json({ message: '사용자를 찾을 수 없습니다.' });
             }
             
-            // 닉네임 중복 확인
-            const allUsers = await db.getAllUsers();
-            const existingUser = allUsers.find(u => u.id !== userId && u.nickname.toLowerCase() === nickname.trim().toLowerCase());
-            if (existingUser) {
+            // 닉네임 중복 확인 (DB 쿼리로 최적화)
+            const existingUser = await db.getUserByNickname(nickname.trim());
+            if (existingUser && existingUser.id !== userId) {
                 return res.status(409).json({ message: '이미 사용 중인 닉네임입니다.' });
             }
             
@@ -1425,31 +1514,33 @@ const startServer = async () => {
     });
 
     app.post('/api/state', async (req, res) => {
-        console.log('[/api/state] Received request');
+        // 프로덕션에서 성능 향상을 위해 로깅 최소화
+        const isDev = process.env.NODE_ENV === 'development';
+        if (isDev) console.log('[/api/state] Received request');
         try {
             const { userId } = req.body;
-            console.log(`[API/State] Received request for userId: ${userId}`);
+            if (isDev) console.log(`[API/State] Received request for userId: ${userId}`);
 
             if (!userId) {
-                console.log('[API/State] No userId provided, returning 401.');
+                if (isDev) console.log('[API/State] No userId provided, returning 401.');
                 return res.status(401).json({ message: '인증 정보가 없습니다.' });
             }
 
-            console.log('[/api/state] Getting user from DB');
+            if (isDev) console.log('[/api/state] Getting user from DB');
             let user = await db.getUser(userId);
-            console.log('[/api/state] User retrieved from DB');
+            if (isDev) console.log('[/api/state] User retrieved from DB');
             if (!user) {
-                console.log(`[API/State] User ${userId} not found, cleaning up connection and returning 401.`);
+                if (isDev) console.log(`[API/State] User ${userId} not found, cleaning up connection and returning 401.`);
                 delete volatileState.userConnections[userId]; // Clean up just in case
                 return res.status(401).json({ message: '세션이 만료되었습니다. 다시 로그인해주세요.' });
             }
-            console.log(`[API/State] User ${user.nickname} found.`);
+            if (isDev) console.log(`[API/State] User ${user.nickname} found.`);
 
-            console.log('[/api/state] Starting migration logic');
+            if (isDev) console.log('[/api/state] Starting migration logic');
             // --- Inventory Slots Migration Logic ---
             let inventorySlotsUpdated = false;
             if (!user.inventorySlotsMigrated) {
-                console.log(`[API/State] User ${user.nickname}: Running inventory slots migration.`);
+                if (isDev) console.log(`[API/State] User ${user.nickname}: Running inventory slots migration.`);
                 let currentEquipmentSlots = 30;
                 let currentConsumableSlots = 30;
                 let currentMaterialSlots = 30;
@@ -1483,11 +1574,11 @@ const startServer = async () => {
                     user.inventorySlotsMigrated = true;
                 }
             }
-            console.log('[/api/state] Finished migration logic');
+            if (isDev) console.log('[/api/state] Finished migration logic');
 
             // Re-establish connection if user is valid but not in volatile memory (e.g., after server restart)
             if (!volatileState.userConnections[userId]) {
-                console.log(`[API/State] User ${user.nickname}: Re-establishing connection.`);
+                if (isDev) console.log(`[API/State] User ${user.nickname}: Re-establishing connection.`);
                 volatileState.userConnections[userId] = Date.now();
                 // If user status is not present (e.g., server restart), set to online.
                 // If it IS present (e.g., they just refreshed), do NOT change it, preserving their 'waiting' status.
@@ -1499,12 +1590,12 @@ const startServer = async () => {
             volatileState.userConnections[userId] = Date.now();
             
             const userBeforeUpdate = JSON.stringify(user);
-            const allUsersForCompetitors = await db.getAllUsers();
-            console.log(`[API/State] User ${user.nickname}: Processing quests, league updates, AP regen, and weekly competitors.`);
+            if (isDev) console.log(`[API/State] User ${user.nickname}: Processing quests, league updates, AP regen, and weekly competitors.`);
             let updatedUser = await resetAndGenerateQuests(user);
             updatedUser = await processWeeklyLeagueUpdates(updatedUser);
             updatedUser = await regenerateActionPoints(updatedUser);
-            updatedUser = await updateWeeklyCompetitorsIfNeeded(updatedUser, allUsersForCompetitors);
+            // updateWeeklyCompetitorsIfNeeded는 내부에서 필요한 유저만 DB에서 조회하도록 최적화됨
+            updatedUser = await updateWeeklyCompetitorsIfNeeded(updatedUser);
             
             // --- Stats Migration Logic ---
             const allGameModesList = [...SPECIAL_GAME_MODES, ...PLAYFUL_GAME_MODES].map(m => m.mode);
@@ -1518,7 +1609,7 @@ const startServer = async () => {
                     statsMigrated = true;
                 }
             }
-            console.log(`[API/State] User ${user.nickname}: Stats migration complete (migrated: ${statsMigrated}).`);
+            if (isDev) console.log(`[API/State] User ${user.nickname}: Stats migration complete (migrated: ${statsMigrated}).`);
             // --- End Migration Logic ---
 
             // --- Equipment Presets Migration Logic ---
@@ -1556,18 +1647,18 @@ const startServer = async () => {
             }
 
             if (userBeforeUpdate !== JSON.stringify(updatedUser) || statsMigrated || inventorySlotsUpdated || presetsMigrated) {
-                console.log(`[API/State] User ${user.nickname}: Updating user in DB.`);
+                if (isDev) console.log(`[API/State] User ${user.nickname}: Updating user in DB.`);
                 await db.updateUser(updatedUser);
                 user = updatedUser; // updatedUser를 반환하기 위해 user에 할당
             }
             
-            console.log('[/api/state] Getting all DB data');
-            console.log(`[API/State] User ${user.nickname}: Getting all DB data.`);
+            if (isDev) console.log('[/api/state] Getting all DB data');
+            if (isDev) console.log(`[API/State] User ${user.nickname}: Getting all DB data.`);
             const dbState = await db.getAllData();
-            console.log('[/api/state] All DB data retrieved');
+            if (isDev) console.log('[/api/state] All DB data retrieved');
     
             // Add ended games that users are still in to the appropriate category
-            console.log(`[API/State] User ${user.nickname}: Processing ended games.`);
+            if (isDev) console.log(`[API/State] User ${user.nickname}: Processing ended games.`);
             for (const status of Object.values(volatileState.userStatuses)) {
                 let gameId: string | undefined;
                 if ('gameId' in status && status.gameId) {
@@ -1606,7 +1697,7 @@ const startServer = async () => {
             }
 
             // Combine persisted state with in-memory volatile state
-            console.log(`[API/State] User ${user.nickname}: Combining states and sending response.`);
+            if (isDev) console.log(`[API/State] User ${user.nickname}: Combining states and sending response.`);
             const fullState: Omit<types.AppState, 'userCredentials'> = {
                 ...dbState,
                 userConnections: volatileState.userConnections,
@@ -1624,7 +1715,28 @@ const startServer = async () => {
         }
     });
 
+    // KataGo 분석 API 엔드포인트 (배포 환경에서 HTTP API로 사용)
+    app.post('/api/katago/analyze', async (req, res) => {
+        try {
+            const query = req.body;
+            if (!query || !query.id) {
+                return res.status(400).json({ error: 'Invalid query: missing id' });
+            }
+
+            // 로컬 KataGo 프로세스를 사용하여 분석 수행
+            const { getKataGoManager } = await import('./kataGoService.js');
+            const manager = getKataGoManager();
+            const response = await manager.query(query);
+            
+            res.json(response);
+        } catch (error: any) {
+            console.error('[KataGo API] Error:', error);
+            res.status(500).json({ error: error.message || 'Internal server error' });
+        }
+    });
+
     app.post('/api/action', async (req, res) => {
+        const startTime = Date.now();
         try {
             const { userId, type, payload } = req.body;
             
@@ -1651,13 +1763,17 @@ const startServer = async () => {
                 return res.status(401).json({ message: '인증 정보가 없습니다.' });
             }
 
+            const getUserStartTime = Date.now();
             const user = await db.getUser(userId);
+            const getUserDuration = Date.now() - getUserStartTime;
+            
             if (!user) {
                 delete volatileState.userConnections[userId];
                 return res.status(401).json({ message: '유효하지 않은 사용자입니다.' });
             }
 
-            // --- Inventory Slots Migration Logic ---
+            // --- Inventory Slots Migration Logic (한 번만 실행) ---
+            // 마이그레이션이 필요한 경우에만 실행하고, DB 업데이트는 비동기로 처리하여 응답 지연 최소화
             if (!user.inventorySlotsMigrated) {
                 let currentEquipmentSlots = 30;
                 let currentConsumableSlots = 30;
@@ -1678,7 +1794,10 @@ const startServer = async () => {
                         material: currentMaterialSlots,
                     };
                     user.inventorySlotsMigrated = true;
-                    await db.updateUser(user);
+                    // DB 업데이트는 비동기로 처리하여 응답 지연 최소화
+                    db.updateUser(user).catch(err => {
+                        console.error(`[API] Failed to migrate inventory slots for user ${userId}:`, err);
+                    });
                 }
             }
             // --- End Migration Logic ---
@@ -1697,13 +1816,22 @@ const startServer = async () => {
                 console.log(`[/api/action] Calling handleAction for type: ${req.body.type}`);
             }
             
-            const result = await handleAction(volatileState, req.body);
+            const handleActionStartTime = Date.now();
+            // 이미 가져온 user를 전달하여 중복 DB 쿼리 방지
+            const result = await handleAction(volatileState, req.body, user);
+            const handleActionDuration = Date.now() - handleActionStartTime;
             
             if (result.error) {
                 if (process.env.NODE_ENV === 'development') {
                     console.log(`[/api/action] Returning 400 error for ${req.body.type}: ${result.error}`);
                 }
                 return res.status(400).json({ message: result.error });
+            }
+            
+            const totalDuration = Date.now() - startTime;
+            // 응답 시간이 1초 이상인 경우에만 로깅 (성능 모니터링)
+            if (totalDuration > 1000) {
+                console.log(`[/api/action] SLOW: ${type} took ${totalDuration}ms (getUser: ${getUserDuration}ms, handleAction: ${handleActionDuration}ms)`);
             }
             
             // 성공 응답 즉시 반환 (불필요한 로깅 제거)
@@ -1722,6 +1850,100 @@ const startServer = async () => {
                 message: '요청 처리 중 오류가 발생했습니다.',
                 error: process.env.NODE_ENV === 'development' ? e.message : undefined
             });
+        }
+    });
+
+    // 긴급 봇 점수 복구 엔드포인트 (7일치 강제 복구)
+    app.post('/api/admin/recover-bot-scores', async (req, res) => {
+        try {
+            console.log('[Admin] ========== 봇 점수 복구 시작 ==========');
+            const { getStartOfDayKST, getKSTFullYear, getKSTMonth, getKSTDate_UTC } = await import('../utils/timeUtils.js');
+            
+            const allUsers = await db.getAllUsers();
+            const now = Date.now();
+            const todayStart = getStartOfDayKST(now);
+            let updatedCount = 0;
+            let totalBotsUpdated = 0;
+            
+            for (const user of allUsers) {
+                if (!user.weeklyCompetitors || user.weeklyCompetitors.length === 0) {
+                    continue;
+                }
+                
+                // DB에서 최신 데이터 가져오기
+                const freshUser = await db.getUser(user.id);
+                if (!freshUser) continue;
+                
+                const updatedUser = JSON.parse(JSON.stringify(freshUser));
+                if (!updatedUser.weeklyCompetitorsBotScores) {
+                    updatedUser.weeklyCompetitorsBotScores = {};
+                }
+                
+                let hasChanges = false;
+                const competitorsUpdateDay = freshUser.lastWeeklyCompetitorsUpdate 
+                    ? getStartOfDayKST(freshUser.lastWeeklyCompetitorsUpdate)
+                    : todayStart;
+                
+                for (const competitor of updatedUser.weeklyCompetitors) {
+                    if (!competitor.id.startsWith('bot-')) {
+                        continue;
+                    }
+                    
+                    const botId = competitor.id;
+                    const daysDiff = 6; // 7일치 (0~6 = 7일)
+                    
+                    let totalGain = 0;
+                    let yesterdayScore = 0;
+                    
+                    // 경쟁상대 업데이트일부터 7일치 점수 계산
+                    for (let dayOffset = 0; dayOffset <= daysDiff; dayOffset++) {
+                        const targetDate = new Date(competitorsUpdateDay + (dayOffset * 24 * 60 * 60 * 1000));
+                        const kstYear = getKSTFullYear(targetDate.getTime());
+                        const kstMonth = getKSTMonth(targetDate.getTime()) + 1;
+                        const kstDate = getKSTDate_UTC(targetDate.getTime());
+                        const dateStr = `${kstYear}-${String(kstMonth).padStart(2, '0')}-${String(kstDate).padStart(2, '0')}`;
+                        const seedStr = `${botId}-${dateStr}`;
+                        
+                        let seed = 0;
+                        for (let i = 0; i < seedStr.length; i++) {
+                            seed = ((seed << 5) - seed) + seedStr.charCodeAt(i);
+                            seed = seed & seed;
+                        }
+                        const randomVal = Math.abs(Math.sin(seed)) * 10000;
+                        const dailyGain = Math.floor((randomVal % 50)) + 1;
+                        totalGain += dailyGain;
+                        
+                        if (dayOffset === daysDiff && daysDiff > 0) {
+                            yesterdayScore = totalGain - dailyGain;
+                        }
+                    }
+                    
+                    updatedUser.weeklyCompetitorsBotScores[botId] = {
+                        score: totalGain,
+                        lastUpdate: now,
+                        yesterdayScore: yesterdayScore
+                    };
+                    
+                    hasChanges = true;
+                    totalBotsUpdated++;
+                    console.log(`[Admin] 봇 ${botId} (${competitor.nickname || 'Unknown'}): ${totalGain}점 (7일치)`);
+                }
+                
+                if (hasChanges) {
+                    // DB에 직접 저장
+                    await db.updateUser(updatedUser);
+                    updatedCount++;
+                    console.log(`[Admin] 유저 ${user.nickname} (${user.id}) 업데이트 완료`);
+                }
+            }
+            
+            console.log(`[Admin] ========== 봇 점수 복구 완료 ==========`);
+            console.log(`[Admin] 업데이트된 유저: ${updatedCount}명, 총 봇 수: ${totalBotsUpdated}개`);
+            res.status(200).json({ success: true, message: `봇 점수 복구 완료. ${updatedCount}명의 유저, ${totalBotsUpdated}개의 봇 업데이트됨.` });
+        } catch (error: any) {
+            console.error('[Admin] 봇 점수 복구 오류:', error);
+            console.error('[Admin] 오류 스택:', error.stack);
+            res.status(500).json({ error: error.message });
         }
     });
 

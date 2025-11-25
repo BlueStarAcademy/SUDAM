@@ -335,9 +335,9 @@ const SinglePlayerSummaryModal: React.FC<SinglePlayerSummaryModalProps> = ({ ses
             onClose={() => handleClose(session, onClose)} 
             windowId="sp-summary-redesigned"
             initialWidth={isMobile ? 600 : 900}
-            initialHeight={isMobile ? 560 : 760}
+            initialHeight={undefined}
         >
-            <div className={`text-white ${isMobile ? 'text-sm' : 'text-[clamp(0.875rem,2.5vw,1.125rem)]'} flex flex-col ${isMobile ? 'max-h-[85vh]' : 'h-full'} overflow-y-auto`}>
+            <div className={`text-white ${isMobile ? 'text-sm' : 'text-[clamp(0.875rem,2.5vw,1.125rem)]'} flex flex-col`}>
                 {/* Title */}
                 {(analysisResult || (isEnded && session.winner !== null)) && (
                     <h1 className={`${isMobile ? 'text-base' : 'text-2xl'} font-black text-center mb-1 sm:mb-2 tracking-widest flex-shrink-0 ${isWinner ? 'text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 via-amber-300 to-yellow-400' : 'text-red-400'}`} style={{ fontSize: isMobile ? `${14 * mobileTextScale}px` : undefined }}>
@@ -355,11 +355,11 @@ const SinglePlayerSummaryModal: React.FC<SinglePlayerSummaryModalProps> = ({ ses
                     </h1>
                 )}
                 
-                <div className={`flex flex-row gap-1.5 sm:gap-2 overflow-hidden flex-1 min-h-0`}>
+                <div className={`flex flex-row gap-1.5 sm:gap-2`}>
                     {/* Left Panel: 경기 결과 */}
-                    <div className={`w-1/2 bg-gray-900/50 ${isMobile ? 'p-1.5' : 'p-2'} rounded-lg overflow-y-auto flex flex-col sp-summary-left-panel`}>
+                    <div className={`w-1/2 bg-gray-900/50 ${isMobile ? 'p-1.5' : 'p-2'} rounded-lg flex flex-col sp-summary-left-panel`}>
                         <h2 className={`${isMobile ? 'text-xs' : 'text-base'} font-bold text-center text-gray-200 mb-1 sm:mb-2 border-b border-gray-700 pb-0.5 sm:pb-1 flex-shrink-0`} style={{ fontSize: isMobile ? `${11 * mobileTextScale}px` : '15px' }}>경기 결과</h2>
-                        <div className="flex-1 min-h-0 flex flex-col gap-1.5">
+                        <div className="flex flex-col gap-1.5">
                             {/* 경기 정보 */}
                             {(analysisResult || (isEnded && session.winner !== null)) && (
                                 <div className={`${isMobile ? 'p-1' : 'p-1.5'} bg-gray-800/50 rounded-lg space-y-0.5 flex-shrink-0`}>
@@ -406,9 +406,9 @@ const SinglePlayerSummaryModal: React.FC<SinglePlayerSummaryModalProps> = ({ ses
                     </div>
                     
                     {/* Right Panel: 획득 보상 */}
-                    <div className={`w-1/2 bg-gray-900/50 ${isMobile ? 'p-1.5' : 'p-2'} rounded-lg overflow-y-auto flex flex-col`}>
+                    <div className={`w-1/2 bg-gray-900/50 ${isMobile ? 'p-1.5' : 'p-2'} rounded-lg flex flex-col`}>
                         <h2 className={`${isMobile ? 'text-xs' : 'text-base'} font-bold text-center text-gray-200 mb-1 sm:mb-2 border-b border-gray-700 pb-0.5 sm:pb-1 flex-shrink-0`} style={{ fontSize: isMobile ? `${11 * mobileTextScale}px` : '15px' }}>획득 보상</h2>
-                        <div className="flex-1 min-h-0 flex flex-col gap-1.5">
+                        <div className="flex flex-col gap-1.5">
                             {/* 유저 프로필 */}
                             <div className={`${isMobile ? 'p-1' : 'p-1.5'} bg-gray-800/50 rounded-lg flex items-center gap-1.5 flex-shrink-0`}>
                                 <Avatar
@@ -462,7 +462,7 @@ const SinglePlayerSummaryModal: React.FC<SinglePlayerSummaryModalProps> = ({ ses
                             {/* 보상 박스들 */}
                             {summary ? (
                                 <>
-                                    {((summary.gold ?? 0) > 0 || (summary.xp && summary.xp.change > 0) || (summary.items && summary.items.length > 0)) ? (
+                                    {((summary.gold ?? 0) > 0 || (summary.xp?.change ?? 0) > 0 || (summary.items && summary.items.length > 0)) ? (
                                         <div className="flex gap-1.5 justify-center items-stretch flex-wrap">
                                             {/* Gold Reward */}
                                             {(summary.gold ?? 0) > 0 && (

@@ -35,6 +35,8 @@ export type HandleActionResult = {
     matchingInfo?: any;
     error?: string;
     claimAllTrainingQuestRewards?: any;
+    gameId?: string;
+    donationResult?: any;
 };
 
 export interface AppState {
@@ -149,6 +151,7 @@ export type ServerAction =
     | { type: 'LAUNCH_MISSILE', payload: { gameId: string, from: Point, direction: 'up' | 'down' | 'left' | 'right' } }
     | { type: 'MISSILE_INVALID_SELECTION', payload: { gameId: string } }
     | { type: 'CANCEL_MISSILE_SELECTION', payload: { gameId: string } }
+    | { type: 'MISSILE_ANIMATION_COMPLETE', payload: { gameId: string } }
     // Omok
     | { type: 'OMOK_PLACE_STONE', payload: { gameId: string, x: number, y: number } }
     // Turn Preference (Alkkagi, Curling, Omok, Ttamok)
@@ -183,6 +186,9 @@ export type ServerAction =
     | { type: 'UPDATE_AVATAR', payload: { avatarId: string } }
     | { type: 'UPDATE_BORDER', payload: { borderId: string } }
     | { type: 'CHANGE_NICKNAME', payload: { newNickname: string } }
+    | { type: 'CHANGE_USERNAME', payload: { newUsername: string; password: string } }
+    | { type: 'CHANGE_PASSWORD', payload: { currentPassword: string; newPassword: string } }
+    | { type: 'WITHDRAW_USER', payload: { password: string; confirmText: string } }
     | { type: 'UPDATE_MBTI', payload: { mbti: string, isMbtiPublic: boolean, isFirstTime?: boolean } }
     | { type: 'RESET_STAT_POINTS', payload?: never }
     | { type: 'CONFIRM_STAT_ALLOCATION', payload: { newStatPoints: any } }

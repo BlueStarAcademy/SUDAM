@@ -113,6 +113,7 @@ export const createDefaultUser = (id: string, username: string, nickname: string
         tournamentScore: 0,
         league: LeagueTier.Sprout,
         weeklyCompetitors: [],
+        weeklyCompetitorsBotScores: {},
         lastWeeklyCompetitorsUpdate: 0,
         lastLeagueUpdate: 0,
         monthlyGoldBuffExpiresAt: 0,

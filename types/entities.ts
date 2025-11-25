@@ -882,6 +882,7 @@ export type Guild = {
     totalDamageLog?: Record<string, number>;
   } | null;
   weeklyMissions?: GuildMission[];
+  lastMissionReset?: number;
   applicants?: Array<{ userId: string; appliedAt: number }>;
   recruitmentBanUntil?: number;
   createdAt: number;

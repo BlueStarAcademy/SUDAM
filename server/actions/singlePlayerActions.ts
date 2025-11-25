@@ -153,7 +153,7 @@ const getAiLevelFromStageId = (stageId: string): number => {
     }
 };
 
-const generateSinglePlayerBoard = (stage: SinglePlayerStageInfo): { board: BoardState, blackPattern: Point[], whitePattern: Point[] } => {
+const generateSinglePlayerBoard = (stage: SinglePlayerStageInfo): { board: BoardState, blackPattern: Point[], whitePattern: Point[], aiHiddenStone?: Point } => {
     const board = Array(stage.boardSize).fill(null).map(() => Array(stage.boardSize).fill(Player.None));
     const center = Math.floor(stage.boardSize / 2);
     let blackToPlace = stage.placements.black;
@@ -169,7 +169,26 @@ const generateSinglePlayerBoard = (stage: SinglePlayerStageInfo): { board: Board
     placeStonesOnBoard(board, stage.boardSize, stage.placements.white, Player.White);
     placeStonesOnBoard(board, stage.boardSize, blackToPlace, Player.Black); // Place remaining black stones
     
-    return { board, blackPattern: blackPatternStones, whitePattern: whitePatternStones };
+    // 고급반 스테이지에서 히든바둑 모드인 경우 백의 히든돌 1개 추가 배치
+    let aiHiddenStone: Point | undefined = undefined;
+    if (stage.level === SinglePlayerLevel.고급 && stage.hiddenCount !== undefined) {
+        // 빈 공간 중 하나를 선택하여 백의 히든돌 배치
+        const emptySpots: Point[] = [];
+        for (let y = 0; y < stage.boardSize; y++) {
+            for (let x = 0; x < stage.boardSize; x++) {
+                if (board[y][x] === Player.None) {
+                    emptySpots.push({ x, y });
+                }
+            }
+        }
+        if (emptySpots.length > 0) {
+            const randomSpot = emptySpots[Math.floor(Math.random() * emptySpots.length)];
+            board[randomSpot.y][randomSpot.x] = Player.White;
+            aiHiddenStone = randomSpot;
+        }
+    }
+    
+    return { board, blackPattern: blackPatternStones, whitePattern: whitePatternStones, aiHiddenStone };
 };
 
 
@@ -232,7 +251,7 @@ export const handleSinglePlayerAction = async (volatileState: VolatileState, act
                 playfulLevel: botLevel,
             };
             
-            const { board, blackPattern, whitePattern } = generateSinglePlayerBoard(stage);
+            const { board, blackPattern, whitePattern, aiHiddenStone } = generateSinglePlayerBoard(stage);
 
             // 살리기 바둑 모드 확인 (survivalTurns > 0일 때만 살리기 바둑 모드)
             const isSurvivalMode = stage.survivalTurns !== undefined && stage.survivalTurns > 0;
@@ -324,6 +343,28 @@ export const handleSinglePlayerAction = async (volatileState: VolatileState, act
             if (gameMode === GameMode.Hidden) {
                 const { initializeSinglePlayerHidden } = await import('../modes/singlePlayerHidden.js');
                 initializeSinglePlayerHidden(game);
+                
+                // 고급반 스테이지에서 백의 히든돌 1개를 별도 필드로 관리 (moveHistory에 추가하지 않음)
+                // AI는 이 히든돌을 알고 있지만 유저는 모름
+                if (aiHiddenStone) {
+                    // AI 히든돌을 별도 필드로 저장 (턴 카운팅에 영향 없음)
+                    if (!(game as any).aiInitialHiddenStone) {
+                        (game as any).aiInitialHiddenStone = {
+                            x: aiHiddenStone.x,
+                            y: aiHiddenStone.y,
+                            player: Player.White
+                        };
+                    }
+                    
+                    // 보드 상태에 히든돌 배치 (유저에게는 보이지 않음)
+                    game.boardState[aiHiddenStone.y][aiHiddenStone.x] = Player.White;
+                    
+                    // AI가 아는 히든돌 목록에 추가
+                    if (!(game as any).aiKnownHiddenStones) {
+                        (game as any).aiKnownHiddenStones = {};
+                    }
+                    (game as any).aiKnownHiddenStones[`${aiHiddenStone.x},${aiHiddenStone.y}`] = true;
+                }
             }
             
             // 미사일바둑 초기화 (싱글플레이용)

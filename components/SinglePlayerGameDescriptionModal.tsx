@@ -3,7 +3,7 @@ import { LiveGameSession, SinglePlayerStageInfo } from '../types.js';
 import { SINGLE_PLAYER_STAGES } from '../constants/singlePlayerConstants.js';
 import { TOWER_STAGES } from '../constants/towerConstants.js';
 import { SPECIAL_GAME_MODES, PLAYFUL_GAME_MODES } from '../constants/gameModes.js';
-import { GameMode, Player } from '../types/enums.js';
+import { GameMode, Player, SinglePlayerLevel } from '../types/enums.js';
 import Button from './Button.js';
 
 interface SinglePlayerGameDescriptionModalProps {
@@ -288,6 +288,16 @@ const SinglePlayerGameDescriptionModal: React.FC<SinglePlayerGameDescriptionModa
                                                 <br />
                                                 <span className="text-gray-300 text-xs">• 아이템 사용 시 30초의 제한시간이 부여됩니다.</span>
                                             </p>
+                                            {/* 고급반 스테이지에서 AI봇의 히든돌 안내 */}
+                                            {stage.level === SinglePlayerLevel.고급 && (
+                                                <div className="mt-2 p-2 bg-purple-900/30 rounded border border-purple-500/50">
+                                                    <p className="text-purple-200 text-xs">
+                                                        <span className="font-semibold">⚠️ 주의:</span> AI봇이 이미 <span className="text-yellow-300 font-bold">히든돌 1개</span>를 숨겨두고 있습니다. 
+                                                        <br />
+                                                        <span className="text-purple-300">스캔 아이템을 사용하여 찾아보세요!</span>
+                                                    </p>
+                                                </div>
+                                            )}
                                         </div>
                                     )}
                                     

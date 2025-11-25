@@ -217,12 +217,12 @@ export function openMaterialBox(boxId: 'material_box_1' | 'material_box_2' | 'ma
             ...template,
             id: `item-${randomUUID()}`,
             createdAt: Date.now(),
-            quantity,
+            quantity: quantity ?? 1,
             isEquipped: false,
             level: 1,
             stars: 0,
         };
-    }).filter((item): item is InventoryItem => item !== null);
+    }).filter((item): item is NonNullable<typeof item> => item !== null && item !== undefined) as InventoryItem[];
 }
 
 export const SHOP_ITEMS: { [key: string]: { type: 'equipment' | 'material'; name: string; description: string; cost: { gold?: number, diamonds?: number }; onPurchase: () => any, image: string, dailyLimit?: number, weeklyLimit?: number } } = {

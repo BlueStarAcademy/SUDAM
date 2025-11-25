@@ -50,7 +50,7 @@ const GuildDonationPanel: React.FC<{ guildDonationAnimation: { coins: number; re
         setIsDonating(true);
         setDonationType(type === 'GUILD_DONATE_GOLD' ? 'gold' : 'diamond');
         try {
-            const result = await handlers.handleAction({ type });
+            const result = await handlers.handleAction({ type }) as any;
             console.log('[GuildDonationPanel] Donation result:', result);
             console.log('[GuildDonationPanel] result.clientResponse:', result?.clientResponse);
             console.log('[GuildDonationPanel] result.donationResult:', result?.donationResult);
@@ -646,8 +646,8 @@ const GuildIconSelectModal: React.FC<{ guild: GuildType; onClose: () => void; on
 
 interface GuildDashboardProps {
     guild: GuildType;
-    guildDonationAnimation: { coins: number; research: number } | null;
-    onDonationComplete?: (coins: number, research: number) => void;
+    guildDonationAnimation: { coins: number; research: number; type: 'gold' | 'diamond' } | null;
+    onDonationComplete?: (coins: number, research: number, type: 'gold' | 'diamond') => void;
 }
 
 type GuildTab = 'home' | 'members' | 'management';

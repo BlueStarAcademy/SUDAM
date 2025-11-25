@@ -101,6 +101,8 @@ const processSinglePlayerGameSummary = async (game: LiveGameSession) => {
             ? stage.rewards.firstClear 
             : stage.rewards.repeatClear;
         
+        console.log(`[SP Summary] Stage ${stage.id} - isFirstClear: ${isFirstClear}, rewards: gold=${rewards.gold}, exp=${rewards.exp}`);
+        
         // 최초 클리어인 경우 clearedSinglePlayerStages에 추가
         if (isFirstClear) {
             user.clearedSinglePlayerStages.push(stage.id);
@@ -119,6 +121,8 @@ const processSinglePlayerGameSummary = async (game: LiveGameSession) => {
         
         summary.gold = rewards.gold;
         summary.xp = { initial: initialXp, change: rewards.exp, final: user.strategyXp };
+        
+        console.log(`[SP Summary] Rewards applied - summary.gold=${summary.gold}, summary.xp.change=${summary.xp.change}, user.gold=${user.gold}, user.strategyXp=${user.strategyXp}`);
         
         // 아이템 보상 처리
         const itemsToCreate = rewards.items ? createItemInstancesFromReward(rewards.items) : [];
@@ -178,6 +182,8 @@ const processSinglePlayerGameSummary = async (game: LiveGameSession) => {
     // Always create a summary object, even on loss (with no rewards)
     if (!game.summary) game.summary = {};
     game.summary[user.id] = summary;
+    
+    console.log(`[SP Summary] Final summary for user ${user.id}:`, JSON.stringify(summary));
     
     // Handle level up logic after potentially adding XP
     let currentLevel = user.strategyLevel;
@@ -916,9 +922,14 @@ const processPlayerSummary = async (
     // Apply rewards
     const itemDropBonus = effects.specialStatBonuses[SpecialStat.ItemDropRate].percent;
     const materialDropBonus = effects.specialStatBonuses[SpecialStat.MaterialDropRate].percent;
-    const rewards = isNoContest
+    let rewards = isNoContest
         ? { gold: 0, items: [] }
         : calculateGameRewards(game, updatedPlayer, isWinner, isDraw, itemDropBonus, materialDropBonus, rewardMultiplier, effects);
+
+    // 친선전(랭킹전 제외)에서는 골드 보상만 절반으로 감소 (아이템 획득 확률은 유지)
+    if (!isNoContest && !game.isRankedGame && !isAiGame) {
+        rewards.gold = Math.round(rewards.gold * 0.5);
+    }
 
     updatedPlayer.gold += rewards.gold;
 
@@ -970,7 +981,7 @@ const processPlayerSummary = async (
 };
 
 export const processGameSummary = async (game: LiveGameSession): Promise<void> => {
-    const { winner, player1, player2, blackPlayerId, whitePlayerId, noContestInitiatorIds } = game;
+    const { winner, player1, player2, blackPlayerId, whitePlayerId, noContestInitiatorIds, winReason } = game;
     if (!player1 || !player2) {
         console.error(`[Summary] Missing player data for game ${game.id}`);
         return;
@@ -978,6 +989,7 @@ export const processGameSummary = async (game: LiveGameSession): Promise<void> =
     
     const isDraw = winner === Player.None;
     const isNoContest = game.gameStatus === 'no_contest';
+    const isStrategic = SPECIAL_GAME_MODES.some(m => m.mode === game.mode);
 
     const p1 = player1.id === aiUserId ? getAiUser(game.mode) : await db.getUser(player1.id);
     // 싱글플레이 게임의 경우 player2는 이미 스테이지별로 설정된 AI 유저이므로 덮어쓰지 않음
@@ -998,6 +1010,97 @@ export const processGameSummary = async (game: LiveGameSession): Promise<void> =
     
     const p1IsNoContestInitiator = isNoContest && (noContestInitiatorIds?.includes(p1.id) ?? false);
     const p2IsNoContestInitiator = isNoContest && (noContestInitiatorIds?.includes(p2.id) ?? false);
+
+    // 전략바둑 무효처리 시 행동력 환불 처리
+    if (isNoContest && isStrategic && !game.isSinglePlayer && !game.isAiGame) {
+        const { STRATEGIC_ACTION_POINT_COST } = await import('../constants');
+        const cost = STRATEGIC_ACTION_POINT_COST;
+        
+        // 기권으로 무효처리된 경우: 기권한 유저는 행동력 소모 유지, 상대방은 행동력 환불
+        if (winReason === 'resign' && winner !== Player.None) {
+            // 기권한 사람은 winner의 상대방
+            const resignedPlayerId = (winner === Player.Black && p1.id === blackPlayerId) || (winner === Player.White && p1.id === whitePlayerId)
+                ? p2.id
+                : p1.id;
+            
+            // 기권한 사람이 아닌 상대방에게 행동력 환불
+            if (resignedPlayerId === p1.id && p2.id !== aiUserId && !p2.isAdmin) {
+                p2.actionPoints.current = Math.min(
+                    p2.actionPoints.max,
+                    p2.actionPoints.current + cost
+                );
+                p2.lastActionPointUpdate = Date.now();
+                await db.updateUser(p2);
+                const { broadcast } = await import('./socket.js');
+                broadcast({ type: 'USER_UPDATE', payload: { [p2.id]: p2 } });
+            } else if (resignedPlayerId === p2.id && p1.id !== aiUserId && !p1.isAdmin) {
+                p1.actionPoints.current = Math.min(
+                    p1.actionPoints.max,
+                    p1.actionPoints.current + cost
+                );
+                p1.lastActionPointUpdate = Date.now();
+                await db.updateUser(p1);
+                const { broadcast } = await import('./socket.js');
+                broadcast({ type: 'USER_UPDATE', payload: { [p1.id]: p1 } });
+            }
+        } else if (winReason === 'disconnect' && game.moveHistory.length < 20) {
+            // 20수 이내 접속장애로 무효처리된 경우: 접속이 끊어진 유저는 행동력 소모 유지, 무효처리를 당한 유저는 행동력 환불
+            // 접속이 끊어진 유저 찾기 (disconnectionCounts가 있는 유저)
+            const disconnectedPlayerId = game.disconnectionCounts?.[p1.id] > 0 ? p1.id : p2.id;
+            
+            // 접속이 끊어진 유저가 아닌 상대방에게 행동력 환불
+            if (disconnectedPlayerId === p1.id && p2.id !== aiUserId && !p2.isAdmin) {
+                p2.actionPoints.current = Math.min(
+                    p2.actionPoints.max,
+                    p2.actionPoints.current + cost
+                );
+                p2.lastActionPointUpdate = Date.now();
+                await db.updateUser(p2);
+                const { broadcast } = await import('./socket.js');
+                broadcast({ type: 'USER_UPDATE', payload: { [p2.id]: p2 } });
+            } else if (disconnectedPlayerId === p2.id && p1.id !== aiUserId && !p1.isAdmin) {
+                p1.actionPoints.current = Math.min(
+                    p1.actionPoints.max,
+                    p1.actionPoints.current + cost
+                );
+                p1.lastActionPointUpdate = Date.now();
+                await db.updateUser(p1);
+                const { broadcast } = await import('./socket.js');
+                broadcast({ type: 'USER_UPDATE', payload: { [p1.id]: p1 } });
+            }
+        } else {
+            // 기권이 아닌 경우 (예: 1분 경과 후 무효처리): 양쪽 모두 행동력 환불
+            if (p1.id !== aiUserId && !p1.isAdmin) {
+                p1.actionPoints.current = Math.min(
+                    p1.actionPoints.max,
+                    p1.actionPoints.current + cost
+                );
+                p1.lastActionPointUpdate = Date.now();
+                await db.updateUser(p1);
+            }
+            if (p2.id !== aiUserId && !p2.isAdmin) {
+                p2.actionPoints.current = Math.min(
+                    p2.actionPoints.max,
+                    p2.actionPoints.current + cost
+                );
+                p2.lastActionPointUpdate = Date.now();
+                await db.updateUser(p2);
+            }
+            const { broadcast } = await import('./socket.js');
+            if (p1.id !== aiUserId && !p1.isAdmin) {
+                broadcast({ type: 'USER_UPDATE', payload: { [p1.id]: p1 } });
+            }
+            if (p2.id !== aiUserId && !p2.isAdmin) {
+                broadcast({ type: 'USER_UPDATE', payload: { [p2.id]: p2 } });
+            }
+            if (p1.id !== aiUserId && !p1.isAdmin) {
+                broadcast({ type: 'USER_UPDATE', payload: { [p1.id]: p1 } });
+            }
+            if (p2.id !== aiUserId && !p2.isAdmin) {
+                broadcast({ type: 'USER_UPDATE', payload: { [p2.id]: p2 } });
+            }
+        }
+    }
 
     if (!game.summary) game.summary = {}; // Initialize summary object
 

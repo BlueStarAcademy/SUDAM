@@ -112,7 +112,7 @@ export const updateStrategicGameState = async (game: types.LiveGameSession, now:
     if (game.isSinglePlayer) {
         const { updateSinglePlayerHiddenState } = await import('./singlePlayerHidden.js');
         const { updateSinglePlayerMissileState } = await import('./singlePlayerMissile.js');
-        updateSinglePlayerHiddenState(game, now);
+        await updateSinglePlayerHiddenState(game, now);
         const missileStateChanged = await updateSinglePlayerMissileState(game, now);
         if (missileStateChanged) {
             (game as any)._missileStateChanged = true;
@@ -215,22 +215,53 @@ const handleStandardAction = async (volatileState: types.VolatileState, game: ty
                 return { error: '내 차례가 아닙니다.' };
             }
 
-            const { x, y, isHidden } = payload;
+            const { x, y, isHidden, boardState: clientBoardState, moveHistory: clientMoveHistory } = payload;
+            
+            // 클라이언트에서 보낸 boardState를 우선적으로 사용 (더 최신 상태일 수 있음)
+            if (clientBoardState && Array.isArray(clientBoardState) && clientBoardState.length > 0) {
+                console.log(`[handleStandardAction] PLACE_STONE: using client boardState, gameId=${game.id}`);
+                game.boardState = clientBoardState;
+            }
+            if (clientMoveHistory && Array.isArray(clientMoveHistory) && clientMoveHistory.length > 0) {
+                console.log(`[handleStandardAction] PLACE_STONE: using client moveHistory, gameId=${game.id}`);
+                game.moveHistory = clientMoveHistory;
+            }
+            
             const opponentPlayerEnum = myPlayerEnum === types.Player.Black ? types.Player.White : (myPlayerEnum === types.Player.White ? types.Player.Black : types.Player.None);
             const stoneAtTarget = game.boardState[y][x];
 
+            // 싱글플레이 모드에서 AI 초기 히든돌 확인
+            const isAiInitialHiddenStone = game.isSinglePlayer && 
+                (game as any).aiInitialHiddenStone &&
+                (game as any).aiInitialHiddenStone.x === x &&
+                (game as any).aiInitialHiddenStone.y === y &&
+                !game.permanentlyRevealedStones?.some(p => p.x === x && p.y === y);
+
             const moveIndexAtTarget = game.moveHistory.findIndex(m => m.x === x && m.y === y);
             const isTargetHiddenOpponentStone =
-                stoneAtTarget === opponentPlayerEnum &&
+                (stoneAtTarget === opponentPlayerEnum &&
                 moveIndexAtTarget !== -1 &&
                 game.hiddenMoves?.[moveIndexAtTarget] &&
-                !game.permanentlyRevealedStones?.some(p => p.x === x && p.y === y);
+                !game.permanentlyRevealedStones?.some(p => p.x === x && p.y === y)) ||
+                isAiInitialHiddenStone;
 
             if (stoneAtTarget !== types.Player.None && !isTargetHiddenOpponentStone) {
                 return {}; // Silently fail if placing on a visible stone
             }
 
             if (isTargetHiddenOpponentStone) {
+                // AI 초기 히든돌인 경우 moveHistory에 추가
+                if (isAiInitialHiddenStone) {
+                    if (!game.hiddenMoves) game.hiddenMoves = {};
+                    const hiddenMoveIndex = game.moveHistory.length;
+                    game.moveHistory.push({
+                        player: opponentPlayerEnum,
+                        x: x,
+                        y: y
+                    });
+                    game.hiddenMoves[hiddenMoveIndex] = true;
+                }
+                
                 game.captures[myPlayerEnum] += 5; // Hidden stones are worth 5 points
                 game.hiddenStoneCaptures[myPlayerEnum]++;
                 
@@ -247,6 +278,14 @@ const handleStandardAction = async (volatileState: types.VolatileState, game: ty
                     duration: 2000 
                 };
                 game.revealAnimationEndTime = now + 2000;
+                game.gameStatus = 'hidden_reveal_animating';
+                
+                // 시간 일시정지
+                if (game.turnDeadline) {
+                    game.pausedTurnTimeLeft = (game.turnDeadline - now) / 1000;
+                    game.turnDeadline = undefined;
+                    game.turnStartTime = undefined;
+                }
                 
                 return {};
             }
@@ -280,18 +319,24 @@ const handleStandardAction = async (volatileState: types.VolatileState, game: ty
                     for (const n of neighbors) {
                         const neighborKey = `${n.x},${n.y}`;
                         if (checkedStones.has(neighborKey) || boardAfterMove[n.y][n.x] !== myPlayerEnum) continue;
-                        checkedStones.add(neighborKey);
-                        const isCurrentMove = n.x === x && n.y === y;
-                        let isHiddenStone = isCurrentMove ? isHidden : false;
-                        if (!isCurrentMove) {
-                            const moveIndex = game.moveHistory.findIndex(m => m.x === n.x && m.y === n.y);
-                            isHiddenStone = moveIndex !== -1 && !!game.hiddenMoves?.[moveIndex];
+                    checkedStones.add(neighborKey);
+                    const isCurrentMove = n.x === x && n.y === y;
+                    let isHiddenStone = isCurrentMove ? isHidden : false;
+                    if (!isCurrentMove) {
+                        const moveIndex = game.moveHistory.findIndex(m => m.x === n.x && m.y === n.y);
+                        isHiddenStone = moveIndex !== -1 && !!game.hiddenMoves?.[moveIndex];
+                        // AI 초기 히든돌 확인
+                        if (!isHiddenStone && game.isSinglePlayer && (game as any).aiInitialHiddenStone) {
+                            const aiHidden = (game as any).aiInitialHiddenStone;
+                            isHiddenStone = n.x === aiHidden.x && n.y === aiHidden.y &&
+                                !game.permanentlyRevealedStones?.some(p => p.x === n.x && p.y === n.y);
                         }
-                        if (isHiddenStone) {
-                            if (!game.permanentlyRevealedStones || !game.permanentlyRevealedStones.some(p => p.x === n.x && p.y === n.y)) {
-                                contributingHiddenStones.push({ point: { x: n.x, y: n.y }, player: myPlayerEnum });
-                            }
+                    }
+                    if (isHiddenStone) {
+                        if (!game.permanentlyRevealedStones || !game.permanentlyRevealedStones.some(p => p.x === n.x && p.y === n.y)) {
+                            contributingHiddenStones.push({ point: { x: n.x, y: n.y }, player: myPlayerEnum });
                         }
+                    }
                     }
                 }
             }
@@ -305,6 +350,27 @@ const handleStandardAction = async (volatileState: types.VolatileState, game: ty
                         if (!isPermanentlyRevealed) {
                             capturedHiddenStones.push({ point: capturedStone, player: opponentPlayerEnum });
                         }
+                    }
+                }
+            }
+            
+            // AI 초기 히든돌이 따내진 경우 확인
+            if (game.isSinglePlayer && (game as any).aiInitialHiddenStone) {
+                const aiHidden = (game as any).aiInitialHiddenStone;
+                const isCaptured = result.capturedStones.some(s => s.x === aiHidden.x && s.y === aiHidden.y);
+                if (isCaptured) {
+                    const isPermanentlyRevealed = game.permanentlyRevealedStones?.some(p => p.x === aiHidden.x && p.y === aiHidden.y);
+                    if (!isPermanentlyRevealed) {
+                        // AI 초기 히든돌을 moveHistory에 추가
+                        if (!game.hiddenMoves) game.hiddenMoves = {};
+                        const hiddenMoveIndex = game.moveHistory.length;
+                        game.moveHistory.push({
+                            player: opponentPlayerEnum,
+                            x: aiHidden.x,
+                            y: aiHidden.y
+                        });
+                        game.hiddenMoves[hiddenMoveIndex] = true;
+                        capturedHiddenStones.push({ point: { x: aiHidden.x, y: aiHidden.y }, player: opponentPlayerEnum });
                     }
                 }
             }

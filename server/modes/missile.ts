@@ -529,7 +529,7 @@ export const handleMissileAction = (game: types.LiveGameSession, action: types.S
                 return { error: "Animation already in progress." };
             }
             
-            const { from, direction } = payload;
+            const { from, direction, boardState: clientBoardState, moveHistory: clientMoveHistory } = payload;
             if (!from || !direction) {
                 console.warn(`[Missile Go] LAUNCH_MISSILE failed: missing from or direction, payload=${JSON.stringify(payload)}, gameId=${game.id}`);
                 return { error: "Invalid payload: missing from or direction." };
@@ -540,10 +540,28 @@ export const handleMissileAction = (game: types.LiveGameSession, action: types.S
                 return { error: "Invalid stone position." };
             }
             
+            // 클라이언트에서 보낸 boardState를 우선적으로 사용 (더 최신 상태일 수 있음)
+            const boardStateToUse = (clientBoardState && Array.isArray(clientBoardState) && clientBoardState.length > 0) 
+                ? clientBoardState 
+                : game.boardState;
+            const moveHistoryToUse = (clientMoveHistory && Array.isArray(clientMoveHistory) && clientMoveHistory.length > 0)
+                ? clientMoveHistory
+                : game.moveHistory;
+            
+            // 클라이언트의 boardState를 서버의 boardState에 반영 (동기화)
+            if (clientBoardState && Array.isArray(clientBoardState) && clientBoardState.length > 0) {
+                console.log(`[Missile Go] LAUNCH_MISSILE: using client boardState for validation, gameId=${game.id}`);
+                game.boardState = clientBoardState;
+            }
+            if (clientMoveHistory && Array.isArray(clientMoveHistory) && clientMoveHistory.length > 0) {
+                console.log(`[Missile Go] LAUNCH_MISSILE: using client moveHistory for validation, gameId=${game.id}`);
+                game.moveHistory = clientMoveHistory;
+            }
+            
             // 미사일 바둑에서는 boardState와 moveHistory를 모두 확인
             // (새로 놓은 돌이 boardState에 아직 반영되지 않았을 수 있음)
-            const stoneAtFrom = game.boardState[from.y]?.[from.x];
-            const moveAtFrom = game.moveHistory.find(m => m.x === from.x && m.y === from.y && m.player === myPlayerEnum);
+            const stoneAtFrom = boardStateToUse[from.y]?.[from.x];
+            const moveAtFrom = moveHistoryToUse.find(m => m.x === from.x && m.y === from.y && m.player === myPlayerEnum);
             const isMyStone = stoneAtFrom === myPlayerEnum || !!moveAtFrom;
             
             if (!isMyStone) {
@@ -557,7 +575,8 @@ export const handleMissileAction = (game: types.LiveGameSession, action: types.S
                 game.boardState[from.y][from.x] = myPlayerEnum;
             }
             
-            // 미사일 경로 계산
+            // 미사일 경로 계산 (클라이언트의 boardState와 moveHistory를 사용)
+            // 클라이언트의 boardState를 서버에 반영한 상태로 경로 계산
             const { to, revealedHiddenStone } = calculateMissilePath(game, from, direction, myPlayerEnum);
             
             if (to.x === from.x && to.y === from.y) {
@@ -574,6 +593,26 @@ export const handleMissileAction = (game: types.LiveGameSession, action: types.S
                     if (!game.permanentlyRevealedStones.some(p => p.x === revealedHiddenStone.x && p.y === revealedHiddenStone.y)) {
                         game.permanentlyRevealedStones.push({ x: revealedHiddenStone.x, y: revealedHiddenStone.y });
                     }
+                }
+            }
+            
+            // 목적지에 이미 상대방 돌이 있는지 확인 (덮어씌우기 방지)
+            const stoneAtTo = game.boardState[to.y]?.[to.x];
+            const opponentEnum = myPlayerEnum === types.Player.Black ? types.Player.White : types.Player.Black;
+            const moveAtTo = game.moveHistory.find(m => m.x === to.x && m.y === to.y);
+            const isOpponentMoveAtTo = moveAtTo && moveAtTo.player === opponentEnum;
+            
+            // boardState에 상대방 돌이 있거나, moveHistory에 상대방 돌이 있는 경우 확인
+            if (stoneAtTo === opponentEnum || isOpponentMoveAtTo) {
+                // 상대방 돌이 있는 경우, 히든 돌이 아닌지 확인
+                const moveIndexAtTo = game.moveHistory.findIndex(m => m.x === to.x && m.y === to.y);
+                const isHiddenStoneAtTo = moveIndexAtTo !== -1 && !!game.hiddenMoves?.[moveIndexAtTo];
+                const isPermanentlyRevealedAtTo = game.permanentlyRevealedStones?.some(p => p.x === to.x && p.y === to.y);
+                
+                // 히든 돌이 아니거나 이미 공개된 돌이면 에러 반환
+                if (!isHiddenStoneAtTo || isPermanentlyRevealedAtTo) {
+                    console.warn(`[Missile Go] LAUNCH_MISSILE failed: destination has opponent stone, to=${JSON.stringify(to)}, stoneAtTo=${stoneAtTo}, isOpponentMoveAtTo=${isOpponentMoveAtTo}, gameId=${game.id}`);
+                    return { error: "Cannot move to a position occupied by opponent stone." };
                 }
             }
             
@@ -611,6 +650,14 @@ export const handleMissileAction = (game: types.LiveGameSession, action: types.S
             
             // 아이템 사용 시간 일시 정지 (애니메이션 중)
             game.itemUseDeadline = undefined;
+            
+            // 턴 시간 복원 (애니메이션 중에도 턴이 유지되도록)
+            if (game.settings.timeLimit > 0 && game.pausedTurnTimeLeft !== undefined) {
+                const currentPlayerTimeKey = myPlayerEnum === types.Player.Black ? 'blackTimeLeft' : 'whiteTimeLeft';
+                game[currentPlayerTimeKey] = game.pausedTurnTimeLeft;
+                game.turnDeadline = now + game.pausedTurnTimeLeft * 1000;
+                game.turnStartTime = now;
+            }
             
             // 애니메이션 설정 (2초)
             // 새로운 애니메이션 시작 시 이전 처리 기록 초기화

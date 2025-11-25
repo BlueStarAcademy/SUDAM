@@ -2,7 +2,7 @@ import React from 'react';
 import DraggableWindow from './DraggableWindow.js';
 import Button from './Button.js';
 import { InventoryItem } from '../types.js';
-import { ITEM_SELL_PRICES, MATERIAL_SELL_PRICES } from '../constants/items.js';
+import { ITEM_SELL_PRICES, MATERIAL_SELL_PRICES, CONSUMABLE_SELL_PRICES } from '../constants/items.js';
 
 interface SellItemConfirmModalProps {
     item: InventoryItem;
@@ -20,6 +20,10 @@ const SellItemConfirmModal: React.FC<SellItemConfirmModalProps> = ({ item, onClo
         } else if (item.type === 'material') {
             // 재료는 1개만 판매
             const pricePerUnit = MATERIAL_SELL_PRICES[item.name] || 1;
+            return pricePerUnit;
+        } else if (item.type === 'consumable') {
+            // 소비 아이템 판매 가격
+            const pricePerUnit = CONSUMABLE_SELL_PRICES[item.name] ?? (CONSUMABLE_SELL_PRICES[item.name?.replace('골드꾸러미', '골드 꾸러미')] ?? 0);
             return pricePerUnit;
         }
         return 0;

@@ -4,6 +4,8 @@ import {
     listUsers,
     getUserById as prismaGetUserById,
     getUserByNickname as prismaGetUserByNickname,
+    getUserByEmail as prismaGetUserByEmail,
+    getUsersByLeague as prismaGetUsersByLeague,
     createUser as prismaCreateUser,
     updateUser as prismaUpdateUser,
     deleteUser as prismaDeleteUser
@@ -193,6 +195,12 @@ export const invalidateUserCache = (userId: string) => {
 };
 export const getUserByNickname = async (nickname: string): Promise<User | null> => {
     return prismaGetUserByNickname(nickname);
+};
+export const getUserByEmail = async (email: string): Promise<User | null> => {
+    return prismaGetUserByEmail(email);
+};
+export const getUsersByLeague = async (league: string | null, excludeUserId?: string): Promise<User[]> => {
+    return prismaGetUsersByLeague(league, excludeUserId);
 };
 export const createUser = async (user: User): Promise<void> => {
     await prismaCreateUser(user);

@@ -3,7 +3,7 @@ import { UserWithStatus, InventoryItem, ServerAction, InventoryItemType, ItemGra
 import DraggableWindow from './DraggableWindow.js';
 import Button from './Button.js';
 import ResourceActionButton from './ui/ResourceActionButton.js';
-import { emptySlotImages, GRADE_LEVEL_REQUIREMENTS, ITEM_SELL_PRICES, MATERIAL_SELL_PRICES, gradeBackgrounds, gradeStyles, BASE_SLOTS_PER_CATEGORY, EXPANSION_AMOUNT, MAX_EQUIPMENT_SLOTS, MAX_CONSUMABLE_SLOTS, MAX_MATERIAL_SLOTS, ENHANCEMENT_COSTS } from '../constants/items';
+import { emptySlotImages, GRADE_LEVEL_REQUIREMENTS, ITEM_SELL_PRICES, MATERIAL_SELL_PRICES, gradeBackgrounds, gradeStyles, BASE_SLOTS_PER_CATEGORY, EXPANSION_AMOUNT, MAX_EQUIPMENT_SLOTS, MAX_CONSUMABLE_SLOTS, MAX_MATERIAL_SLOTS, ENHANCEMENT_COSTS, CONSUMABLE_ITEMS, MATERIAL_ITEMS } from '../constants/items';
 
 import { calculateUserEffects } from '../services/effectService.js';
 import { calculateTotalStats } from '../services/statService.js';
@@ -142,25 +142,38 @@ const EquipmentSlotDisplay: React.FC<{
                         objectFit: 'cover'
                     }} 
                 />
-                {item.image && (
-                    <img 
-                        src={item.image} 
-                        alt={item.name} 
-                        className="absolute object-contain" 
-                        style={{ 
-                            width: '80%', 
-                            height: '80%', 
-                            padding: `${padding}px`, 
-                            maxWidth: '80%', 
-                            maxHeight: '80%',
-                            boxSizing: 'border-box',
-                            objectFit: 'contain',
-                            left: '50%',
-                            top: '50%',
-                            transform: 'translate(-50%, -50%)'
-                        }}
-                    />
-                )}
+                {(() => {
+                    // 이미지 경로 찾기: item.image가 있으면 사용, 없으면 CONSUMABLE_ITEMS나 MATERIAL_ITEMS에서 찾기
+                    const imagePath = item.image || 
+                        (CONSUMABLE_ITEMS.find(ci => ci.name === item.name || ci.name === item.name.replace('꾸러미', ' 꾸러미') || ci.name === item.name.replace(' 꾸러미', '꾸러미'))?.image) ||
+                        (MATERIAL_ITEMS[item.name]?.image) ||
+                        (MATERIAL_ITEMS[item.name.replace('꾸러미', ' 꾸러미')]?.image) ||
+                        (MATERIAL_ITEMS[item.name.replace(' 꾸러미', '꾸러미')]?.image);
+                    
+                    return imagePath ? (
+                        <img 
+                            src={imagePath} 
+                            alt={item.name} 
+                            className="absolute object-contain" 
+                            style={{ 
+                                width: '80%', 
+                                height: '80%', 
+                                padding: `${padding}px`, 
+                                maxWidth: '80%', 
+                                maxHeight: '80%',
+                                boxSizing: 'border-box',
+                                objectFit: 'contain',
+                                left: '50%',
+                                top: '50%',
+                                transform: 'translate(-50%, -50%)'
+                            }}
+                            onError={(e) => {
+                                console.error(`[EquipmentSlotDisplay] Failed to load image: ${imagePath} for item:`, item);
+                                (e.target as HTMLImageElement).style.display = 'none';
+                            }}
+                        />
+                    ) : null;
+                })()}
                 {renderStarDisplay(item.stars)}
                 {isDivineMythic && (
                     <div 
@@ -370,7 +383,34 @@ const LocalItemDetailDisplay: React.FC<{
                     }}
                 >
                     <img src={styles.background} alt={item.grade} className="absolute inset-0 w-full h-full object-cover rounded-lg" />
-                    {item.image && <img src={item.image} alt={item.name} className="absolute object-contain" style={{ width: '80%', height: '80%', padding: `${Math.max(2, Math.round(4 * scaleFactor))}px`, left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }} />}
+                    {(() => {
+                        // 이미지 경로 찾기: item.image가 있으면 사용, 없으면 CONSUMABLE_ITEMS나 MATERIAL_ITEMS에서 찾기
+                        const imagePath = item.image || 
+                            (CONSUMABLE_ITEMS.find(ci => ci.name === item.name || ci.name === item.name.replace('꾸러미', ' 꾸러미') || ci.name === item.name.replace(' 꾸러미', '꾸러미'))?.image) ||
+                            (MATERIAL_ITEMS[item.name]?.image) ||
+                            (MATERIAL_ITEMS[item.name.replace('꾸러미', ' 꾸러미')]?.image) ||
+                            (MATERIAL_ITEMS[item.name.replace(' 꾸러미', '꾸러미')]?.image);
+                        
+                        return imagePath ? (
+                            <img 
+                                src={imagePath} 
+                                alt={item.name} 
+                                className="absolute object-contain" 
+                                style={{ 
+                                    width: '80%', 
+                                    height: '80%', 
+                                    padding: `${Math.max(2, Math.round(4 * scaleFactor))}px`, 
+                                    left: '50%', 
+                                    top: '50%', 
+                                    transform: 'translate(-50%, -50%)' 
+                                }} 
+                                onError={(e) => {
+                                    console.error(`[LocalItemDetailDisplay] Failed to load image: ${imagePath} for item:`, item);
+                                    (e.target as HTMLImageElement).style.display = 'none';
+                                }}
+                            />
+                        ) : null;
+                    })()}
                     {renderStarDisplay(item.stars)}
                     {item.isDivineMythic && (
                         <div 
@@ -1355,7 +1395,36 @@ const InventoryItemCard: React.FC<{
             style={{ width: '100%', height: '100%', minWidth: 0, minHeight: 0, maxWidth: '100%', maxHeight: '100%' }}
         >
             <img src={gradeBackgrounds[item.grade]} alt={item.grade} className="absolute inset-0 object-cover rounded-md" style={{ width: '100%', height: '100%', maxWidth: '100%', maxHeight: '100%' }} />
-            {item.image && <img src={item.image} alt={item.name} className="absolute object-contain" style={{ width: '80%', height: '80%', padding: `${Math.max(4, Math.round(6 * scaleFactor))}px`, maxWidth: '80%', maxHeight: '80%', left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }} />}
+            {(() => {
+                // 이미지 경로 찾기: item.image가 있으면 사용, 없으면 CONSUMABLE_ITEMS나 MATERIAL_ITEMS에서 찾기
+                const imagePath = item.image || 
+                    (CONSUMABLE_ITEMS.find(ci => ci.name === item.name || ci.name === item.name.replace('꾸러미', ' 꾸러미') || ci.name === item.name.replace(' 꾸러미', '꾸러미'))?.image) ||
+                    (MATERIAL_ITEMS[item.name]?.image) ||
+                    (MATERIAL_ITEMS[item.name.replace('꾸러미', ' 꾸러미')]?.image) ||
+                    (MATERIAL_ITEMS[item.name.replace(' 꾸러미', '꾸러미')]?.image);
+                
+                return imagePath ? (
+                    <img 
+                        src={imagePath} 
+                        alt={item.name} 
+                        className="absolute object-contain" 
+                        style={{ 
+                            width: '80%', 
+                            height: '80%', 
+                            padding: `${Math.max(4, Math.round(6 * scaleFactor))}px`, 
+                            maxWidth: '80%', 
+                            maxHeight: '80%', 
+                            left: '50%', 
+                            top: '50%', 
+                            transform: 'translate(-50%, -50%)' 
+                        }} 
+                        onError={(e) => {
+                            console.error(`[InventoryItemCard] Failed to load image: ${imagePath} for item:`, item);
+                            (e.target as HTMLImageElement).style.display = 'none';
+                        }}
+                    />
+                ) : null;
+            })()}
             {renderStarDisplay()}
             {isEquipped && (
                 <div 

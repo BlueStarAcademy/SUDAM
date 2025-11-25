@@ -56,20 +56,28 @@ const StatAllocationModal: React.FC<StatAllocationModalProps> = ({ currentUser, 
         if (currentUser.gold < resetCost) return false;
         if (lastResetDate === currentDay && statResetCountToday >= maxDailyResets) return false;
         return true;
-    }, [currentUser.diamonds, lastResetDate, statResetCountToday, currentDay]);
+    }, [currentUser.gold, lastResetDate, statResetCountToday, currentDay, resetCost]);
 
-    const levelPoints = (currentUser.strategyLevel - 1) * 2 + (currentUser.playfulLevel - 1) * 2;
-    const bonusPoints = currentUser.bonusStatPoints || 0;
-    const totalBonusPoints = levelPoints + bonusPoints;
+    const levelPoints = useMemo(() => {
+        return (currentUser.strategyLevel - 1) * 2 + (currentUser.playfulLevel - 1) * 2;
+    }, [currentUser.strategyLevel, currentUser.playfulLevel]);
+    
+    const bonusPoints = useMemo(() => {
+        return currentUser.bonusStatPoints || 0;
+    }, [currentUser.bonusStatPoints]);
+    
+    const totalBonusPoints = useMemo(() => {
+        return levelPoints + bonusPoints;
+    }, [levelPoints, bonusPoints]);
 
     const spentPoints = useMemo(() => {
         return Object.values(tempPoints).reduce((sum, points) => sum + points, 0);
     }, [tempPoints]);
 
     const availablePoints = useMemo(() => {
-        if (!isEditing) return 0; // No available points if not in editing mode
+        // 항상 실제 사용 가능한 포인트를 계산하여 표시 (읽기 전용 모드에서도)
         return totalBonusPoints - spentPoints;
-    }, [isEditing, totalBonusPoints, spentPoints]);
+    }, [totalBonusPoints, spentPoints]);
 
     const handlePointChange = (stat: CoreStat, value: string) => {
         const newValue = Number(value) || 0;
@@ -109,7 +117,7 @@ const StatAllocationModal: React.FC<StatAllocationModalProps> = ({ currentUser, 
             const totalSpent = Object.values(currentUser.spentStatPoints).reduce((sum, points) => sum + points, 0);
             setIsEditing(totalSpent === 0); // 분배된 포인트가 없으면 편집 모드, 있으면 읽기 전용
         }
-    }, [currentUser.spentStatPoints]);
+    }, [currentUser.spentStatPoints, currentUser.bonusStatPoints, currentUser.strategyLevel, currentUser.playfulLevel]);
 
     const handleReset = () => {
         if (!canReset) {
@@ -291,7 +299,7 @@ const StatAllocationModal: React.FC<StatAllocationModalProps> = ({ currentUser, 
                         <Button 
                             onClick={handleReset} 
                             colorScheme="red" 
-                            disabled={!canReset || !isEditing}
+                            disabled={!canReset}
                             className={`${isMobile ? '!text-xs !py-2 !px-3 w-full min-h-[40px]' : '!text-xs !py-1 !px-2'} bg-gradient-to-r from-red-600/90 to-orange-600/90 hover:from-red-500 hover:to-orange-500 border border-red-400/50 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed`}
                         >
                             초기화 (<img src="/images/icon/Gold.png" alt="골드" className={`${isMobile ? 'w-3 h-3' : 'w-3 h-3'} inline-block`} />{resetCost})

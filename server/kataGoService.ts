@@ -564,6 +564,7 @@ export const initializeKataGo = async (): Promise<void> => {
     if (USE_HTTP_API) {
         console.log(`[KataGo] Using HTTP API: ${KATAGO_API_URL}`);
         console.log(`[KataGo] HTTP API mode: KataGo analysis will be performed via HTTP requests to ${KATAGO_API_URL}`);
+        // HTTP API 연결 테스트는 analyzeGame 호출 시 자동으로 수행됨
         return;
     }
 
@@ -726,6 +727,8 @@ export const analyzeGame = async (session: LiveGameSession, options?: { maxVisit
             throw new Error('KATAGO_API_URL is not set');
         }
         
+        console.log(`[KataGo HTTP] Sending analysis query to ${KATAGO_API_URL}, queryId=${analysisQuery.id}`);
+        
         return new Promise((resolve, reject) => {
             const url = new URL(KATAGO_API_URL);
             const isHttps = url.protocol === 'https:';
@@ -753,21 +756,26 @@ export const analyzeGame = async (session: LiveGameSession, options?: { maxVisit
                     if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
                         try {
                             const parsed = JSON.parse(responseData);
+                            console.log(`[KataGo HTTP] Received response for queryId=${analysisQuery.id}, statusCode=${res.statusCode}`);
                             resolve(parsed);
                         } catch (parseError) {
+                            console.error(`[KataGo HTTP] Failed to parse response for queryId=${analysisQuery.id}:`, parseError);
                             reject(new Error(`Failed to parse KataGo API response: ${parseError instanceof Error ? parseError.message : String(parseError)}`));
                         }
                     } else {
-                        reject(new Error(`KataGo API returned status ${res.statusCode}: ${responseData}`));
+                        console.error(`[KataGo HTTP] API returned error status ${res.statusCode} for queryId=${analysisQuery.id}: ${responseData.substring(0, 200)}`);
+                        reject(new Error(`KataGo API returned status ${res.statusCode}: ${responseData.substring(0, 200)}`));
                     }
                 });
             });
             
             req.on('error', (error) => {
+                console.error(`[KataGo HTTP] Request error for queryId=${analysisQuery.id}:`, error);
                 reject(new Error(`KataGo API request failed: ${error.message}`));
             });
             
             req.on('timeout', () => {
+                console.error(`[KataGo HTTP] Request timeout for queryId=${analysisQuery.id}`);
                 req.destroy();
                 reject(new Error('KataGo API request timed out after 120 seconds'));
             });

@@ -2,7 +2,7 @@
 import { GameMode } from './enums.js';
 
 export type AppRoute = {
-    view: 'login' | 'register' | 'profile' | 'lobby' | 'waiting' | 'game' | 'admin' | 'tournament' | 'singleplayer' | 'guild' | 'guildboss' | 'guildwar' | 'tower';
+    view: 'login' | 'register' | 'kakao-callback' | 'set-nickname' | 'profile' | 'lobby' | 'waiting' | 'game' | 'admin' | 'tournament' | 'singleplayer' | 'guild' | 'guildboss' | 'guildwar' | 'tower';
     params: any;
 };
 
@@ -22,7 +22,13 @@ export function parseHash(hash: string): AppRoute {
         case 'tower': return { view: 'tower', params: {} };
         case 'admin': return { view: 'admin', params: {} };
         case 'register': return { view: 'register', params: {} };
+        case 'set-nickname': return { view: 'set-nickname', params: {} };
         case 'profile': return { view: 'profile', params: {} };
+        case 'auth': 
+            if (rest[0] === 'kakao' && rest[1] === 'callback') {
+                return { view: 'kakao-callback', params: {} };
+            }
+            return { view: 'login', params: {} };
         default: return { view: 'login', params: {} };
     }
 }

@@ -126,6 +126,33 @@ export const getGameResult = async (game: LiveGameSession): Promise<LiveGameSess
             }
         }
         
+        // AI 초기 히든돌도 확인 (싱글플레이 모드)
+        if (game.isSinglePlayer && (game as any).aiInitialHiddenStone) {
+            const aiHidden = (game as any).aiInitialHiddenStone;
+            const isAlreadyRevealed = game.permanentlyRevealedStones.some(
+                p => p.x === aiHidden.x && p.y === aiHidden.y
+            );
+            
+            if (!isAlreadyRevealed) {
+                // AI 초기 히든돌이 보드에 남아있는지 확인
+                if (game.boardState[aiHidden.y]?.[aiHidden.x] !== types.Player.None) {
+                    stonesToReveal.push({ x: aiHidden.x, y: aiHidden.y });
+                    // AI 초기 히든돌을 moveHistory에 추가 (아직 추가되지 않은 경우)
+                    const moveIndex = game.moveHistory.findIndex(m => m.x === aiHidden.x && m.y === aiHidden.y);
+                    if (moveIndex === -1) {
+                        if (!game.hiddenMoves) game.hiddenMoves = {};
+                        const hiddenMoveIndex = game.moveHistory.length;
+                        game.moveHistory.push({
+                            player: types.Player.White,
+                            x: aiHidden.x,
+                            y: aiHidden.y
+                        });
+                        game.hiddenMoves[hiddenMoveIndex] = true;
+                    }
+                }
+            }
+        }
+        
         // 발견되지 않은 히든 돌들을 모두 영구적으로 공개
         if (stonesToReveal.length > 0) {
             game.permanentlyRevealedStones.push(...stonesToReveal);
@@ -603,10 +630,12 @@ const processGame = async (game: LiveGameSession, now: number): Promise<LiveGame
 
         try {
             if (game.disconnectionState && (now - game.disconnectionState.timerStartedAt > 90000)) {
+                // 90초 내에 재접속하지 못하면 시간패배 처리
                 game.winner = game.blackPlayerId === game.disconnectionState.disconnectedPlayerId ? types.Player.White : types.Player.Black;
-                game.winReason = 'disconnect';
+                game.winReason = 'timeout';
                 game.gameStatus = 'ended';
                 game.disconnectionState = null;
+                await summaryService.endGame(game, game.winner, 'timeout');
             }
 
             if (game.lastTimeoutPlayerIdClearTime && now >= game.lastTimeoutPlayerIdClearTime) {
@@ -662,9 +691,24 @@ const processGame = async (game: LiveGameSession, now: number): Promise<LiveGame
                     }
                 }
 
-                // PVE 게임은 클라이언트에서 실행되므로 서버에서는 상태 업데이트를 하지 않음
-                // (타임아웃 체크, 애니메이션 업데이트 등 모든 로직은 클라이언트에서 처리)
-                // 서버에서는 최소한의 정보만 유지 (게임 종료 시 저장용)
+                // PVE 게임은 클라이언트에서 실행되지만, 미사일 애니메이션 등 일부 상태 업데이트는 서버에서도 처리 필요
+                // 미사일 애니메이션 업데이트 (애니메이션 종료 시 게임 상태 복원)
+                if (SPECIAL_GAME_MODES.some(m => m.mode === game.mode)) {
+                    await updateStrategicGameState(game, now);
+                    // 미사일 상태가 변경된 경우 (아이템 시간 초과 등) DB 저장 및 브로드캐스트 필요
+                    if ((game as any)._missileStateChanged) {
+                        (game as any)._missileStateChanged = false;
+                        const { updateGameCache } = await import('./gameCache.js');
+                        updateGameCache(game);
+                        await db.saveGame(game);
+                        const { broadcastToGameParticipants } = await import('./socket.js');
+                        broadcastToGameParticipants(game.id, { type: 'GAME_UPDATE', payload: { [game.id]: game } }, game);
+                    }
+                } else if (PLAYFUL_GAME_MODES.some((m: { mode: GameMode }) => m.mode === game.mode)) {
+                    await updatePlayfulGameState(game, now);
+                }
+                
+                // PVE 게임은 클라이언트에서 실행되므로 서버에서는 최소한의 정보만 유지 (게임 종료 시 저장용)
                 return game;
             }
 

@@ -13,8 +13,9 @@ const formatRankRange = (start: number, end: number) => {
 };
 
 const getOutcomeLabel = (tier: LeagueTier, outcome: LeagueRewardTier['outcome']) => {
+    // 챌린저 리그는 최상위 티어이므로 promote outcome도 잔류로 표시
     if (outcome === 'promote' && tier === LeagueTier.Challenger) {
-        return '최상위';
+        return '잔류';
     }
     switch (outcome) {
         case 'promote':
@@ -29,21 +30,76 @@ const getOutcomeLabel = (tier: LeagueTier, outcome: LeagueRewardTier['outcome'])
 };
 
 const buildOutcomeSummary = (tier: LeagueTier, rewards: LeagueRewardTier[]) => {
-    const grouped: Record<'promote' | 'maintain' | 'demote', string[]> = {
+    // 챌린저 리그의 경우 promote와 maintain를 모두 잔류로 표시하므로 합쳐서 처리
+    const isChallenger = tier === LeagueTier.Challenger;
+    
+    // outcome별로 rank 범위 수집
+    const outcomeRanges: Record<'promote' | 'maintain' | 'demote', { start: number; end: number }[]> = {
         promote: [],
         maintain: [],
         demote: [],
     };
 
     rewards.forEach(reward => {
-        grouped[reward.outcome].push(formatRankRange(reward.rankStart, reward.rankEnd));
+        outcomeRanges[reward.outcome].push({ start: reward.rankStart, end: reward.rankEnd });
     });
 
+    // 챌린저 리그의 경우 promote와 maintain를 합쳐서 잔류로 표시
+    if (isChallenger) {
+        const allMaintainRanges = [...outcomeRanges.promote, ...outcomeRanges.maintain];
+        // 범위를 정렬하고 합치기
+        allMaintainRanges.sort((a, b) => a.start - b.start);
+        
+        // 연속된 범위 합치기
+        const mergedRanges: { start: number; end: number }[] = [];
+        for (const range of allMaintainRanges) {
+            if (mergedRanges.length === 0) {
+                mergedRanges.push({ ...range });
+            } else {
+                const last = mergedRanges[mergedRanges.length - 1];
+                if (range.start <= last.end + 1) {
+                    // 연속되거나 겹치는 경우 합치기
+                    last.end = Math.max(last.end, range.end);
+                } else {
+                    mergedRanges.push({ ...range });
+                }
+            }
+        }
+        
+        const parts: string[] = [];
+        if (mergedRanges.length > 0) {
+            const rangeTexts = mergedRanges.map(r => formatRankRange(r.start, r.end));
+            parts.push(`잔류: ${rangeTexts.join(', ')}`);
+        }
+        if (outcomeRanges.demote.length > 0) {
+            const demoteTexts = outcomeRanges.demote.map(r => formatRankRange(r.start, r.end));
+            parts.push(`강등: ${demoteTexts.join(', ')}`);
+        }
+        return parts.join(' / ');
+    }
+
+    // 일반 티어의 경우 기존 로직 사용
     const parts: string[] = [];
     (['promote', 'maintain', 'demote'] as const).forEach(outcome => {
-        if (grouped[outcome].length > 0) {
+        if (outcomeRanges[outcome].length > 0) {
             const label = getOutcomeLabel(tier, outcome);
-            parts.push(`${label}: ${grouped[outcome].join(', ')}`);
+            // 연속된 범위 합치기
+            const sortedRanges = [...outcomeRanges[outcome]].sort((a, b) => a.start - b.start);
+            const mergedRanges: { start: number; end: number }[] = [];
+            for (const range of sortedRanges) {
+                if (mergedRanges.length === 0) {
+                    mergedRanges.push({ ...range });
+                } else {
+                    const last = mergedRanges[mergedRanges.length - 1];
+                    if (range.start <= last.end + 1) {
+                        last.end = Math.max(last.end, range.end);
+                    } else {
+                        mergedRanges.push({ ...range });
+                    }
+                }
+            }
+            const rangeTexts = mergedRanges.map(r => formatRankRange(r.start, r.end));
+            parts.push(`${label}: ${rangeTexts.join(', ')}`);
         }
     });
 
@@ -52,26 +108,32 @@ const buildOutcomeSummary = (tier: LeagueTier, rewards: LeagueRewardTier[]) => {
 
 const LeagueTierInfoModal: React.FC<LeagueTierInfoModalProps> = ({ onClose, isTopmost }) => {
 
-    const renderReward = (rewardTier: LeagueRewardTier) => {
+    const renderReward = (rewardTier: LeagueRewardTier, tier: LeagueTier) => {
         const rankText = rewardTier.rankStart === rewardTier.rankEnd
             ? `${rewardTier.rankStart}위`
             : `${rewardTier.rankStart}-${rewardTier.rankEnd}위`;
 
         let outcomeText = '';
         let outcomeColor = '';
-        switch (rewardTier.outcome) {
-            case 'promote':
-                outcomeText = '승급';
-                outcomeColor = 'text-green-400';
-                break;
-            case 'maintain':
-                outcomeText = '잔류';
-                outcomeColor = 'text-gray-400';
-                break;
-            case 'demote':
-                outcomeText = '강등';
-                outcomeColor = 'text-red-400';
-                break;
+        // 챌린저 리그는 최상위 티어이므로 promote outcome도 잔류로 표시
+        if (tier === LeagueTier.Challenger && rewardTier.outcome === 'promote') {
+            outcomeText = '잔류';
+            outcomeColor = 'text-gray-400';
+        } else {
+            switch (rewardTier.outcome) {
+                case 'promote':
+                    outcomeText = '승급';
+                    outcomeColor = 'text-green-400';
+                    break;
+                case 'maintain':
+                    outcomeText = '잔류';
+                    outcomeColor = 'text-gray-400';
+                    break;
+                case 'demote':
+                    outcomeText = '강등';
+                    outcomeColor = 'text-red-400';
+                    break;
+            }
         }
 
         return (
@@ -113,7 +175,7 @@ const LeagueTierInfoModal: React.FC<LeagueTierInfoModalProps> = ({ onClose, isTo
                                 <div className="mt-3 pt-3 border-t border-gray-700/50">
                                    <h4 className="text-sm font-semibold text-gray-400 mb-1.5">주간 보상</h4>
                                    <ul className="space-y-1 text-xs">
-                                       {rewards.map(renderReward)}
+                                       {rewards.map(reward => renderReward(reward, tierData.tier))}
                                    </ul>
                                 </div>
                             </li>

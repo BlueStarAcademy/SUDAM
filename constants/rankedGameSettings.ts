@@ -6,6 +6,7 @@ export const RANKED_GAME_SETTINGS: Record<GameMode, GameSettings> = {
     // 전략바둑
     [GameMode.Standard]: {
         boardSize: 19,
+        komi: 6.5,
         timeLimit: 5, // 5분
         byoyomiTime: 30, // 30초
         byoyomiCount: 3,

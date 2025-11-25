@@ -1,4 +1,5 @@
 import * as types from '../../types/index.js';
+import * as db from '../db.js';
 
 type HandleActionResult = types.HandleActionResult;
 
@@ -12,7 +13,7 @@ export const initializeSinglePlayerHidden = (game: types.LiveGameSession) => {
     }
 };
 
-export const updateSinglePlayerHiddenState = (game: types.LiveGameSession, now: number) => {
+export const updateSinglePlayerHiddenState = async (game: types.LiveGameSession, now: number) => {
     // 싱글플레이 게임이 아니면 처리하지 않음
     if (!game.isSinglePlayer) {
         return;
@@ -72,6 +73,8 @@ export const updateSinglePlayerHiddenState = (game: types.LiveGameSession, now: 
         case 'hidden_reveal_animating':
             if (game.revealAnimationEndTime && now >= game.revealAnimationEndTime) {
                 const { pendingCapture } = game;
+                const isAiTurnCancelled = (game as any).isAiTurnCancelledAfterReveal;
+                
                 if (pendingCapture) {
                     const myPlayerEnum = pendingCapture.move.player;
                     const opponentPlayerEnum = myPlayerEnum === types.Player.Black ? types.Player.White : types.Player.Black;
@@ -103,11 +106,37 @@ export const updateSinglePlayerHiddenState = (game: types.LiveGameSession, now: 
                 }
 
                 game.animation = null;
-                game.gameStatus = 'playing';
                 game.revealAnimationEndTime = undefined;
                 game.pendingCapture = null;
+                (game as any).isAiTurnCancelledAfterReveal = undefined;
                 
-                // Resume timer for the next player
+                // AI 턴이 취소된 경우 (히든돌 공개만 하고 실제 수는 두지 않음)
+                if (isAiTurnCancelled) {
+                    // AI 턴 유지 (다시 한 수를 두도록)
+                    game.gameStatus = 'playing';
+                    if (game.settings.timeLimit > 0) {
+                        const aiTimeKey = game.currentPlayer === types.Player.Black ? 'blackTimeLeft' : 'whiteTimeLeft';
+                        if (game.pausedTurnTimeLeft) {
+                            game[aiTimeKey] = game.pausedTurnTimeLeft;
+                        }
+                        const isFischer = game.mode === types.GameMode.Speed || (game.mode === types.GameMode.Mix && game.settings.mixedModes?.includes(types.GameMode.Speed));
+                        const isInByoyomi = game[aiTimeKey] <= 0 && game.settings.byoyomiCount > 0 && !isFischer;
+                        if (isInByoyomi) {
+                            game.turnDeadline = now + game.settings.byoyomiTime * 1000;
+                        } else {
+                            game.turnDeadline = now + game[aiTimeKey] * 1000;
+                        }
+                        game.turnStartTime = now;
+                    } else {
+                        game.turnDeadline = undefined;
+                        game.turnStartTime = undefined;
+                    }
+                    game.pausedTurnTimeLeft = undefined;
+                    return; // AI가 다시 수를 두도록 함
+                }
+                
+                // 일반적인 경우: 다음 플레이어로 턴 전환
+                game.gameStatus = 'playing';
                 const playerWhoMoved = game.currentPlayer;
                 const nextPlayer = playerWhoMoved === types.Player.Black ? types.Player.White : types.Player.Black;
                 
@@ -138,6 +167,39 @@ export const updateSinglePlayerHiddenState = (game: types.LiveGameSession, now: 
                 }
 
                  game.pausedTurnTimeLeft = undefined;
+                
+                // 히든 돌 공개 애니메이션 종료 후 자동 계가 체크
+                // 단, AI 턴인 경우 AI가 수를 두기 전이므로 체크하지 않음 (AI가 수를 둔 후에 체크됨)
+                if (game.isSinglePlayer && game.stageId) {
+                    const { SINGLE_PLAYER_STAGES } = await import('../../constants/singlePlayerConstants.js');
+                    const stage = SINGLE_PLAYER_STAGES.find(s => s.id === game.stageId);
+                    const autoScoringTurns = stage?.autoScoringTurns;
+                    
+                    if (autoScoringTurns !== undefined) {
+                        // AI 턴인지 확인 (AI는 항상 White, 유저는 Black)
+                        const isAiTurn = game.currentPlayer === types.Player.White && game.isSinglePlayer;
+                        
+                        if (!isAiTurn) {
+                            // 유저 턴인 경우에만 체크 (AI 턴은 AI가 수를 둔 후에 체크됨)
+                            const validMoves = game.moveHistory.filter(m => m.x !== -1 && m.y !== -1);
+                            const totalTurns = game.totalTurns ?? validMoves.length;
+                            game.totalTurns = totalTurns;
+                            
+                            if (totalTurns >= autoScoringTurns && game.gameStatus === 'playing') {
+                                console.log(`[updateSinglePlayerHiddenState] Auto-scoring triggered after hidden reveal animation: totalTurns=${totalTurns}, autoScoringTurns=${autoScoringTurns}`);
+                                game.gameStatus = 'scoring';
+                                await db.saveGame(game);
+                                const { broadcastToGameParticipants } = await import('../socket.js');
+                                const gameToBroadcast = { ...game };
+                                delete (gameToBroadcast as any).boardState;
+                                broadcastToGameParticipants(game.id, { type: 'GAME_UPDATE', payload: { [game.id]: gameToBroadcast } }, game);
+                                const { getGameResult } = await import('../gameModes.js');
+                                await getGameResult(game);
+                                return;
+                            }
+                        }
+                    }
+                }
             }
             break;
         case 'hidden_final_reveal':
@@ -194,8 +256,13 @@ export const handleSinglePlayerHiddenAction = (volatileState: types.VolatileStat
             if ((game[scanKey] ?? 0) <= 0) return { error: "No scans left." };
             game[scanKey] = (game[scanKey] ?? 0) - 1;
 
+            // AI 초기 히든돌 확인
+            const isAiInitialHiddenStone = (game as any).aiInitialHiddenStone &&
+                (game as any).aiInitialHiddenStone.x === x &&
+                (game as any).aiInitialHiddenStone.y === y;
+            
             const moveIndex = game.moveHistory.findIndex(m => m.x === x && m.y === y);
-            const success = moveIndex !== -1 && !!game.hiddenMoves?.[moveIndex];
+            const success = (moveIndex !== -1 && !!game.hiddenMoves?.[moveIndex]) || isAiInitialHiddenStone;
 
             if (success) {
                 if (!game.revealedHiddenMoves) game.revealedHiddenMoves = {};

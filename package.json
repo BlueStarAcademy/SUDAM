@@ -19,6 +19,7 @@
     "force-restore-equipment": "npx tsx --tsconfig server/tsconfig.json server/forceRestoreEquipment.ts",
     "sync-equipment": "npx tsx --tsconfig server/tsconfig.json server/syncEquipmentInventory.ts",
     "emergency-restore-all": "npx tsx --tsconfig server/tsconfig.json server/emergencyRestoreAll.ts",
+    "migrate:to-railway": "npx tsx --tsconfig server/tsconfig.json scripts/migrate-to-railway.ts",
     "optimize-db": "npx tsx --tsconfig server/tsconfig.json server/scripts/optimizeDatabase.ts",
     "optimize-images": "node scripts/optimizeImages.js",
     "build:optimized": "npm run optimize-images && vite build"

@@ -3,7 +3,7 @@
 // server/guildService.ts
 import { Guild, GuildMemberRole, GuildMission, GuildMissionProgressKey, ChatMessage, Mail, GuildResearchId } from '../types/index.js';
 import * as db from './db.js';
-import { GUILD_MISSIONS_POOL, GUILD_XP_PER_LEVEL } from '../constants/index.js';
+import { GUILD_MISSIONS_POOL, GUILD_XP_PER_LEVEL, GUILD_BOSSES } from '../constants/index.js';
 import { randomUUID } from 'crypto';
 import { calculateGuildMissionXp } from '../utils/guildUtils.js';
 
@@ -112,6 +112,34 @@ export const resetWeeklyGuildMissions = (guild: Guild, now: number) => {
         epicGearAcquisitions: 0,
     };
     guild.lastMissionReset = now;
+    
+    // 길드 보스 주간 리셋: 새로운 보스 선택 및 HP 초기화
+    if (guild.guildBossState) {
+        // 현재 보스가 마지막 보스가 아니면 다음 보스로, 마지막 보스면 첫 번째 보스로
+        const currentBossIndex = GUILD_BOSSES.findIndex(b => b.id === guild.guildBossState!.currentBossId);
+        const nextBossIndex = currentBossIndex >= 0 && currentBossIndex < GUILD_BOSSES.length - 1 
+            ? currentBossIndex + 1 
+            : 0;
+        const nextBoss = GUILD_BOSSES[nextBossIndex];
+        
+        guild.guildBossState = {
+            currentBossId: nextBoss.id,
+            currentBossHp: nextBoss.maxHp,
+            totalDamageLog: {},
+            lastReset: now,
+        };
+        console.log(`[GuildBossReset] Guild ${guild.name}: Boss reset to ${nextBoss.name} (${nextBoss.id})`);
+    } else {
+        // 길드 보스 상태가 없으면 첫 번째 보스로 초기화
+        const firstBoss = GUILD_BOSSES[0];
+        guild.guildBossState = {
+            currentBossId: firstBoss.id,
+            currentBossHp: firstBoss.maxHp,
+            totalDamageLog: {},
+            lastReset: now,
+        };
+        console.log(`[GuildBossReset] Guild ${guild.name}: Boss initialized to ${firstBoss.name} (${firstBoss.id})`);
+    }
 };
 
 export const checkCompletedResearch = async (guild: Guild): Promise<GuildResearchId | null> => {

@@ -54,6 +54,7 @@ type SerializedUserStatus = {
     weeklyCompetitors?: User["weeklyCompetitors"];
     lastWeeklyCompetitorsUpdate?: number | null;
     lastLeagueUpdate?: number | null;
+    weeklyCompetitorsBotScores?: User["weeklyCompetitorsBotScores"];
     cumulativeTournamentScore?: number | null;
     lastNeighborhoodPlayedDate?: number | null;
     dailyNeighborhoodWins?: number | null;
@@ -428,6 +429,9 @@ export function deserializeUser(prismaUser: PrismaUserWithStatus): User {
       LeagueTier.Sprout;
     cloned.gold = safeNumber(prismaUser.gold ?? cloned.gold ?? 0);
     cloned.diamonds = safeNumber(prismaUser.diamonds ?? cloned.diamonds ?? 0);
+    // weeklyCompetitorsBotScores는 leagueMetadata에서 우선적으로 가져오되, 없으면 serializedUser에서 가져옴
+    cloned.weeklyCompetitorsBotScores = 
+      (status.leagueMetadata?.weeklyCompetitorsBotScores ?? cloned.weeklyCompetitorsBotScores ?? {}) as User["weeklyCompetitorsBotScores"];
     const applied = applyDefaults(cloned, prismaUser, status);
     return ensureAdminSinglePlayerAccess(applied);
   }
@@ -512,6 +516,8 @@ export function deserializeUser(prismaUser: PrismaUserWithStatus): User {
     lastLeagueUpdate:
       status.leagueMetadata?.lastLeagueUpdate ??
       safeNumber(legacy.lastLeagueUpdate, null),
+    weeklyCompetitorsBotScores:
+      (status.leagueMetadata?.weeklyCompetitorsBotScores ?? legacy.weeklyCompetitorsBotScores ?? {}) as User["weeklyCompetitorsBotScores"],
     previousSeasonTier:
       status.leagueMetadata?.previousSeasonTier ??
       (legacy.previousSeasonTier as string | null | undefined),
@@ -656,6 +662,7 @@ export function serializeUser(user: User): SerializedUserStatus {
       weeklyCompetitors: user.weeklyCompetitors ?? [],
       lastWeeklyCompetitorsUpdate: user.lastWeeklyCompetitorsUpdate ?? null,
       lastLeagueUpdate: user.lastLeagueUpdate ?? null,
+      weeklyCompetitorsBotScores: user.weeklyCompetitorsBotScores ?? {},
       cumulativeTournamentScore: (user.cumulativeTournamentScore != null ? user.cumulativeTournamentScore : 0),
       lastNeighborhoodPlayedDate: user.lastNeighborhoodPlayedDate ?? null,
       dailyNeighborhoodWins: user.dailyNeighborhoodWins ?? 0,

@@ -194,182 +194,161 @@ export const processRankingRewards = async (volatileState: types.VolatileState):
 
 // 월요일 0시에 티어변동 후 새로운 경쟁상대를 매칭하고 모든 점수를 리셋하는 함수
 // 주의: 이 함수는 processWeeklyLeagueUpdates 이후에 호출되어야 함 (티어변동 후 새로운 경쟁상대 매칭)
-export async function processWeeklyResetAndRematch(): Promise<void> {
+// force: true로 호출되면 월요일 0시 체크를 건너뛰고 강제 실행
+export async function processWeeklyResetAndRematch(force: boolean = false): Promise<void> {
     const now = Date.now();
     const kstDay = getKSTDay(now);
     const kstHours = getKSTHours(now);
     const kstMinutes = getKSTMinutes(now);
     const isMondayMidnight = kstDay === 1 && kstHours === 0 && kstMinutes < 5;
     
-    // 디버깅: 현재 KST 시간 정보 로그
-    if (process.env.NODE_ENV === 'development') {
-        console.log(`[WeeklyReset] Checking: KST Day=${kstDay}, Hours=${kstHours}, Minutes=${kstMinutes}, isMondayMidnight=${isMondayMidnight}`);
+    // force가 false이고 월요일 0시가 아니면 실행하지 않음
+    if (!force && !isMondayMidnight) {
+        return;
     }
     
-    // Check if we've already processed this Monday
-    // KST 기준으로 월요일인지 확인하고, 같은 월요일이면 이미 처리한 것으로 간주
-    if (lastWeeklyResetTimestamp !== null && isMondayMidnight) {
-        // 마지막 리셋 타임스탬프의 KST 기준 날짜와 현재 날짜를 비교
+    // Check if we've already processed this Monday (force가 true면 체크 건너뜀)
+    if (!force && lastWeeklyResetTimestamp !== null) {
         const lastResetDayStart = getStartOfDayKST(lastWeeklyResetTimestamp);
         const currentDayStart = getStartOfDayKST(now);
         
         // 같은 날이면 이미 처리한 것으로 간주
         if (lastResetDayStart === currentDayStart) {
-            if (process.env.NODE_ENV === 'development') {
-                console.log(`[WeeklyReset] Already processed this Monday`);
-            }
-            return; // Already processed this Monday
+            console.log(`[WeeklyReset] Already processed this Monday (${new Date(lastWeeklyResetTimestamp).toISOString()})`);
+            return;
         }
     }
     
-    if (isMondayMidnight) {
-        console.log(`[WeeklyReset] Processing weekly reset and rematch at Monday 0:00 KST`);
-        const allUsers = await db.getAllUsers();
+    console.log(`[WeeklyReset] Processing weekly reset and rematch${force ? ' (forced)' : ' at Monday 0:00 KST'}`);
+    
+    // 티어변동이 반영된 최신 유저 데이터를 가져오기 위해 모든 유저를 다시 조회
+    const allUsersRaw = await db.getAllUsers();
+    const allUsersWithUpdatedTiers = await Promise.all(
+        allUsersRaw.map(u => db.getUser(u.id))
+    );
+    const allUsers = allUsersWithUpdatedTiers.filter((u): u is types.User => u !== null);
+    
+    console.log(`[WeeklyReset] Processing ${allUsers.length} users`);
         
-        // 1. 새로운 경쟁상대 매칭 (티어변동 후 새로운 리그에 맞는 경쟁상대 매칭)
-        // 2. 모든 점수 리셋 (유저 점수 0, 봇 점수 0, yesterdayScore 0)
+    // 1. 새로운 경쟁상대 매칭 (티어변동 후 새로운 리그에 맞는 경쟁상대 매칭)
+    // 2. 모든 점수 리셋 (유저 점수 0, 봇 점수 0, yesterdayScore 0)
+    
+    // 티어변동 후 새로운 경쟁상대 매칭
+    // 모든 유저를 처리하되, 관리자나 초기데이터 아이디도 포함하여 처리
+    for (const user of allUsers) {
+        // 이미 최신 데이터이므로 다시 가져올 필요 없음
+        if (!user) continue;
         
-        // 티어변동 후 새로운 경쟁상대 매칭
-        // 모든 유저를 처리하되, 관리자나 초기데이터 아이디도 포함하여 처리
-        for (const user of allUsers) {
-            // 최신 유저 데이터 가져오기 (티어변동이 반영된 상태)
-            const freshUser = await db.getUser(user.id);
-            if (!freshUser) continue;
-            
-            // 월요일 0시에는 강제로 경쟁 상대를 업데이트 (주간 체크 무시)
-            // 관리자나 초기데이터 아이디도 포함하여 처리
-            let updatedUser = freshUser;
-            const nowForUpdate = Date.now();
-            if (isDifferentWeekKST(freshUser.lastWeeklyCompetitorsUpdate ?? undefined, nowForUpdate) || !freshUser.weeklyCompetitors || freshUser.weeklyCompetitors.length === 0) {
-                // 경쟁 상대 업데이트가 필요한 경우
-                console.log(`[WeeklyReset] Updating weekly competitors for ${freshUser.nickname} (${freshUser.id})`);
+        // 월요일 0시에는 강제로 경쟁 상대를 업데이트 (주간 체크 무시)
+        // 관리자나 초기데이터 아이디도 포함하여 처리
+        let updatedUser = JSON.parse(JSON.stringify(user));
+        const nowForUpdate = Date.now();
+        
+        // 항상 경쟁 상대를 업데이트 (티어 변경이 반영된 상태에서)
+        console.log(`[WeeklyReset] Updating weekly competitors for ${user.nickname} (${user.id}) - League: ${user.league}`);
+        
+        // Find 15 other users in the same league (티어 변경이 반영된 최신 데이터 사용)
+        const potentialCompetitors = allUsers.filter(
+            u => u.id !== user.id && u.league === user.league
+        );
                 
-                // Find 15 other users in the same league
-                const potentialCompetitors = allUsers.filter(
-                    u => u.id !== freshUser.id && u.league === freshUser.league
-                );
-                
-                const shuffledCompetitors = potentialCompetitors.sort(() => 0.5 - Math.random());
-                const selectedCompetitors = shuffledCompetitors.slice(0, 15);
-                
-                // Create the list of competitors including the current user
-                const competitorList: types.WeeklyCompetitor[] = [freshUser, ...selectedCompetitors].map(u => ({
-                    id: u.id,
-                    nickname: u.nickname,
-                    avatarId: u.avatarId,
-                    borderId: u.borderId,
-                    league: u.league,
-                    initialScore: 0 // All scores reset to 0 at the start of the week
-                }));
-                
-                updatedUser = JSON.parse(JSON.stringify(freshUser));
-                updatedUser.weeklyCompetitors = competitorList;
-                updatedUser.lastWeeklyCompetitorsUpdate = nowForUpdate;
-                
-                // 새로운 주간 경쟁상대가 매칭되면 봇 점수도 0으로 리셋
-                updatedUser.weeklyCompetitorsBotScores = {};
-            } else {
-                // 이미 경쟁 상대가 있고 주간 체크를 통과한 경우에도 updateWeeklyCompetitorsIfNeeded 호출
-                updatedUser = await updateWeeklyCompetitorsIfNeeded(freshUser, allUsers);
-            }
-            
-            // 모든 유저의 주간 점수를 0으로 리셋 (processWeeklyLeagueUpdates에서 이미 누적 점수에 추가됨)
-            updatedUser.tournamentScore = 0;
-            
-            // 월요일 0시에 유저의 yesterdayTournamentScore를 현재 누적 점수로 설정 (변화없음으로 시작)
-            // 이렇게 하면 누적 점수는 업데이트되어도 변화표에 "변화없음"으로 표시됨
-            // (liveScore - yesterdayScore = cumulativeTournamentScore - cumulativeTournamentScore = 0)
-            updatedUser.yesterdayTournamentScore = updatedUser.cumulativeTournamentScore || 0;
-            
-            // dailyRankings.championship도 초기화하여 변화표가 올바르게 표시되도록 함
-            if (!updatedUser.dailyRankings) {
-                updatedUser.dailyRankings = {};
-            }
-            // 월요일 0시에는 누적 점수가 업데이트된 상태이지만, 변화표는 변화없음으로 시작하도록 설정
-            // processDailyRankings에서 나중에 rank를 업데이트함
-            updatedUser.dailyRankings.championship = {
-                rank: 0, // processDailyRankings에서 나중에 업데이트됨
-                score: updatedUser.cumulativeTournamentScore || 0, // 누적 점수 유지
-                lastUpdated: now
-            };
-            
-            // 새로운 경쟁상대 매칭 시 updateWeeklyCompetitorsIfNeeded에서 weeklyCompetitorsBotScores가 {}로 리셋됨
-            // 새로운 경쟁상대에 봇이 포함된 경우를 대비해 초기화
-            if (!updatedUser.weeklyCompetitorsBotScores) {
-                updatedUser.weeklyCompetitorsBotScores = {};
-            }
-            
-            // 새로운 경쟁상대에 봇이 포함된 경우, 봇 점수를 0으로 초기화하고 yesterdayScore도 0으로 설정
-            // 그리고 월요일 0시에 경쟁 상대가 갱신된 직후이므로 봇 점수에 1~50점을 한번 추가
-            if (updatedUser.weeklyCompetitors) {
-                for (const competitor of updatedUser.weeklyCompetitors) {
-                    if (competitor.id.startsWith('bot-')) {
-                        // 1-50 사이의 랜덤값 생성 (봇 ID와 KST 기준 날짜를 시드로 사용)
-                        const kstYear = getKSTFullYear(now);
-                        const kstMonth = getKSTMonth(now) + 1; // 0-based to 1-based
-                        const kstDate = getKSTDate_UTC(now);
-                        const dateStr = `${kstYear}-${String(kstMonth).padStart(2, '0')}-${String(kstDate).padStart(2, '0')}`;
-                        const seedStr = `${competitor.id}-${dateStr}`;
-                        let seed = 0;
-                        for (let i = 0; i < seedStr.length; i++) {
-                            seed = ((seed << 5) - seed) + seedStr.charCodeAt(i);
-                            seed = seed & seed; // Convert to 32bit integer
-                        }
-                        const randomVal = Math.abs(Math.sin(seed)) * 10000;
-                        const initialGain = Math.floor((randomVal % 50)) + 1; // 1-50
-                        
-                        updatedUser.weeklyCompetitorsBotScores[competitor.id] = {
-                            score: initialGain, // 월요일 0시에 경쟁 상대 갱신 직후 1~50점 추가
-                            lastUpdate: now,
-                            yesterdayScore: 0 // 변화없음으로 표시
-                        };
-                    }
-                }
-            }
-            
-            // 기존 봇 점수가 있으면 처리 (새로운 경쟁상대에 포함되지 않은 봇)
-            for (const botId in updatedUser.weeklyCompetitorsBotScores) {
-                const competitorExists = updatedUser.weeklyCompetitors?.some(c => c.id === botId);
-                if (!competitorExists) {
-                    // 새로운 경쟁상대에 포함되지 않은 봇은 삭제
-                    delete updatedUser.weeklyCompetitorsBotScores[botId];
-                } else {
-                    // 새로운 경쟁상대에 포함된 봇은 이미 위에서 처리됨
-                    // 하지만 혹시 모를 경우를 대비해 점수 확인 및 업데이트
-                    const botScoreData = updatedUser.weeklyCompetitorsBotScores[botId];
-                    if (botScoreData && botScoreData.score === 0 && botScoreData.lastUpdate === now) {
-                        // 1-50 사이의 랜덤값 생성 (봇 ID와 KST 기준 날짜를 시드로 사용)
-                        const kstYear = getKSTFullYear(now);
-                        const kstMonth = getKSTMonth(now) + 1; // 0-based to 1-based
-                        const kstDate = getKSTDate_UTC(now);
-                        const dateStr = `${kstYear}-${String(kstMonth).padStart(2, '0')}-${String(kstDate).padStart(2, '0')}`;
-                        const seedStr = `${botId}-${dateStr}`;
-                        let seed = 0;
-                        for (let i = 0; i < seedStr.length; i++) {
-                            seed = ((seed << 5) - seed) + seedStr.charCodeAt(i);
-                            seed = seed & seed; // Convert to 32bit integer
-                        }
-                        const randomVal = Math.abs(Math.sin(seed)) * 10000;
-                        const initialGain = Math.floor((randomVal % 50)) + 1; // 1-50
-                        
-                        updatedUser.weeklyCompetitorsBotScores[botId] = {
-                            score: initialGain, // 월요일 0시에 경쟁 상대 갱신 직후 1~50점 추가
-                            lastUpdate: now,
-                            yesterdayScore: 0 // 변화없음으로 표시
-                        };
-                    }
-                }
-            }
-            
-            await db.updateUser(updatedUser);
+        const shuffledCompetitors = potentialCompetitors.sort(() => 0.5 - Math.random());
+        const selectedCompetitors = shuffledCompetitors.slice(0, 15);
+        
+        // Create the list of competitors including the current user
+        const competitorList: types.WeeklyCompetitor[] = [user, ...selectedCompetitors].map(u => ({
+            id: u.id,
+            nickname: u.nickname,
+            avatarId: u.avatarId,
+            borderId: u.borderId,
+            league: u.league,
+            initialScore: 0 // All scores reset to 0 at the start of the week
+        }));
+        
+        updatedUser.weeklyCompetitors = competitorList;
+        updatedUser.lastWeeklyCompetitorsUpdate = nowForUpdate;
+        
+        // 모든 유저의 주간 점수를 0으로 리셋 (processWeeklyLeagueUpdates에서 이미 누적 점수에 추가됨)
+        // 관리자 계정 포함 모든 유저의 점수를 강제로 0으로 초기화
+        const oldScore = updatedUser.tournamentScore || 0;
+        updatedUser.tournamentScore = 0;
+        if (oldScore !== 0) {
+            console.log(`[WeeklyReset] Reset tournamentScore for ${updatedUser.nickname} (${updatedUser.id}): ${oldScore} -> 0`);
         }
         
-        // 길드 미션 초기화
+        // 월요일 0시에 유저의 yesterdayTournamentScore를 현재 누적 점수로 설정 (변화없음으로 시작)
+        // 이렇게 하면 누적 점수는 업데이트되어도 변화표에 "변화없음"으로 표시됨
+        // (liveScore - yesterdayScore = cumulativeTournamentScore - cumulativeTournamentScore = 0)
+        updatedUser.yesterdayTournamentScore = updatedUser.cumulativeTournamentScore || 0;
+        
+        // dailyRankings.championship도 초기화하여 변화표가 올바르게 표시되도록 함
+        if (!updatedUser.dailyRankings) {
+            updatedUser.dailyRankings = {};
+        }
+        // 월요일 0시에는 누적 점수가 업데이트된 상태이지만, 변화표는 변화없음으로 시작하도록 설정
+        // processDailyRankings에서 나중에 rank를 업데이트함
+        updatedUser.dailyRankings.championship = {
+            rank: 0, // processDailyRankings에서 나중에 업데이트됨
+            score: updatedUser.cumulativeTournamentScore || 0, // 누적 점수 유지
+            lastUpdated: now
+        };
+        
+        // 새로운 경쟁상대에 봇이 포함된 경우를 대비해 초기화
+        if (!updatedUser.weeklyCompetitorsBotScores) {
+            updatedUser.weeklyCompetitorsBotScores = {};
+        }
+        
+        // 기존 봇 점수 중 새로운 경쟁상대에 포함되지 않은 봇은 삭제
+        const existingBotIds = Object.keys(updatedUser.weeklyCompetitorsBotScores);
+        for (const botId of existingBotIds) {
+            const competitorExists = updatedUser.weeklyCompetitors?.some((c: types.WeeklyCompetitor) => c.id === botId);
+            if (!competitorExists) {
+                // 새로운 경쟁상대에 포함되지 않은 봇은 삭제
+                delete updatedUser.weeklyCompetitorsBotScores[botId];
+            }
+        }
+        
+        // 새로운 경쟁상대에 봇이 포함된 경우, 봇 점수를 초기화하고 월요일 0시에 1~50점을 한번 추가
+        if (updatedUser.weeklyCompetitors) {
+            for (const competitor of updatedUser.weeklyCompetitors) {
+                if (competitor.id.startsWith('bot-')) {
+                    const botId = competitor.id;
+                    // 새로운 경쟁상대에 포함된 봇은 점수를 초기화하고 초기 점수 부여
+                    // 1-50 사이의 랜덤값 생성 (봇 ID와 KST 기준 날짜를 시드로 사용)
+                    const kstYear = getKSTFullYear(now);
+                    const kstMonth = getKSTMonth(now) + 1; // 0-based to 1-based
+                    const kstDate = getKSTDate_UTC(now);
+                    const dateStr = `${kstYear}-${String(kstMonth).padStart(2, '0')}-${String(kstDate).padStart(2, '0')}`;
+                    const seedStr = `${botId}-${dateStr}`;
+                    let seed = 0;
+                    for (let i = 0; i < seedStr.length; i++) {
+                        seed = ((seed << 5) - seed) + seedStr.charCodeAt(i);
+                        seed = seed & seed; // Convert to 32bit integer
+                    }
+                    const randomVal = Math.abs(Math.sin(seed)) * 10000;
+                    const initialGain = Math.floor((randomVal % 50)) + 1; // 1-50
+                    
+                    updatedUser.weeklyCompetitorsBotScores[botId] = {
+                        score: initialGain, // 월요일 0시에 경쟁 상대 갱신 직후 1~50점 추가
+                        lastUpdate: now,
+                        yesterdayScore: 0 // 변화없음으로 표시
+                    };
+                    
+                    console.log(`[WeeklyReset] Initialized bot score for ${botId} (${competitor.nickname || 'Unknown'}): ${initialGain}점`);
+                }
+            }
+        }
+        
+        await db.updateUser(updatedUser);
+    }
+    
+    // 길드 미션 초기화
         const { resetWeeklyGuildMissions } = await import('./guildService.js');
         const guilds = await db.getKV<Record<string, types.Guild>>('guilds') || {};
         for (const guild of Object.values(guilds)) {
             // 마지막 초기화가 이번 주가 아니면 초기화
-            if (!guild.lastMissionReset || isDifferentWeekKST(guild.lastMissionReset, now)) {
+            const lastMissionReset = (guild as any).lastMissionReset;
+            if (!lastMissionReset || isDifferentWeekKST(lastMissionReset, now)) {
                 resetWeeklyGuildMissions(guild, now);
             }
         }
@@ -380,9 +359,8 @@ export async function processWeeklyResetAndRematch(): Promise<void> {
             console.log(`[WeeklyReset] Reset all guild missions`);
         }
         
-        lastWeeklyResetTimestamp = now;
-        console.log(`[WeeklyReset] Reset all tournament scores, bot scores, and rematched competitors`);
-    }
+    lastWeeklyResetTimestamp = now;
+    console.log(`[WeeklyReset] Completed: Reset all tournament scores, bot scores, and rematched competitors for ${allUsers.length} users`);
 }
 
 // 기존 함수는 호환성을 위해 유지 (월요일 0시 처리는 processWeeklyResetAndRematch로 대체)
@@ -481,6 +459,31 @@ export async function processWeeklyLeagueUpdates(user: types.User): Promise<type
     const allUsers = await db.getAllUsers();
     const competitorMap = new Map(allUsers.map(u => [u.id, u]));
 
+    // 봇 점수가 없거나 0인 경우 즉시 계산
+    if (!user.weeklyCompetitorsBotScores || Object.keys(user.weeklyCompetitorsBotScores).length === 0) {
+        const updatedUserWithBotScores = await updateBotLeagueScores(user, true);
+        if (updatedUserWithBotScores.weeklyCompetitorsBotScores) {
+            user.weeklyCompetitorsBotScores = updatedUserWithBotScores.weeklyCompetitorsBotScores;
+        }
+    } else {
+        // 일부 봇 점수가 없는 경우 보완
+        let needsUpdate = false;
+        for (const competitor of user.weeklyCompetitors) {
+            if (competitor.id.startsWith('bot-') && (!user.weeklyCompetitorsBotScores[competitor.id] || user.weeklyCompetitorsBotScores[competitor.id].score === 0)) {
+                needsUpdate = true;
+                break;
+            }
+        }
+        if (needsUpdate) {
+            const updatedUserWithBotScores = await updateBotLeagueScores(user, true);
+            if (updatedUserWithBotScores.weeklyCompetitorsBotScores) {
+                user.weeklyCompetitorsBotScores = updatedUserWithBotScores.weeklyCompetitorsBotScores;
+            }
+        }
+    }
+    
+    // weeklyCompetitors 전체(16명)를 기준으로 랭킹 계산
+    // 모든 경쟁 상대(봇 포함)의 점수를 수집
     const finalRankings = user.weeklyCompetitors.map(c => {
         if (c.id.startsWith('bot-')) {
             // 봇의 경우 weeklyCompetitorsBotScores에서 점수 가져오기
@@ -500,7 +503,13 @@ export async function processWeeklyLeagueUpdates(user: types.User): Promise<type
         }
     }).sort((a, b) => b.finalScore - a.finalScore);
     
+    // 사용자의 순위 계산 (weeklyCompetitors 내에서의 순위)
     const myRank = finalRankings.findIndex(c => c.id === user.id) + 1;
+    
+    // 디버깅: 경쟁 상대 수 확인
+    if (finalRankings.length !== 16) {
+        console.warn(`[LeagueUpdate] User ${user.nickname} (${user.id}): weeklyCompetitors count is ${finalRankings.length}, expected 16`);
+    }
     
     if (myRank === 0) {
         console.warn(`[LeagueUpdate] User ${user.nickname} not found in their own competitor list. Aborting update.`);
@@ -532,10 +541,14 @@ export async function processWeeklyLeagueUpdates(user: types.User): Promise<type
     let newLeagueIndex = currentLeagueIndex;
     let resultText = "";
     
-    if (myRewardTier.outcome === 'promote') {
+    // Challenger 리그는 최상위 티어이므로 promote를 maintain으로 처리
+    const isChallenger = currentLeague === types.LeagueTier.Challenger;
+    const effectiveOutcome = (isChallenger && myRewardTier.outcome === 'promote') ? 'maintain' : myRewardTier.outcome;
+    
+    if (effectiveOutcome === 'promote') {
         newLeagueIndex = Math.min(LEAGUE_DATA.length - 1, currentLeagueIndex + 1);
         resultText = "승급";
-    } else if (myRewardTier.outcome === 'demote') {
+    } else if (effectiveOutcome === 'demote') {
         newLeagueIndex = Math.max(0, currentLeagueIndex - 1);
         resultText = "강등";
     } else {
@@ -546,7 +559,10 @@ export async function processWeeklyLeagueUpdates(user: types.User): Promise<type
     const newLeague = LEAGUE_DATA[newLeagueIndex].tier;
     
     if (oldLeague !== newLeague) {
+        console.log(`[LeagueUpdate] ${user.nickname} (${user.id}): ${oldLeague} -> ${newLeague} (${resultText}, Rank: ${myRank})`);
         user.league = newLeague;
+    } else {
+        console.log(`[LeagueUpdate] ${user.nickname} (${user.id}): ${oldLeague} 유지 (${resultText}, Rank: ${myRank})`);
     }
 
     // 주간 점수를 누적 점수에 추가 (티어변동 계산 후)
@@ -562,8 +578,10 @@ export async function processWeeklyLeagueUpdates(user: types.User): Promise<type
     const week = Math.ceil(kstDate / 7);
 
     const mailTitle = `${year}년 ${month}월 ${week}주차 리그 정산 보상`;
+    // weeklyCompetitors 전체 수를 표시 (항상 16명이어야 함)
+    const totalCompetitors = user.weeklyCompetitors?.length || finalRankings.length;
     const mailMessage = `
-${year}년 ${month}월 ${week}주차 주간 경쟁 결과, ${finalRankings.length}명 중 ${myRank}위를 기록하셨습니다.
+${year}년 ${month}월 ${week}주차 주간 경쟁 결과, 이번주 경쟁 상대 ${totalCompetitors}명 중 ${myRank}위를 기록하셨습니다.
         
 - 이전 리그: ${oldLeague}
 - 현재 리그: ${newLeague}
@@ -600,7 +618,7 @@ ${year}년 ${month}월 ${week}주차 주간 경쟁 결과, ${finalRankings.lengt
     return user;
 }
 
-export async function updateWeeklyCompetitorsIfNeeded(user: types.User, allUsers: types.User[]): Promise<types.User> {
+export async function updateWeeklyCompetitorsIfNeeded(user: types.User, allUsers?: types.User[]): Promise<types.User> {
     const now = Date.now();
     if (!isDifferentWeekKST(user.lastWeeklyCompetitorsUpdate ?? undefined, now)) {
         return user; // No update needed
@@ -608,10 +626,18 @@ export async function updateWeeklyCompetitorsIfNeeded(user: types.User, allUsers
 
     console.log(`[LeagueUpdate] Updating weekly competitors for ${user.nickname}`);
 
-    // Find 15 other users in the same league
-    const potentialCompetitors = allUsers.filter(
-        u => u.id !== user.id && u.league === user.league
-    );
+    // Find 15 other users in the same league (DB 쿼리로 최적화)
+    let potentialCompetitors: types.User[];
+    if (allUsers) {
+        // 기존 방식 (호환성 유지)
+        potentialCompetitors = allUsers.filter(
+            u => u.id !== user.id && u.league === user.league
+        );
+    } else {
+        // 최적화된 방식: 같은 리그의 유저만 DB에서 조회
+        const { getUsersByLeague } = await import('./db.js');
+        potentialCompetitors = await getUsersByLeague(user.league, user.id);
+    }
 
     const shuffledCompetitors = potentialCompetitors.sort(() => 0.5 - Math.random());
     const selectedCompetitors = shuffledCompetitors.slice(0, 15);
@@ -630,8 +656,64 @@ export async function updateWeeklyCompetitorsIfNeeded(user: types.User, allUsers
     updatedUser.weeklyCompetitors = competitorList;
     updatedUser.lastWeeklyCompetitorsUpdate = now;
     
-    // 새로운 주간 경쟁상대가 매칭되면 봇 점수도 0으로 리셋
-    updatedUser.weeklyCompetitorsBotScores = {};
+    // 새로운 주간 경쟁상대가 매칭되면 봇 점수 관리
+    // 기존 봇 점수는 유지하되, 새로운 경쟁상대에 포함되지 않은 봇은 삭제
+    if (!updatedUser.weeklyCompetitorsBotScores) {
+        updatedUser.weeklyCompetitorsBotScores = {};
+    }
+    
+    // 새로운 경쟁상대에 포함되지 않은 봇 점수 삭제
+    const existingBotIds = Object.keys(updatedUser.weeklyCompetitorsBotScores);
+    for (const botId of existingBotIds) {
+        const competitorExists = competitorList.some(c => c.id === botId);
+        if (!competitorExists) {
+            delete updatedUser.weeklyCompetitorsBotScores[botId];
+        }
+    }
+    
+    // 새로운 경쟁상대에 포함된 봇 중 점수가 없는 경우만 초기화 (기존 점수는 유지)
+    for (const competitor of competitorList) {
+        if (competitor.id.startsWith('bot-')) {
+            if (!updatedUser.weeklyCompetitorsBotScores[competitor.id]) {
+                // 봇 점수가 없는 경우에만 초기화 (기존 점수는 유지)
+                // 월요일 0시가 아닌 경우에는 점수를 추가하지 않음
+                const kstDay = getKSTDay(now);
+                const kstHours = getKSTHours(now);
+                const kstMinutes = getKSTMinutes(now);
+                const isMondayMidnight = kstDay === 1 && kstHours === 0 && kstMinutes < 5;
+                
+                if (isMondayMidnight) {
+                    // 월요일 0시에만 초기 점수 부여
+                    const kstYear = getKSTFullYear(now);
+                    const kstMonth = getKSTMonth(now) + 1;
+                    const kstDate = getKSTDate_UTC(now);
+                    const dateStr = `${kstYear}-${String(kstMonth).padStart(2, '0')}-${String(kstDate).padStart(2, '0')}`;
+                    const seedStr = `${competitor.id}-${dateStr}`;
+                    let seed = 0;
+                    for (let i = 0; i < seedStr.length; i++) {
+                        seed = ((seed << 5) - seed) + seedStr.charCodeAt(i);
+                        seed = seed & seed;
+                    }
+                    const randomVal = Math.abs(Math.sin(seed)) * 10000;
+                    const initialGain = Math.floor((randomVal % 50)) + 1;
+                    
+                    updatedUser.weeklyCompetitorsBotScores[competitor.id] = {
+                        score: initialGain,
+                        lastUpdate: now,
+                        yesterdayScore: 0
+                    };
+                } else {
+                    // 월요일 0시가 아닌 경우에는 점수를 0으로 초기화만 함
+                    updatedUser.weeklyCompetitorsBotScores[competitor.id] = {
+                        score: 0,
+                        lastUpdate: now,
+                        yesterdayScore: 0
+                    };
+                }
+            }
+            // 기존 봇 점수가 있으면 유지 (리셋하지 않음)
+        }
+    }
 
     return updatedUser;
 }
@@ -781,7 +863,26 @@ export async function grantThreeDaysBotScores(): Promise<void> {
 }
 
 // 봇의 리그 점수를 하루에 한번 증가시키는 함수
-export async function updateBotLeagueScores(user: types.User): Promise<types.User> {
+// 봇의 특정 날짜에 대한 점수 계산 (1~50점)
+function getBotScoreForDate(botId: string, date: Date): number {
+    const kstYear = getKSTFullYear(date.getTime());
+    const kstMonth = getKSTMonth(date.getTime()) + 1;
+    const kstDate = getKSTDate_UTC(date.getTime());
+    const dateStr = `${kstYear}-${String(kstMonth).padStart(2, '0')}-${String(kstDate).padStart(2, '0')}`;
+    const seedStr = `${botId}-${dateStr}`;
+    
+    let seed = 0;
+    for (let i = 0; i < seedStr.length; i++) {
+        seed = ((seed << 5) - seed) + seedStr.charCodeAt(i);
+        seed = seed & seed;
+    }
+    
+    const randomVal = Math.abs(Math.sin(seed)) * 10000;
+    return Math.floor((randomVal % 50)) + 1; // 1~50점
+}
+
+// 봇 점수 업데이트 함수 (매일 1~50점 추가)
+export async function updateBotLeagueScores(user: types.User, forceUpdate: boolean = false): Promise<types.User> {
     if (!user.weeklyCompetitors || user.weeklyCompetitors.length === 0) {
         return user;
     }
@@ -789,138 +890,191 @@ export async function updateBotLeagueScores(user: types.User): Promise<types.Use
     const now = Date.now();
     const todayStart = getStartOfDayKST(now);
     
-    // weeklyCompetitors에 봇 점수 업데이트 정보가 없으면 초기화
     if (!user.weeklyCompetitorsBotScores) {
         user.weeklyCompetitorsBotScores = {};
     }
     
     const updatedUser = JSON.parse(JSON.stringify(user));
-    let hasChanges = false;
+    if (!updatedUser.weeklyCompetitorsBotScores) {
+        updatedUser.weeklyCompetitorsBotScores = {};
+    }
     
-    // 각 경쟁상대 중 봇인 경우 점수 업데이트
+    let hasChanges = false;
+    const competitorsUpdateDay = user.lastWeeklyCompetitorsUpdate 
+        ? getStartOfDayKST(user.lastWeeklyCompetitorsUpdate)
+        : todayStart;
+    
     for (const competitor of updatedUser.weeklyCompetitors) {
-        if (competitor.id.startsWith('bot-')) {
-            const botScoreData = user.weeklyCompetitorsBotScores?.[competitor.id];
-            const lastUpdate = botScoreData?.lastUpdate || 0;
-            const lastUpdateDay = getStartOfDayKST(lastUpdate);
-            const currentScore = botScoreData?.score || 0;
-            
-            // 봇 점수가 없거나 0점인 경우 초기화 (월요일 0시가 아닌 경우)
-            if (!botScoreData || currentScore === 0) {
-                // 주간 경쟁상대가 업데이트된 날짜부터 오늘까지의 점수 계산
-                const competitorsUpdateDay = user.lastWeeklyCompetitorsUpdate 
-                    ? getStartOfDayKST(user.lastWeeklyCompetitorsUpdate)
-                    : todayStart;
-                const startDay = Math.max(competitorsUpdateDay, lastUpdateDay);
-                const daysDiff = Math.floor((todayStart - startDay) / (1000 * 60 * 60 * 24));
-                
-                if (daysDiff > 0) {
-                    // 누락된 날짜만큼 점수 추가 (각 날짜마다 1~50점)
-                    let totalGain = 0;
-                    let yesterdayScore = 0;
-                    
-                    // 시작일 다음 날부터 오늘까지 각 날짜의 점수 추가
-                    for (let dayOffset = 1; dayOffset <= daysDiff; dayOffset++) {
-                        const targetDate = new Date(startDay + (dayOffset * 24 * 60 * 60 * 1000));
-                        const kstYear = getKSTFullYear(targetDate.getTime());
-                        const kstMonth = getKSTMonth(targetDate.getTime()) + 1; // 0-based to 1-based
-                        const kstDate = getKSTDate_UTC(targetDate.getTime());
-                        const dateStr = `${kstYear}-${String(kstMonth).padStart(2, '0')}-${String(kstDate).padStart(2, '0')}`;
-                        const seedStr = `${competitor.id}-${dateStr}`;
-                        let seed = 0;
-                        for (let i = 0; i < seedStr.length; i++) {
-                            seed = ((seed << 5) - seed) + seedStr.charCodeAt(i);
-                            seed = seed & seed; // Convert to 32bit integer
-                        }
-                        const randomVal = Math.abs(Math.sin(seed)) * 10000;
-                        const dailyGain = Math.floor((randomVal % 50)) + 1; // 1-50
-                        totalGain += dailyGain;
-                        
-                        // 어제 점수는 오늘 전날의 점수로 설정
-                        if (dayOffset === daysDiff) {
-                            yesterdayScore = totalGain - dailyGain;
-                        }
-                    }
-                    
-                    if (!updatedUser.weeklyCompetitorsBotScores) {
-                        updatedUser.weeklyCompetitorsBotScores = {};
-                    }
-                    updatedUser.weeklyCompetitorsBotScores[competitor.id] = {
-                        score: totalGain,
-                        lastUpdate: now,
-                        yesterdayScore: yesterdayScore // 어제 점수 저장
-                    };
-                    
-                    hasChanges = true;
-                    continue; // 다음 봇으로
-                }
-            }
-            
-            // 오늘 아직 업데이트하지 않았으면 점수 증가
+        if (!competitor.id.startsWith('bot-')) {
+            continue;
+        }
+        
+        const botId = competitor.id;
+        const botScoreData = user.weeklyCompetitorsBotScores[botId];
+        const lastUpdate = botScoreData?.lastUpdate || 0;
+        const lastUpdateDay = getStartOfDayKST(lastUpdate);
+        const currentScore = botScoreData?.score || 0;
+        
+        // 강제 업데이트가 아니고, 오늘 이미 업데이트했으면 스킵
+        // 단, 점수가 0이면 강제로 업데이트 (배포 사이트에서 봇 점수가 0으로 남아있는 경우 대비)
+        if (!forceUpdate && lastUpdateDay >= todayStart && currentScore > 0) {
+            continue;
+        }
+        
+        // 점수가 0이고 경쟁상대 업데이트일이 오늘 이전이면 강제로 업데이트
+        if (currentScore === 0 && competitorsUpdateDay < todayStart) {
+            // 봇 점수가 없거나 0이면 경쟁상대 업데이트일부터 오늘까지 모든 날짜 계산
+            forceUpdate = true;
+        }
+        
+        // 매일 0시에 실행될 때는 오늘 날짜의 점수만 추가해야 함
+        // lastUpdateDay가 어제 날짜이고 todayStart가 오늘 날짜이면, 오늘 날짜만 계산
+        let startDay: number;
+        let daysDiff: number;
+        
+        if (forceUpdate) {
+            // 강제 업데이트: 경쟁상대 업데이트일부터 오늘까지 모든 날짜 계산
+            startDay = competitorsUpdateDay;
+            daysDiff = Math.floor((todayStart - startDay) / (1000 * 60 * 60 * 24));
+        } else if (lastUpdate > 0) {
+            // 마지막 업데이트가 어제 날짜이면 오늘 날짜만 추가
+            // 마지막 업데이트가 오늘 이전이면, 마지막 업데이트 다음 날부터 오늘까지 계산
             if (lastUpdateDay < todayStart) {
-                // 누락된 날짜 수 계산 (마지막 업데이트일부터 오늘까지)
-                const daysDiff = Math.floor((todayStart - lastUpdateDay) / (1000 * 60 * 60 * 24));
-                
-                // 누락된 날짜만큼 점수 추가 (각 날짜마다 1~50점)
-                let totalGain = 0;
-                let yesterdayScore = currentScore;
-                
-                // 마지막 업데이트일 다음 날부터 오늘까지 각 날짜의 점수 추가
-                for (let dayOffset = 1; dayOffset <= daysDiff; dayOffset++) {
-                    const targetDate = new Date(lastUpdateDay + (dayOffset * 24 * 60 * 60 * 1000));
-                    const kstYear = getKSTFullYear(targetDate.getTime());
-                    const kstMonth = getKSTMonth(targetDate.getTime()) + 1; // 0-based to 1-based
-                    const kstDate = getKSTDate_UTC(targetDate.getTime());
-                    const dateStr = `${kstYear}-${String(kstMonth).padStart(2, '0')}-${String(kstDate).padStart(2, '0')}`;
-                    const seedStr = `${competitor.id}-${dateStr}`;
-                    let seed = 0;
-                    for (let i = 0; i < seedStr.length; i++) {
-                        seed = ((seed << 5) - seed) + seedStr.charCodeAt(i);
-                        seed = seed & seed; // Convert to 32bit integer
-                    }
-                    const randomVal = Math.abs(Math.sin(seed)) * 10000;
-                    const dailyGain = Math.floor((randomVal % 50)) + 1; // 1-50
-                    totalGain += dailyGain;
-                    
-                    // 어제 점수는 오늘 전날의 점수로 설정
-                    if (dayOffset === daysDiff) {
-                        yesterdayScore = currentScore + (totalGain - dailyGain);
-                    }
-                }
-                
-                const newScore = currentScore + totalGain;
-                
-                if (!updatedUser.weeklyCompetitorsBotScores) {
-                    updatedUser.weeklyCompetitorsBotScores = {};
-                }
-                updatedUser.weeklyCompetitorsBotScores[competitor.id] = {
-                    score: newScore,
-                    lastUpdate: now, // 오늘 날짜로 업데이트하여 하루에 한번만 실행되도록 함
-                    yesterdayScore: yesterdayScore // 어제 점수 저장
-                };
-                
-                // 디버깅: 봇 점수 업데이트 로그 (개발 환경에서만)
-                if (process.env.NODE_ENV === 'development' && daysDiff > 0) {
-                    console.log(`[BotScore] ${competitor.id} (${competitor.nickname}): +${totalGain}점 (${daysDiff}일치, 현재: ${currentScore} -> ${newScore})`);
-                }
-                
-                hasChanges = true;
-            } else if (!botScoreData?.yesterdayScore && currentScore > 0) {
-                // 이미 오늘 업데이트했지만 yesterdayScore가 없는 경우 (마이그레이션)
-                // 현재 점수를 어제 점수로 설정 (변화 없음으로 표시)
-                if (!updatedUser.weeklyCompetitorsBotScores) {
-                    updatedUser.weeklyCompetitorsBotScores = {};
-                }
-                updatedUser.weeklyCompetitorsBotScores[competitor.id] = {
-                    ...botScoreData,
-                    yesterdayScore: currentScore
-                };
-                hasChanges = true;
+                // 어제 또는 그 이전에 업데이트했으면, 오늘 날짜만 추가
+                startDay = todayStart;
+                daysDiff = 0; // 오늘 날짜만
+            } else {
+                // 오늘 이미 업데이트했으면 스킵 (위에서 이미 체크했지만 안전장치)
+                continue;
+            }
+        } else {
+            // 봇 점수가 없으면 경쟁상대 업데이트일부터 오늘까지 모든 날짜 계산
+            startDay = competitorsUpdateDay;
+            daysDiff = Math.floor((todayStart - startDay) / (1000 * 60 * 60 * 24));
+        }
+        
+        if (daysDiff < 0) {
+            continue; // 미래 날짜는 스킵
+        }
+        
+        // forceUpdate인 경우 현재 점수를 무시하고 처음부터 계산
+        const baseScore = forceUpdate ? 0 : currentScore;
+        let totalGain = 0;
+        let yesterdayScore = baseScore;
+        
+        // 시작일부터 오늘까지 각 날짜의 점수 추가
+        for (let dayOffset = 0; dayOffset <= daysDiff; dayOffset++) {
+            const targetDate = new Date(startDay + (dayOffset * 24 * 60 * 60 * 1000));
+            const dailyGain = getBotScoreForDate(botId, targetDate);
+            totalGain += dailyGain;
+            
+            // 어제 점수 계산 (오늘 전날까지의 점수)
+            if (dayOffset === daysDiff && daysDiff > 0) {
+                yesterdayScore = baseScore + (totalGain - dailyGain);
+            } else if (daysDiff === 0) {
+                // 오늘 날짜만 추가하는 경우, 어제 점수는 현재 점수
+                yesterdayScore = baseScore;
             }
         }
+        
+        const newScore = baseScore + totalGain;
+        
+        updatedUser.weeklyCompetitorsBotScores[botId] = {
+            score: newScore,
+            lastUpdate: now,
+            yesterdayScore: yesterdayScore
+        };
+        
+        hasChanges = true;
+        
+        console.log(`[BotScore] ${botId} (${competitor.nickname || 'Unknown'}): ${forceUpdate ? 'FORCE' : ''} +${totalGain}점 (${daysDiff + 1}일치, ${baseScore} -> ${newScore})`);
     }
     
     return hasChanges ? updatedUser : user;
+}
+
+// 1회성: 모든 유저의 봇 점수를 즉시 복구하는 함수
+export async function recoverAllBotScores(forceDays?: number): Promise<void> {
+    console.log(`[OneTimeRecover] Recovering all bot scores for all users${forceDays ? ` (forcing ${forceDays} days)` : ''}...`);
+    const allUsers = await db.getAllUsers();
+    const now = Date.now();
+    const todayStart = getStartOfDayKST(now);
+    let updatedCount = 0;
+    let totalBotsRecovered = 0;
+    
+    for (const user of allUsers) {
+        if (!user.weeklyCompetitors || user.weeklyCompetitors.length === 0) {
+            continue;
+        }
+        
+        const updatedUser = JSON.parse(JSON.stringify(user));
+        if (!updatedUser.weeklyCompetitorsBotScores) {
+            updatedUser.weeklyCompetitorsBotScores = {};
+        }
+        
+        let hasChanges = false;
+        const competitorsUpdateDay = user.lastWeeklyCompetitorsUpdate 
+            ? getStartOfDayKST(user.lastWeeklyCompetitorsUpdate)
+            : todayStart;
+        
+        for (const competitor of updatedUser.weeklyCompetitors) {
+            if (!competitor.id.startsWith('bot-')) {
+                continue;
+            }
+            
+            const botId = competitor.id;
+            const botScoreData = user.weeklyCompetitorsBotScores?.[botId];
+            const currentScore = botScoreData?.score || 0;
+            
+            // forceDays가 지정되면 무조건 복구, 아니면 점수가 0이거나 없으면 복구
+            if (forceDays === undefined && currentScore > 0 && botScoreData) {
+                continue;
+            }
+            
+            // forceDays가 지정되면 그만큼, 아니면 경쟁상대 업데이트일부터 오늘까지
+            const daysDiff = forceDays !== undefined 
+                ? forceDays - 1  // forceDays=7이면 dayOffset 0~6 (7일)
+                : Math.floor((todayStart - competitorsUpdateDay) / (1000 * 60 * 60 * 24));
+            
+            if (daysDiff < 0) {
+                continue;
+            }
+            
+            let totalGain = 0;
+            let yesterdayScore = 0;
+            
+            // 경쟁상대 업데이트일부터 지정된 일수만큼 점수 추가
+            for (let dayOffset = 0; dayOffset <= daysDiff; dayOffset++) {
+                const targetDate = new Date(competitorsUpdateDay + (dayOffset * 24 * 60 * 60 * 1000));
+                const dailyGain = getBotScoreForDate(botId, targetDate);
+                totalGain += dailyGain;
+                
+                // 어제 점수 계산
+                if (dayOffset === daysDiff && daysDiff > 0) {
+                    yesterdayScore = totalGain - dailyGain;
+                } else if (daysDiff === 0) {
+                    yesterdayScore = 0;
+                }
+            }
+            
+            updatedUser.weeklyCompetitorsBotScores[botId] = {
+                score: totalGain,
+                lastUpdate: now,
+                yesterdayScore: yesterdayScore
+            };
+            
+            hasChanges = true;
+            totalBotsRecovered++;
+            console.log(`[OneTimeRecover] Recovered bot ${botId} for user ${user.nickname}: ${totalGain} points (${daysDiff + 1} days${forceDays ? ' forced' : ''})`);
+        }
+        
+        if (hasChanges) {
+            await db.updateUser(updatedUser);
+            updatedCount++;
+        }
+    }
+    
+    console.log(`[OneTimeRecover] Recovered bot scores for ${updatedCount} users. Total bots recovered: ${totalBotsRecovered}`);
 }
 
 // 매일 0시에 랭킹 정산 (전략바둑, 놀이바둑, 챔피언십)
@@ -1021,18 +1175,40 @@ export async function processDailyRankings(): Promise<void> {
             score: entry.score
         }));
     
-    // 월요일 0시인지 확인 (월요일 0시에는 봇 점수 업데이트를 하지 않음 - processWeeklyResetAndRematch에서 처리)
-    // kstHours와 kstMinutes는 이미 위에서 선언되었으므로 재사용
+    // 월요일 0시인지 확인 (챔피언십 랭킹 업데이트 시 사용)
     const kstDay = getKSTDay(now);
     const isMondayMidnight = kstDay === 1 && kstHours === 0 && kstMinutes < 5;
     
     // 각 유저의 dailyRankings 업데이트 및 봇 점수 업데이트
+    // 매일 0시에 봇 점수를 1~50점씩 추가 (월요일 0시도 포함 - processWeeklyResetAndRematch 이후에 실행됨)
+    // 모든 유저의 봇 점수를 업데이트하여 다른 유저가 볼 때도 정확한 점수가 표시되도록 함
+    let botsUpdated = 0;
     for (const user of allUsers) {
         let updatedUser = JSON.parse(JSON.stringify(user));
         
-        // 봇의 리그 점수 업데이트 (매일 0시에 실행, 단 월요일 0시는 제외 - 이미 processWeeklyResetAndRematch에서 리셋됨)
-        if (!isMondayMidnight) {
-            updatedUser = await updateBotLeagueScores(updatedUser);
+        // 봇의 리그 점수 업데이트 (매일 0시에 실행, 월요일 0시도 포함)
+        // 월요일 0시에는 processWeeklyResetAndRematch에서 이미 봇 점수를 리셋하고 초기 점수를 추가했으므로,
+        // 여기서는 추가로 오늘 날짜의 점수를 더 추가함
+        // forceUpdate=false로 호출하여 오늘 이미 업데이트된 경우 스킵
+        // 단, 봇 점수가 모두 0이면 강제로 업데이트 (배포 사이트에서 봇 점수가 0으로 남아있는 경우 대비)
+        // 모든 유저의 봇 점수를 업데이트하여 다른 유저가 볼 때도 정확한 점수가 표시되도록 함
+        if (updatedUser.weeklyCompetitors && updatedUser.weeklyCompetitors.length > 0) {
+            // 봇 점수가 모두 0인지 확인
+            const hasZeroBotScores = updatedUser.weeklyCompetitors.some(c => 
+                c.id.startsWith('bot-') && 
+                (!updatedUser.weeklyCompetitorsBotScores?.[c.id] || 
+                 updatedUser.weeklyCompetitorsBotScores[c.id].score === 0)
+            );
+            
+            const userBeforeUpdate = JSON.stringify(updatedUser.weeklyCompetitorsBotScores || {});
+            // 봇 점수가 모두 0이면 강제 업데이트
+            updatedUser = await updateBotLeagueScores(updatedUser, hasZeroBotScores);
+            const userAfterUpdate = JSON.stringify(updatedUser.weeklyCompetitorsBotScores || {});
+            if (userBeforeUpdate !== userAfterUpdate) {
+                botsUpdated++;
+                // 봇 점수가 업데이트되었으면 DB에 저장
+                await db.updateUser(updatedUser);
+            }
         }
         
         if (!updatedUser.dailyRankings) {
@@ -1100,7 +1276,7 @@ export async function processDailyRankings(): Promise<void> {
     }
     
     lastDailyRankingUpdateTimestamp = now;
-    console.log(`[DailyRanking] Updated daily rankings for ${allUsers.length} users`);
+    console.log(`[DailyRanking] Updated daily rankings for ${allUsers.length} users, updated bot scores for ${botsUpdated} users`);
 }
 
 // 매일 0시 KST에 일일 퀘스트 초기화 및 토너먼트 상태 리셋

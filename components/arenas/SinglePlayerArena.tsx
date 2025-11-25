@@ -64,7 +64,17 @@ const SinglePlayerArena: React.FC<SinglePlayerArenaProps> = (props) => {
                     boardSize={settings.boardSize}
                     onBoardClick={handleBoardClick}
                     onMissileLaunch={(from: Point, direction: 'up' | 'down' | 'left' | 'right') => {
-                        props.onAction({ type: 'LAUNCH_MISSILE', payload: { gameId: session.id, from, direction } });
+                        // 클라이언트의 boardState를 서버로 전송하여 정확한 검증 가능하도록 함
+                        props.onAction({ 
+                            type: 'LAUNCH_MISSILE', 
+                            payload: { 
+                                gameId: session.id, 
+                                from, 
+                                direction,
+                                boardState: boardState, // 클라이언트의 현재 boardState 전송
+                                moveHistory: moveHistory || [] // 클라이언트의 moveHistory 전송
+                            } 
+                        });
                     }}
                     lastMove={lastMove}
                     lastTurnStones={lastTurnStones}
@@ -91,6 +101,9 @@ const SinglePlayerArena: React.FC<SinglePlayerArenaProps> = (props) => {
                     newlyRevealed={newlyRevealed}
                     analysisResult={session.analysisResult?.[currentUser.id] ?? ((gameStatus === 'ended' || (gameStatus === 'scoring' && session.analysisResult?.['system'])) ? session.analysisResult?.['system'] : null)}
                     showTerritoryOverlay={showTerritoryOverlay}
+                    isSinglePlayer={true}
+                    onAction={props.onAction}
+                    gameId={session.id}
                 />
             </div>
             {isPaused && (

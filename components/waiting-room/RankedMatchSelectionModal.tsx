@@ -172,7 +172,7 @@ const RankedMatchSelectionModal: React.FC<RankedMatchSelectionModalProps> = ({
         if (settings.byoyomiTime > 0 && settings.byoyomiCount > 0) {
             items.push({ label: '초읽기', value: `${settings.byoyomiTime}초 × ${settings.byoyomiCount}회` });
         }
-        if (settings.timeIncrement > 0) {
+        if (settings.timeIncrement && settings.timeIncrement > 0) {
             items.push({ label: '시간 추가', value: `피셔 방식 ${settings.timeIncrement}초` });
         }
         if (settings.captureTarget) {

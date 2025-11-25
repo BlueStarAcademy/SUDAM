@@ -109,6 +109,46 @@ export async function getUserByNickname(nickname: string): Promise<User | null> 
   }
 }
 
+export async function getUserByEmail(email: string): Promise<User | null> {
+  try {
+    const row = await prisma.user.findUnique({ 
+      where: { email },
+      include: { guildMember: true, equipment: true, inventory: true }
+    });
+    return row ? mapUser(row) : null;
+  } catch (error: any) {
+    // equipment/inventory 로드 실패 시 없이 재시도
+    const row = await prisma.user.findUnique({ 
+      where: { email },
+      include: { guildMember: true }
+    });
+    return row ? mapUser(row) : null;
+  }
+}
+
+export async function getUsersByLeague(league: string | null, excludeUserId?: string): Promise<User[]> {
+  try {
+    const rows = await prisma.user.findMany({
+      where: {
+        league,
+        ...(excludeUserId ? { id: { not: excludeUserId } } : {})
+      },
+      include: { guildMember: true, equipment: true, inventory: true }
+    });
+    return rows.map(mapUser);
+  } catch (error: any) {
+    // equipment/inventory 로드 실패 시 없이 재시도
+    const rows = await prisma.user.findMany({
+      where: {
+        league,
+        ...(excludeUserId ? { id: { not: excludeUserId } } : {})
+      },
+      include: { guildMember: true }
+    });
+    return rows.map(mapUser);
+  }
+}
+
 export async function createUser(user: User): Promise<User> {
   const data = buildPersistentFields(user);
   const created = await prisma.user.create({

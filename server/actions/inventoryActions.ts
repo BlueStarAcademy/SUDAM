@@ -15,6 +15,7 @@ import {
     MATERIAL_ITEMS,
     ITEM_SELL_PRICES,
     MATERIAL_SELL_PRICES,
+    CONSUMABLE_SELL_PRICES,
     SUB_OPTION_POOLS,
     CONSUMABLE_ITEMS,
     GRADE_SUB_OPTION_RULES,
@@ -46,7 +47,7 @@ const ALL_SLOTS: EquipmentSlot[] = ['fan', 'board', 'top', 'bottom', 'bowl', 'st
 const GRADE_ORDER: ItemGrade[] = [ItemGrade.Normal, ItemGrade.Uncommon, ItemGrade.Rare, ItemGrade.Epic, ItemGrade.Legendary, ItemGrade.Mythic];
 
 export const currencyBundles: Record<string, { type: 'gold' | 'diamonds', min: number, max: number }> = {
-    '골드 꾸러미1': { type: 'gold', min: 10, max: 500 },
+    // '골드 꾸러미1' 제거됨 (버그로 인한 삭제)
     '골드 꾸러미2': { type: 'gold', min: 100, max: 1000 },
     '골드 꾸러미3': { type: 'gold', min: 500, max: 3000 },
     '골드 꾸러미4': { type: 'gold', min: 1000, max: 10000 },
@@ -765,8 +766,32 @@ export const handleInventoryAction = async (volatileState: VolatileState, action
                     // 부분 판매
                     item.quantity = currentQuantity - sellQuantity;
                 }
+            } else if (item.type === 'consumable') {
+                // 소비 아이템 판매 처리
+                const itemName = item.name || '';
+                const pricePerUnit = CONSUMABLE_SELL_PRICES[itemName] ?? 
+                    CONSUMABLE_SELL_PRICES[itemName.replace('골드꾸러미', '골드 꾸러미')] ?? 
+                    CONSUMABLE_SELL_PRICES[itemName.replace('골드 꾸러미', '골드꾸러미')] ?? 
+                    0;
+                
+                const currentQuantity = item.quantity || 1;
+                
+                if (sellQuantity > currentQuantity) {
+                    sellQuantity = currentQuantity;
+                }
+                
+                sellPrice = pricePerUnit * sellQuantity;
+                
+                // 소비 아이템은 수량만큼만 제거
+                if (sellQuantity >= currentQuantity) {
+                    // 전체 판매
+                    user.inventory.splice(itemIndex, 1);
+                } else {
+                    // 부분 판매
+                    item.quantity = currentQuantity - sellQuantity;
+                }
             } else {
-                return { error: '판매할 수 없는 아이템입니다. (소모품 판매 불가)' };
+                return { error: '판매할 수 없는 아이템입니다.' };
             }
 
             user.gold += sellPrice;

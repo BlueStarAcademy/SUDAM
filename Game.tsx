@@ -87,6 +87,107 @@ const Game: React.FC<GameComponentProps> = ({ session }) => {
     const isSinglePlayer = session.isSinglePlayer;
     const isTower = session.gameCategory === 'tower';
     
+    // 클라이언트에서 게임 상태 저장/복원 (새로고침 시 바둑판 복원)
+    const GAME_STATE_STORAGE_KEY = `gameState_${gameId}`;
+    
+    // 게임 상태를 sessionStorage에서 복원
+    const restoredBoardState = useMemo(() => {
+        // 먼저 sessionStorage에서 복원 시도
+        try {
+            const storedState = sessionStorage.getItem(GAME_STATE_STORAGE_KEY);
+            if (storedState) {
+                const parsed = JSON.parse(storedState);
+                // 게임이 종료되지 않았고, 같은 게임 ID인 경우에만 복원
+                if (parsed.gameId === gameId && !['ended', 'no_contest', 'scoring'].includes(gameStatus)) {
+                    if (parsed.boardState && Array.isArray(parsed.boardState) && parsed.boardState.length > 0) {
+                        console.log(`[Game] Restored boardState from sessionStorage for game ${gameId}`);
+                        return parsed.boardState;
+                    }
+                }
+            }
+        } catch (e) {
+            console.error(`[Game] Failed to restore game state from sessionStorage:`, e);
+        }
+        
+        // sessionStorage에 없으면 서버에서 받은 boardState 사용
+        if (session.boardState && Array.isArray(session.boardState) && session.boardState.length > 0) {
+            return session.boardState;
+        }
+        
+        // 싱글플레이어 게임의 경우 blackPatternStones와 whitePatternStones로부터 복원
+        if (isSinglePlayer && (session.blackPatternStones || session.whitePatternStones)) {
+            const boardSize = session.settings.boardSize;
+            const restored = Array(boardSize).fill(null).map(() => Array(boardSize).fill(Player.None));
+            
+            // blackPatternStones 복원
+            if (session.blackPatternStones && Array.isArray(session.blackPatternStones)) {
+                for (const stone of session.blackPatternStones) {
+                    if (stone.x >= 0 && stone.x < boardSize && stone.y >= 0 && stone.y < boardSize) {
+                        restored[stone.y][stone.x] = Player.Black;
+                    }
+                }
+            }
+            
+            // whitePatternStones 복원
+            if (session.whitePatternStones && Array.isArray(session.whitePatternStones)) {
+                for (const stone of session.whitePatternStones) {
+                    if (stone.x >= 0 && stone.x < boardSize && stone.y >= 0 && stone.y < boardSize) {
+                        restored[stone.y][stone.x] = Player.White;
+                    }
+                }
+            }
+            
+            // moveHistory를 통해 이후의 수를 복원
+            if (session.moveHistory && Array.isArray(session.moveHistory)) {
+                for (const move of session.moveHistory) {
+                    if (move.x >= 0 && move.x < boardSize && move.y >= 0 && move.y < boardSize) {
+                        restored[move.y][move.x] = move.player;
+                    }
+                }
+            }
+            
+            return restored;
+        }
+        
+        return session.boardState;
+    }, [isSinglePlayer, session.boardState, session.blackPatternStones, session.whitePatternStones, session.moveHistory, session.settings.boardSize, gameId, gameStatus]);
+    
+    // 게임 상태를 sessionStorage에 저장 (매 수마다)
+    useEffect(() => {
+        // 게임이 종료되면 저장된 상태 삭제
+        if (['ended', 'no_contest', 'scoring'].includes(gameStatus)) {
+            try {
+                sessionStorage.removeItem(GAME_STATE_STORAGE_KEY);
+                console.log(`[Game] Removed game state from sessionStorage for ended game ${gameId}`);
+            } catch (e) {
+                console.error(`[Game] Failed to remove game state from sessionStorage:`, e);
+            }
+            return;
+        }
+        
+        // 게임이 진행 중이면 상태 저장
+        if (restoredBoardState && Array.isArray(restoredBoardState) && restoredBoardState.length > 0) {
+            try {
+                const gameStateToSave = {
+                    gameId,
+                    boardState: restoredBoardState,
+                    moveHistory: session.moveHistory || [],
+                    captures: session.captures || { [Player.None]: 0, [Player.Black]: 0, [Player.White]: 0 },
+                    baseStoneCaptures: session.baseStoneCaptures,
+                    hiddenStoneCaptures: session.hiddenStoneCaptures,
+                    permanentlyRevealedStones: session.permanentlyRevealedStones || [],
+                    blackPatternStones: session.blackPatternStones,
+                    whitePatternStones: session.whitePatternStones,
+                    totalTurns: session.totalTurns,
+                    timestamp: Date.now()
+                };
+                sessionStorage.setItem(GAME_STATE_STORAGE_KEY, JSON.stringify(gameStateToSave));
+            } catch (e) {
+                console.error(`[Game] Failed to save game state to sessionStorage:`, e);
+            }
+        }
+    }, [restoredBoardState, session.moveHistory, session.captures, session.baseStoneCaptures, session.hiddenStoneCaptures, session.permanentlyRevealedStones, session.blackPatternStones, session.whitePatternStones, session.totalTurns, gameId, gameStatus]);
+    
     // --- Mobile UI State ---
     const [isMobile, setIsMobile] = useState(window.innerWidth < 1024);
     const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
@@ -273,25 +374,55 @@ const Game: React.FC<GameComponentProps> = ({ session }) => {
             const myStones = currentUser.id === player1.id ? session.baseStones_p1 : session.baseStones_p2;
             if ((myStones?.length || 0) < (session.settings.baseStones || 4)) actionType = 'PLACE_BASE_STONE';
         } else if (['playing', 'hidden_placing'].includes(gameStatus) && isMyTurn) {
-            // 도전의 탑과 싱글플레이 게임은 클라이언트에서만 처리 (서버로 전송하지 않음)
+            // 도전의 탑과 싱글플레이 게임은 클라이언트에서만 처리 (서버로 전송하지 않음, 검증 없이 무조건 실행)
             if (isTower || isSinglePlayer) {
-                // 클라이언트에서 직접 게임 상태 업데이트
-                console.log(`[Game] ${isTower ? 'Tower' : 'Single player'} game - processing move client-side:`, { x, y, gameId, currentPlayer: myPlayerEnum });
+                // 클라이언트에서 직접 게임 상태 업데이트 (검증 없이 무조건 실행)
+                console.log(`[Game] ${isTower ? 'Tower' : 'Single player'} game - processing move client-side (no validation):`, { x, y, gameId, currentPlayer: myPlayerEnum });
                 
-                // 클라이언트에서 move 처리
-                const moveResult = processMoveClient(
-                    session.boardState,
-                    { x, y, player: myPlayerEnum },
-                    session.koInfo,
-                    session.moveHistory?.length || 0
-                );
-                
-                if (!moveResult.isValid) {
-                    console.warn(`[Game] ${isTower ? 'Tower' : 'Single player'} game - Invalid move:`, moveResult.reason);
+                // boardState가 유효한지 확인 (복원된 boardState 사용)
+                const boardStateToUse = restoredBoardState || session.boardState;
+                if (!boardStateToUse || !Array.isArray(boardStateToUse) || boardStateToUse.length === 0) {
+                    console.error(`[Game] ${isTower ? 'Tower' : 'Single player'} game - boardState is invalid, cannot process move`);
                     return;
                 }
                 
-                // 게임 상태 업데이트 (handlers를 통해)
+                // 클라이언트에서 move 처리 (검증 없이 무조건 실행)
+                let moveResult;
+                try {
+                    moveResult = processMoveClient(
+                        boardStateToUse,
+                        { x, y, player: myPlayerEnum },
+                        session.koInfo,
+                        session.moveHistory?.length || 0
+                    );
+                } catch (e) {
+                    console.warn(`[Game] ${isTower ? 'Tower' : 'Single player'} game - processMoveClient error, forcing move:`, e);
+                    // 에러가 발생해도 강제로 돌을 놓음 (조작 허용)
+                    const forcedBoardState = JSON.parse(JSON.stringify(boardStateToUse));
+                    forcedBoardState[y][x] = myPlayerEnum;
+                    moveResult = {
+                        isValid: true,
+                        newBoardState: forcedBoardState,
+                        capturedStones: [],
+                        newKoInfo: session.koInfo
+                    };
+                }
+                
+                // 검증 실패해도 무조건 돌을 놓음 (조작 허용)
+                if (!moveResult.isValid) {
+                    console.log(`[Game] ${isTower ? 'Tower' : 'Single player'} game - Invalid move but forcing (cheating allowed):`, moveResult.reason);
+                    // 강제로 돌을 놓음
+                    const forcedBoardState = JSON.parse(JSON.stringify(boardStateToUse));
+                    forcedBoardState[y][x] = myPlayerEnum;
+                    moveResult = {
+                        isValid: true,
+                        newBoardState: forcedBoardState,
+                        capturedStones: [],
+                        newKoInfo: session.koInfo
+                    };
+                }
+                
+                // 게임 상태 업데이트 (handlers를 통해, 서버로 전송하지 않음)
                 handlers.handleAction({
                     type: isTower ? 'TOWER_CLIENT_MOVE' : 'SINGLE_PLAYER_CLIENT_MOVE',
                     payload: {
@@ -307,6 +438,9 @@ const Game: React.FC<GameComponentProps> = ({ session }) => {
             }
             actionType = 'PLACE_STONE'; 
             payload.isHidden = gameStatus === 'hidden_placing';
+            // 클라이언트의 boardState와 moveHistory를 서버로 전송하여 정확한 검증 가능하도록 함
+            payload.boardState = restoredBoardState || session.boardState;
+            payload.moveHistory = session.moveHistory || [];
             if (payload.isHidden) audioService.stopScanBgm();
         }
 
@@ -325,7 +459,7 @@ const Game: React.FC<GameComponentProps> = ({ session }) => {
                 currentUser: currentUser.id
             });
         }
-    }, [isSpectator, gameStatus, isMyTurn, gameId, handlers.handleAction, currentUser.id, player1.id, session.baseStones_p1, session.baseStones_p2, session.settings.baseStones, mode, isMobile, settings.features.mobileConfirm, pendingMove, isItemModeActive, session.isSinglePlayer, isPaused, isBoardLocked]);
+    }, [isSpectator, gameStatus, isMyTurn, gameId, handlers.handleAction, currentUser.id, player1.id, session.baseStones_p1, session.baseStones_p2, session.settings.baseStones, mode, isMobile, settings.features.mobileConfirm, pendingMove, isItemModeActive, session.isSinglePlayer, isPaused, isBoardLocked, restoredBoardState, session.boardState, session.moveHistory]);
 
     const handleConfirmMove = useCallback(() => {
         audioService.stopTimerWarning();
@@ -339,6 +473,9 @@ const Game: React.FC<GameComponentProps> = ({ session }) => {
         } else if (['playing', 'hidden_placing'].includes(gameStatus) && isMyTurn) {
             actionType = 'PLACE_STONE'; 
             payload.isHidden = gameStatus === 'hidden_placing';
+            // 클라이언트의 boardState와 moveHistory를 서버로 전송하여 정확한 검증 가능하도록 함
+            payload.boardState = restoredBoardState || session.boardState;
+            payload.moveHistory = session.moveHistory || [];
         }
         
         if (actionType) handlers.handleAction({ type: actionType, payload } as ServerAction);
@@ -555,7 +692,8 @@ const Game: React.FC<GameComponentProps> = ({ session }) => {
         }
         
         // 게임이 제대로 초기화되지 않았으면 AI 수를 보내지 않음
-        if (!session.boardState || !Array.isArray(session.boardState) || session.boardState.length === 0) return;
+        const boardStateToCheck = restoredBoardState || session.boardState;
+        if (!boardStateToCheck || !Array.isArray(boardStateToCheck) || boardStateToCheck.length === 0) return;
         if (!session.blackPlayerId || !session.whitePlayerId) return;
         
         // 게임 ID가 유효한지 확인 (재도전 시 게임 ID가 변경될 수 있음)
@@ -702,7 +840,8 @@ const Game: React.FC<GameComponentProps> = ({ session }) => {
             const moveHistoryLengthAtCalculation = moveHistoryLength;
             
             // 보드 상태를 깊은 복사하여 계산 시점의 상태를 보존
-            const boardStateAtCalculation = JSON.parse(JSON.stringify(session.boardState));
+            const boardStateToUse = restoredBoardState || session.boardState;
+            const boardStateAtCalculation = JSON.parse(JSON.stringify(boardStateToUse));
             const koInfoAtCalculation = session.koInfo ? JSON.parse(JSON.stringify(session.koInfo)) : null;
             
             const aiMove = calculateSimpleAiMove(
@@ -836,7 +975,7 @@ const Game: React.FC<GameComponentProps> = ({ session }) => {
                 aiMoveTimeoutRef.current = null;
             }
         };
-    }, [session.isSinglePlayer, session.gameCategory, isPaused, gameStatus, currentPlayer, session.blackPlayerId, session.whitePlayerId, session.boardState, session.koInfo, session.moveHistory?.length, session.settings.aiDifficulty, isBoardLocked, session.id, session.gameStatus, handlers.handleAction]);
+    }, [session.isSinglePlayer, session.gameCategory, isPaused, gameStatus, currentPlayer, session.blackPlayerId, session.whitePlayerId, restoredBoardState, session.koInfo, session.moveHistory?.length, session.settings.aiDifficulty, isBoardLocked, session.id, session.gameStatus, handlers.handleAction]);
     
     const globalChat = useMemo(() => waitingRoomChats['global'] || [], [waitingRoomChats]);
     
@@ -849,6 +988,9 @@ const Game: React.FC<GameComponentProps> = ({ session }) => {
         if (!session.analysisResult?.['system']) {
             setShowFinalTerritory(false);
         }
+        // 도전의 탑이나 싱글플레이어의 경우, 확인 버튼을 눌렀을 때 모달이 닫히도록 하기 위해
+        // showResultModal을 false로 설정했지만, gameStatus === 'ended' 조건 때문에 모달이 계속 표시될 수 있음
+        // 이를 방지하기 위해 추가 상태 관리가 필요할 수 있지만, 일단 showResultModal만 false로 설정
     }, [session.analysisResult]);
 
     // 싱글플레이 게임 설명창 표시 여부
@@ -911,8 +1053,19 @@ const Game: React.FC<GameComponentProps> = ({ session }) => {
 
     // 도전의 탑: 싱글플레이와 동일하게 시작 모달에서 시작 버튼을 눌러 확정
     
+    // 싱글플레이어 게임의 경우 restoredBoardState를 포함한 session 객체 생성
+    const sessionWithRestoredBoard = useMemo(() => {
+        if (!isSinglePlayer || !restoredBoardState || restoredBoardState === session.boardState) {
+            return session;
+        }
+        return {
+            ...session,
+            boardState: restoredBoardState
+        };
+    }, [isSinglePlayer, session, restoredBoardState]);
+    
     const gameProps: GameProps = {
-        session, onAction: handlers.handleAction, currentUser: currentUserWithStatus, waitingRoomChat: globalChat,
+        session: sessionWithRestoredBoard, onAction: handlers.handleAction, currentUser: currentUserWithStatus, waitingRoomChat: globalChat,
         gameChat: gameChat, isSpectator, onlineUsers, activeNegotiation, negotiations: Object.values(negotiations), onViewUser: handlers.openViewingUser
     };
 

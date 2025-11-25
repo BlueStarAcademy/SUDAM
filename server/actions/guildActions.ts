@@ -44,7 +44,9 @@ const getResearchTimeMs = (researchId: GuildResearchId, level: number): number =
 
 export const handleGuildAction = async (volatileState: VolatileState, action: ServerAction & { userId: string }, user: User): Promise<HandleActionResult> => {
     const { type, payload } = action;
-    console.log(`[handleGuildAction] Received action: ${type}, userId: ${user.id}`);
+    if (process.env.NODE_ENV === 'development') {
+        console.log(`[handleGuildAction] Received action: ${type}, userId: ${user.id}`);
+    }
     let needsSave = false;
     
     // Get guilds from database
@@ -415,7 +417,9 @@ export const handleGuildAction = async (volatileState: VolatileState, action: Se
         }
 
         case 'GUILD_CHECK_IN': {
-            console.log(`[handleGuildAction] Processing GUILD_CHECK_IN for user ${user.id}, guildId: ${user.guildId}`);
+            if (process.env.NODE_ENV === 'development') {
+                console.log(`[handleGuildAction] Processing GUILD_CHECK_IN for user ${user.id}, guildId: ${user.guildId}`);
+            }
             const now = Date.now();
             if (!user.guildId) return { error: '길드에 가입되어 있지 않습니다.' };
             const guild = guilds[user.guildId];
@@ -431,7 +435,9 @@ export const handleGuildAction = async (volatileState: VolatileState, action: Se
             needsSave = true;
             await db.setKV('guilds', guilds);
             await broadcast({ type: 'GUILD_UPDATE', payload: { guilds } });
-            console.log(`[handleGuildAction] GUILD_CHECK_IN completed successfully`);
+            if (process.env.NODE_ENV === 'development') {
+                console.log(`[handleGuildAction] GUILD_CHECK_IN completed successfully`);
+            }
             return { clientResponse: { guilds, updatedUser: user } };
         }
         case 'GUILD_CLAIM_CHECK_IN_REWARD': {

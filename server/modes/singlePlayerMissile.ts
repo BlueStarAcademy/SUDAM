@@ -1,4 +1,5 @@
 import * as types from '../../types/index.js';
+import * as db from '../db.js';
 
 type HandleActionResult = types.HandleActionResult;
 
@@ -46,8 +47,28 @@ function calculateSinglePlayerMissilePath(
         
         const stoneAtNext = game.boardState[next.y]?.[next.x];
         
-        // 빈 칸이면 계속 이동
+        // 싱글플레이어 모드에서는 moveHistory도 확인하여 AI가 착점한 돌을 감지
+        const moveAtNext = game.moveHistory.find(m => m.x === next.x && m.y === next.y);
+        const isOpponentMoveAtNext = moveAtNext && moveAtNext.player === opponentEnum;
+        
+        // 빈 칸이면 계속 이동 (단, moveHistory에 상대방 돌이 있으면 멈춤)
         if (stoneAtNext === types.Player.None) {
+            // moveHistory에 상대방 돌이 있으면 멈춤 (AI가 착점했지만 boardState에 반영되지 않은 경우)
+            if (isOpponentMoveAtNext) {
+                // 히든 돌인지 확인
+                const moveIndex = game.moveHistory.findIndex(m => m.x === next.x && m.y === next.y);
+                const isHiddenStone = moveIndex !== -1 && !!game.hiddenMoves?.[moveIndex];
+                const isPermanentlyRevealed = game.permanentlyRevealedStones?.some(p => p.x === next.x && p.y === next.y);
+                
+                // 히든 돌이고 아직 공개되지 않았으면 통과
+                if (isHiddenStone && !isPermanentlyRevealed) {
+                    current = next;
+                    continue;
+                }
+                
+                // 공개된 돌이면 멈춤 (AI가 착점한 돌이므로)
+                break;
+            }
             current = next;
             continue;
         }
@@ -403,25 +424,30 @@ export const updateSinglePlayerMissileState = async (game: types.LiveGameSession
                     }
                 }
                 
-                // 타이머 복원 (아이템 사용 시간이 마감되고 원래 턴 시간으로 복귀)
-                if (game.pausedTurnTimeLeft !== undefined) {
+                // 타이머 복원 (LAUNCH_MISSILE에서 이미 복원했으므로, 애니메이션 중 경과한 시간을 반영)
+                if (game.settings.timeLimit > 0 && game.turnDeadline) {
+                    // turnDeadline이 이미 설정되어 있으면, 경과한 시간을 반영하여 timeLeft 업데이트
+                    const currentPlayerTimeKey = playerWhoMoved === types.Player.Black ? 'blackTimeLeft' : 'whiteTimeLeft';
+                    const remainingTime = Math.max(0, (game.turnDeadline - now) / 1000);
+                    game[currentPlayerTimeKey] = remainingTime;
+                    // turnDeadline과 turnStartTime은 이미 설정되어 있으므로 그대로 유지
+                } else if (game.pausedTurnTimeLeft !== undefined) {
+                    // turnDeadline이 없으면 pausedTurnTimeLeft를 사용하여 복원
                     if (playerWhoMoved === types.Player.Black) {
                         game.blackTimeLeft = game.pausedTurnTimeLeft;
                     } else {
                         game.whiteTimeLeft = game.pausedTurnTimeLeft;
                     }
-                }
-                
-                // 타이머 재개 (턴 유지)
-                if (game.settings.timeLimit > 0) {
-                    const currentPlayerTimeKey = playerWhoMoved === types.Player.Black ? 'blackTimeLeft' : 'whiteTimeLeft';
-                    const timeLeft = game[currentPlayerTimeKey] ?? 0;
-                    if (timeLeft > 0) {
-                        game.turnDeadline = now + timeLeft * 1000;
-                        game.turnStartTime = now;
-                    } else {
-                        game.turnDeadline = undefined;
-                        game.turnStartTime = undefined;
+                    if (game.settings.timeLimit > 0) {
+                        const currentPlayerTimeKey = playerWhoMoved === types.Player.Black ? 'blackTimeLeft' : 'whiteTimeLeft';
+                        const timeLeft = game[currentPlayerTimeKey] ?? 0;
+                        if (timeLeft > 0) {
+                            game.turnDeadline = now + timeLeft * 1000;
+                            game.turnStartTime = now;
+                        } else {
+                            game.turnDeadline = undefined;
+                            game.turnStartTime = undefined;
+                        }
                     }
                 } else {
                     game.turnDeadline = undefined;
@@ -613,6 +639,12 @@ export const handleSinglePlayerMissileAction = async (game: types.LiveGameSessio
                 return { error: "No missiles left." };
             }
             
+            // totalTurns와 captures 보존 (미사일 아이템 사용 시 초기화 방지)
+            const preservedTotalTurns = game.totalTurns;
+            const preservedCaptures = { ...game.captures };
+            const preservedBaseStoneCaptures = game.baseStoneCaptures ? { ...game.baseStoneCaptures } : undefined;
+            const preservedHiddenStoneCaptures = game.hiddenStoneCaptures ? { ...game.hiddenStoneCaptures } : undefined;
+            
             // 게임 상태를 missile_selecting으로 변경
             game.gameStatus = 'missile_selecting';
             
@@ -634,7 +666,28 @@ export const handleSinglePlayerMissileAction = async (game: types.LiveGameSessio
             // 아이템 사용 시간 30초 부여
             game.itemUseDeadline = now + 30000;
             
-            console.log(`[SinglePlayer Missile] START_MISSILE_SELECTION: gameStatus changed to missile_selecting, gameId=${game.id}`);
+            // totalTurns와 captures 보존 확인
+            if (game.totalTurns !== preservedTotalTurns) {
+                console.warn(`[SinglePlayer Missile] START_MISSILE_SELECTION: totalTurns changed from ${preservedTotalTurns} to ${game.totalTurns}, restoring...`);
+                game.totalTurns = preservedTotalTurns;
+            }
+            if (JSON.stringify(game.captures) !== JSON.stringify(preservedCaptures)) {
+                console.warn(`[SinglePlayer Missile] START_MISSILE_SELECTION: captures changed, restoring...`);
+                game.captures = preservedCaptures;
+            }
+            if (preservedBaseStoneCaptures && JSON.stringify(game.baseStoneCaptures) !== JSON.stringify(preservedBaseStoneCaptures)) {
+                console.warn(`[SinglePlayer Missile] START_MISSILE_SELECTION: baseStoneCaptures changed, restoring...`);
+                game.baseStoneCaptures = preservedBaseStoneCaptures;
+            }
+            if (preservedHiddenStoneCaptures && JSON.stringify(game.hiddenStoneCaptures) !== JSON.stringify(preservedHiddenStoneCaptures)) {
+                console.warn(`[SinglePlayer Missile] START_MISSILE_SELECTION: hiddenStoneCaptures changed, restoring...`);
+                game.hiddenStoneCaptures = preservedHiddenStoneCaptures;
+            }
+            
+            // 게임 상태 저장 (totalTurns와 captures 보존)
+            await db.saveGame(game);
+            
+            console.log(`[SinglePlayer Missile] START_MISSILE_SELECTION: gameStatus changed to missile_selecting, gameId=${game.id}, totalTurns=${game.totalTurns}, captures=${JSON.stringify(game.captures)}`);
             return { clientResponse: { gameUpdated: true } };
         }
         
@@ -656,7 +709,7 @@ export const handleSinglePlayerMissileAction = async (game: types.LiveGameSessio
                 return { error: "Animation already in progress." };
             }
             
-            const { from, direction } = payload;
+            const { from, direction, boardState: clientBoardState, moveHistory: clientMoveHistory } = payload;
             if (!from || !direction) {
                 console.warn(`[SinglePlayer Missile] LAUNCH_MISSILE failed: missing from or direction, payload=${JSON.stringify(payload)}, gameId=${game.id}`);
                 return { error: "Invalid payload: missing from or direction." };
@@ -667,18 +720,36 @@ export const handleSinglePlayerMissileAction = async (game: types.LiveGameSessio
                 return { error: "Invalid stone position." };
             }
             
+            // 클라이언트에서 보낸 boardState를 우선적으로 사용 (더 최신 상태일 수 있음)
+            const boardStateToUse = (clientBoardState && Array.isArray(clientBoardState) && clientBoardState.length > 0) 
+                ? clientBoardState 
+                : game.boardState;
+            const moveHistoryToUse = (clientMoveHistory && Array.isArray(clientMoveHistory) && clientMoveHistory.length > 0)
+                ? clientMoveHistory
+                : game.moveHistory;
+            
+            // 클라이언트의 boardState를 서버의 boardState에 반영 (동기화)
+            if (clientBoardState && Array.isArray(clientBoardState) && clientBoardState.length > 0) {
+                console.log(`[SinglePlayer Missile] LAUNCH_MISSILE: using client boardState for validation, gameId=${game.id}`);
+                game.boardState = clientBoardState;
+            }
+            if (clientMoveHistory && Array.isArray(clientMoveHistory) && clientMoveHistory.length > 0) {
+                console.log(`[SinglePlayer Missile] LAUNCH_MISSILE: using client moveHistory for validation, gameId=${game.id}`);
+                game.moveHistory = clientMoveHistory;
+            }
+            
             // 싱글플레이어 게임에서는 boardState, moveHistory, baseStones_p1/baseStones_p2를 모두 확인
             // (클라이언트에서 새로 놓은 돌이 서버의 boardState에 아직 반영되지 않았을 수 있음)
-            const stoneAtFrom = game.boardState[from.y]?.[from.x];
+            const stoneAtFrom = boardStateToUse[from.y]?.[from.x];
             
-            // moveHistory에서 정확한 좌표로 찾기
-            let moveAtFrom = game.moveHistory.find(m => m.x === from.x && m.y === from.y && m.player === myPlayerEnum);
+            // moveHistory에서 정확한 좌표로 찾기 (클라이언트의 moveHistory 우선 사용)
+            let moveAtFrom = moveHistoryToUse.find(m => m.x === from.x && m.y === from.y && m.player === myPlayerEnum);
             
             // moveHistory에서 정확한 좌표를 찾지 못한 경우, 해당 플레이어의 최근 이동 기록 확인
             // (싱글플레이어 모드에서는 클라이언트가 보낸 좌표를 더 신뢰)
             if (!moveAtFrom) {
                 // 해당 플레이어의 최근 이동 기록 확인 (최근 10개)
-                const myRecentMoves = game.moveHistory
+                const myRecentMoves = moveHistoryToUse
                     .filter(m => m.player === myPlayerEnum && m.x !== -1 && m.y !== -1)
                     .slice(-10);
                 
@@ -716,7 +787,8 @@ export const handleSinglePlayerMissileAction = async (game: types.LiveGameSessio
                 game.boardState[from.y][from.x] = myPlayerEnum;
             }
             
-            // 미사일 경로 계산
+            // 미사일 경로 계산 (클라이언트의 boardState와 moveHistory를 사용)
+            // 클라이언트의 boardState를 서버에 반영한 상태로 경로 계산
             const { to, revealedHiddenStone } = calculateSinglePlayerMissilePath(game, from, direction, myPlayerEnum);
             
             if (to.x === from.x && to.y === from.y) {
@@ -733,6 +805,26 @@ export const handleSinglePlayerMissileAction = async (game: types.LiveGameSessio
                     if (!game.permanentlyRevealedStones.some(p => p.x === revealedHiddenStone.x && p.y === revealedHiddenStone.y)) {
                         game.permanentlyRevealedStones.push({ x: revealedHiddenStone.x, y: revealedHiddenStone.y });
                     }
+                }
+            }
+            
+            // 목적지에 이미 상대방 돌이 있는지 확인 (덮어씌우기 방지)
+            const stoneAtTo = game.boardState[to.y]?.[to.x];
+            // opponentEnum은 이미 위에서 선언됨 (723번째 줄)
+            const moveAtTo = game.moveHistory.find(m => m.x === to.x && m.y === to.y);
+            const isOpponentMoveAtTo = moveAtTo && moveAtTo.player === opponentEnum;
+            
+            // boardState에 상대방 돌이 있거나, moveHistory에 상대방 돌이 있는 경우 확인
+            if (stoneAtTo === opponentEnum || isOpponentMoveAtTo) {
+                // 상대방 돌이 있는 경우, 히든 돌이 아닌지 확인
+                const moveIndexAtTo = game.moveHistory.findIndex(m => m.x === to.x && m.y === to.y);
+                const isHiddenStoneAtTo = moveIndexAtTo !== -1 && !!game.hiddenMoves?.[moveIndexAtTo];
+                const isPermanentlyRevealedAtTo = game.permanentlyRevealedStones?.some(p => p.x === to.x && p.y === to.y);
+                
+                // 히든 돌이 아니거나 이미 공개된 돌이면 에러 반환
+                if (!isHiddenStoneAtTo || isPermanentlyRevealedAtTo) {
+                    console.warn(`[SinglePlayer Missile] LAUNCH_MISSILE failed: destination has opponent stone, to=${JSON.stringify(to)}, stoneAtTo=${stoneAtTo}, isOpponentMoveAtTo=${isOpponentMoveAtTo}, gameId=${game.id}`);
+                    return { error: "Cannot move to a position occupied by opponent stone." };
                 }
             }
             
@@ -774,6 +866,14 @@ export const handleSinglePlayerMissileAction = async (game: types.LiveGameSessio
             
             // 아이템 사용 시간 일시 정지 (애니메이션 중)
             game.itemUseDeadline = undefined;
+            
+            // 턴 시간 복원 (애니메이션 중에도 턴이 유지되도록)
+            if (game.settings.timeLimit > 0 && game.pausedTurnTimeLeft !== undefined) {
+                const currentPlayerTimeKey = myPlayerEnum === types.Player.Black ? 'blackTimeLeft' : 'whiteTimeLeft';
+                game[currentPlayerTimeKey] = game.pausedTurnTimeLeft;
+                game.turnDeadline = now + game.pausedTurnTimeLeft * 1000;
+                game.turnStartTime = now;
+            }
             
             // 미사일 아이템은 턴을 사용하는 행동이 아니므로 totalTurns를 증가시키지 않음
             // totalTurns는 유지되어야 함 (자동계가까지 남은 턴이 초기화되지 않도록)
@@ -948,37 +1048,46 @@ export const handleSinglePlayerMissileAction = async (game: types.LiveGameSessio
                 }
             }
             
-            // 타이머 복원 (아이템 사용 시간이 마감되고 원래 턴 시간으로 복귀)
-            if (game.pausedTurnTimeLeft !== undefined) {
+            // 타이머 복원 (LAUNCH_MISSILE에서 이미 복원했으므로, 애니메이션 중 경과한 시간을 반영)
+            if (game.settings.timeLimit > 0 && game.turnDeadline) {
+                // turnDeadline이 이미 설정되어 있으면, 경과한 시간을 반영하여 timeLeft 업데이트
+                const elapsed = now - (game.turnStartTime || now);
+                const currentPlayerTimeKey = playerWhoMoved === types.Player.Black ? 'blackTimeLeft' : 'whiteTimeLeft';
+                const remainingTime = Math.max(0, (game.turnDeadline - now) / 1000);
+                game[currentPlayerTimeKey] = remainingTime;
+                // turnDeadline과 turnStartTime은 이미 설정되어 있으므로 그대로 유지
+                console.log(`[SinglePlayer Missile] MISSILE_ANIMATION_COMPLETE: Updated time for ${playerWhoMoved === types.Player.Black ? 'Black' : 'White'}, timeLeft=${remainingTime}, elapsed=${elapsed}`);
+            } else if (game.pausedTurnTimeLeft !== undefined) {
+                // turnDeadline이 없으면 pausedTurnTimeLeft를 사용하여 복원
                 if (playerWhoMoved === types.Player.Black) {
                     game.blackTimeLeft = game.pausedTurnTimeLeft;
                 } else {
                     game.whiteTimeLeft = game.pausedTurnTimeLeft;
+                }
+                if (game.settings.timeLimit > 0) {
+                    const currentPlayerTimeKey = playerWhoMoved === types.Player.Black ? 'blackTimeLeft' : 'whiteTimeLeft';
+                    const timeLeft = game[currentPlayerTimeKey] ?? 0;
+                    if (timeLeft > 0) {
+                        game.turnDeadline = now + timeLeft * 1000;
+                        game.turnStartTime = now;
+                    } else {
+                        game.turnDeadline = undefined;
+                        game.turnStartTime = undefined;
+                    }
                 }
                 console.log(`[SinglePlayer Missile] MISSILE_ANIMATION_COMPLETE: Restored time for ${playerWhoMoved === types.Player.Black ? 'Black' : 'White'}, timeLeft=${game.pausedTurnTimeLeft}`);
             } else {
                 // pausedTurnTimeLeft가 없으면 현재 시간에서 계산
                 const currentPlayerTimeKey = playerWhoMoved === types.Player.Black ? 'blackTimeLeft' : 'whiteTimeLeft';
                 const currentTime = game[currentPlayerTimeKey] ?? 0;
-                console.log(`[SinglePlayer Missile] MISSILE_ANIMATION_COMPLETE: No pausedTurnTimeLeft, using current time ${currentTime} for ${playerWhoMoved === types.Player.Black ? 'Black' : 'White'}`);
-            }
-            
-            // 타이머 재개 (턴 유지)
-            if (game.settings.timeLimit > 0) {
-                const currentPlayerTimeKey = playerWhoMoved === types.Player.Black ? 'blackTimeLeft' : 'whiteTimeLeft';
-                const timeLeft = game[currentPlayerTimeKey] ?? 0;
-                if (timeLeft > 0) {
-                    game.turnDeadline = now + timeLeft * 1000;
+                if (game.settings.timeLimit > 0 && currentTime > 0) {
+                    game.turnDeadline = now + currentTime * 1000;
                     game.turnStartTime = now;
-                    console.log(`[SinglePlayer Missile] MISSILE_ANIMATION_COMPLETE: Resumed timer, turnDeadline=${new Date(game.turnDeadline).toISOString()}, timeLeft=${timeLeft}`);
                 } else {
                     game.turnDeadline = undefined;
                     game.turnStartTime = undefined;
-                    console.log(`[SinglePlayer Missile] MISSILE_ANIMATION_COMPLETE: No time left, cleared timer`);
                 }
-            } else {
-                game.turnDeadline = undefined;
-                game.turnStartTime = undefined;
+                console.log(`[SinglePlayer Missile] MISSILE_ANIMATION_COMPLETE: No pausedTurnTimeLeft, using current time ${currentTime} for ${playerWhoMoved === types.Player.Black ? 'Black' : 'White'}`);
             }
             
             game.pausedTurnTimeLeft = undefined;

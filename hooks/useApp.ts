@@ -2,6 +2,8 @@ import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import { flushSync } from 'react-dom';
 // FIX: The main types barrel file now exports settings types. Use it for consistency.
 import { User, LiveGameSession, UserWithStatus, ServerAction, GameMode, Negotiation, ChatMessage, UserStatus, UserStatusInfo, AdminLog, Announcement, OverrideAnnouncement, InventoryItem, AppState, InventoryItemType, AppRoute, QuestReward, DailyQuestData, WeeklyQuestData, MonthlyQuestData, Theme, SoundSettings, FeatureSettings, AppSettings, PanelEdgeStyle, CoreStat, SpecialStat, MythicStat, EquipmentSlot, EquipmentPreset, Player, HomeBoardPost, GameRecord, Guild } from '../types.js';
+import { HandleActionResult } from '../types/api.js';
+import { Point } from '../types/enums.js';
 import { audioService } from '../services/audioService.js';
 import { stableStringify, parseHash } from '../utils/appUtils.js';
 import { 
@@ -632,7 +634,8 @@ export const useApp = () => {
                         const baseStoneIndex = game.baseStones.findIndex(bs => bs.x === animationFrom.x && bs.y === animationFrom.y);
                         if (baseStoneIndex !== -1) {
                             updatedGame.baseStones = [...game.baseStones];
-                            updatedGame.baseStones[baseStoneIndex] = { x: animationTo.x, y: animationTo.y };
+                            const originalBaseStone = game.baseStones[baseStoneIndex];
+                            updatedGame.baseStones[baseStoneIndex] = { x: animationTo.x, y: animationTo.y, player: originalBaseStone.player };
                         }
                     }
                     
@@ -983,7 +986,7 @@ export const useApp = () => {
                     setUpdateTrigger(prev => prev + 1);
                 }
                 // Return error object so components can handle it
-                return { error: errorMessage };
+                return { error: errorMessage } as HandleActionResult;
             } else {
                 const result = await res.json();
                 if (result.error || result.message) {
@@ -1326,7 +1329,7 @@ export const useApp = () => {
                     if (matchingInfo) {
                         console.log('[handleAction] START_RANKED_MATCHING - Matching started:', matchingInfo);
                         // 매칭 정보를 반환하여 컴포넌트에서 즉시 상태 업데이트 가능하도록 함
-                        return { matchingInfo };
+                        return { matchingInfo } as HandleActionResult;
                     }
                 }
                 
@@ -1592,7 +1595,7 @@ export const useApp = () => {
                         console.log(`[handleAction] CREATE_GUILD - Guild found:`, guild);
                         setGuilds(prev => ({ ...prev, [guild.id]: guild }));
                         // Return result in the format expected by modal
-                        return { clientResponse: { guild, updatedUser: result?.updatedUser || result?.clientResponse?.updatedUser } };
+                        return { clientResponse: { guild, updatedUser: result?.updatedUser || result?.clientResponse?.updatedUser } } as HandleActionResult;
                     }
                 }
                 

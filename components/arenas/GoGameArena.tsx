@@ -72,7 +72,17 @@ const GoGameArena: React.FC<GoGameArenaProps> = (props) => {
                 boardSize={settings.boardSize}
                 onBoardClick={handleBoardClick}
                 onMissileLaunch={(from: Point, direction: 'up' | 'down' | 'left' | 'right') => {
-                    onAction({ type: 'LAUNCH_MISSILE', payload: { gameId: session.id, from, direction } });
+                    // 클라이언트의 boardState를 서버로 전송하여 정확한 검증 가능하도록 함
+                    onAction({ 
+                        type: 'LAUNCH_MISSILE', 
+                        payload: { 
+                            gameId: session.id, 
+                            from, 
+                            direction,
+                            boardState: session.boardState, // 클라이언트의 현재 boardState 전송
+                            moveHistory: session.moveHistory || [] // 클라이언트의 moveHistory 전송
+                        } 
+                    });
                 }}
                 onAction={onAction}
                 gameId={session.id}

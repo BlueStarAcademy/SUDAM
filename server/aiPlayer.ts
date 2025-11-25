@@ -516,6 +516,8 @@ const makeStrategicAiMove = async (game: types.LiveGameSession) => {
             if (autoScoringTurns) {
                 const gameType = game.isSinglePlayer ? 'SinglePlayer' : 'AiGame';
                 console.log(`[AI Player][${gameType}] Auto-scoring check: totalTurns=${game.totalTurns}, autoScoringTurns=${autoScoringTurns}, gameStatus=${game.gameStatus}, validMovesLength=${validMoves.length}`);
+                // AI가 수를 둔 후이므로, totalTurns가 autoScoringTurns 이상이면 계가로 넘어감
+                // 단, 마지막 턴(totalTurns === autoScoringTurns)인 경우 AI가 수를 둔 후이므로 계가 진행
                 if (game.totalTurns >= autoScoringTurns) {
                     // 게임 상태를 먼저 확인하여 중복 트리거 방지
                     if (game.gameStatus === 'playing' || game.gameStatus === 'hidden_placing') {

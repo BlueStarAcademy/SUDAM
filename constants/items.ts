@@ -248,6 +248,11 @@ export const MATERIAL_SELL_PRICES: Record<string, number> = {
     '신비의 강화석': 200,
 };
 
+export const CONSUMABLE_SELL_PRICES: Record<string, number> = {
+    '골드 꾸러미1': 0,
+    '골드꾸러미1': 0, // 이름 변형 대응
+};
+
 export const BASE_SLOTS_PER_CATEGORY = 30;
 export const EXPANSION_AMOUNT = 10;
 

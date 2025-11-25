@@ -259,7 +259,13 @@ export const processMatchCompletion = (state: TournamentState, user: User, compl
         if (p) {
             const playerInState = state.players.find(player => player.id === p.id);
             if (playerInState) {
-                playerInState.condition = 1000;
+                // 컨디션은 유지 (처음 조정한 값을 경기 끝까지 유지)
+                // 유저의 컨디션은 절대 변경하지 않음
+                if (p.id !== user.id) {
+                    // 상대방의 컨디션만 1000으로 초기화 (다음 경기를 위해)
+                    playerInState.condition = 1000;
+                }
+                // 능력치는 originalStats로 복구
                 if (playerInState.originalStats) {
                     playerInState.stats = JSON.parse(JSON.stringify(playerInState.originalStats));
                 }
@@ -394,6 +400,10 @@ export const processMatchCompletion = (state: TournamentState, user: User, compl
                     state.status = 'round_complete';
                     // 다음 라운드 준비 후 startNextRound 호출하여 bracket_ready 상태로 설정
                     startNextRound(state, user);
+                    // bracket_ready 상태로 변경되었으면 nextRoundStartTime 설정
+                    if (state.status === 'bracket_ready') {
+                        state.nextRoundStartTime = Date.now() + 5000;
+                    }
                 }
             }
             
@@ -541,9 +551,11 @@ export const processMatchCompletion = (state: TournamentState, user: User, compl
             const finalAllMatchesFinished = state.rounds.every(r => r.matches.every(m => m.isFinished));
             if (finalAllMatchesFinished) {
                 // 모든 경기가 완료되었으므로 eliminated 상태 유지 (보상 수령 가능)
-                // 경기 종료 시 모든 플레이어의 컨디션 초기화 (컨디션 회복제 낭비 방지)
+                // 경기 종료 시 유저의 컨디션은 유지, 상대방만 초기화
                 state.players.forEach(p => {
-                    p.condition = 1000;
+                    if (p.id !== user.id) {
+                        p.condition = 1000;
+                    }
                 });
             } else {
                 // 아직 완료되지 않은 경기가 있으면 강제로 완료
@@ -554,9 +566,11 @@ export const processMatchCompletion = (state: TournamentState, user: User, compl
                         }
                     });
                 });
-                // 모든 경기 완료 후 모든 플레이어의 컨디션 초기화
+                // 모든 경기 완료 후 유저의 컨디션은 유지, 상대방만 초기화
                 state.players.forEach(p => {
-                    p.condition = 1000;
+                    if (p.id !== user.id) {
+                        p.condition = 1000;
+                    }
                 });
             }
         }
@@ -565,9 +579,11 @@ export const processMatchCompletion = (state: TournamentState, user: User, compl
         const allTournamentMatchesFinished = state.rounds.every(r => r.matches.every(m => m.isFinished));
         if (allTournamentMatchesFinished) {
              state.status = 'complete';
-             // 경기 종료 시 모든 플레이어의 컨디션 초기화 (컨디션 회복제 낭비 방지)
+             // 경기 종료 시 유저의 컨디션은 유지, 상대방만 초기화
              state.players.forEach(p => {
-                 p.condition = 1000;
+                 if (p.id !== user.id) {
+                     p.condition = 1000;
+                 }
              });
         } else {
              // 현재 라운드가 완료되었으면 round_complete 상태로 설정
@@ -596,9 +612,11 @@ export const processMatchCompletion = (state: TournamentState, user: User, compl
                              });
                          });
                          state.status = 'complete';
-                         // 경기 종료 시 모든 플레이어의 컨디션 초기화 (컨디션 회복제 낭비 방지)
+                         // 경기 종료 시 유저의 컨디션은 유지, 상대방만 초기화
                          state.players.forEach(p => {
-                             p.condition = 1000;
+                             if (p.id !== user.id) {
+                                 p.condition = 1000;
+                             }
                          });
                      }
                  } else {
@@ -623,9 +641,11 @@ export const processMatchCompletion = (state: TournamentState, user: User, compl
                      } else {
                          // 다음 라운드가 없으면 완료
                          state.status = 'complete';
-                         // 경기 종료 시 모든 플레이어의 컨디션 초기화 (컨디션 회복제 낭비 방지)
+                         // 경기 종료 시 유저의 컨디션은 유지, 상대방만 초기화
                          state.players.forEach(p => {
-                             p.condition = 1000;
+                             if (p.id !== user.id) {
+                                 p.condition = 1000;
+                             }
                          });
                      }
                  }
@@ -705,7 +725,7 @@ export const createTournament = (type: TournamentType, user: User, players: Play
         currentSimulatingMatch: null,
         currentMatchCommentary: [],
         lastPlayedDate: Date.now(),
-        nextRoundStartTime: Date.now() + 5000,
+        nextRoundStartTime: undefined, // 첫 경기는 수동 시작 (유저가 경기 시작 버튼을 눌러야 함)
         timeElapsed: 0,
         accumulatedGold: type === 'neighborhood' ? 0 : undefined, // 동네바둑리그만 골드 누적
         accumulatedMaterials: type === 'national' ? {} : undefined, // 전국바둑대회만 재료 누적
@@ -845,25 +865,43 @@ export const startNextRound = (state: TournamentState, user: User) => {
     );
     
     if (isComingFromRoundComplete) {
-        // round_complete에서 다음 라운드로 넘어갈 때: 다음 경기 버튼을 눌렀으므로 모든 플레이어의 컨디션을 랜덤 부여
-        // (회복제로 조절한 컨디션은 다음 경기 버튼을 누르면 초기화되고 새로 부여됨)
-        // 상태를 bracket_ready로 변경하기 전에 컨디션을 리셋해야 함
+        // round_complete에서 다음 라운드로 넘어갈 때: 자동으로 다음 경기로 넘어감
+        // 유저의 컨디션은 유지 (처음 조정한 값을 경기 끝까지 유지)
+        // 상대방의 컨디션만 랜덤 부여
         state.players.forEach(p => {
-            // 모든 플레이어의 컨디션을 랜덤 부여 (40-100) - 이전 경기의 컨디션 완전히 초기화
-            p.condition = Math.floor(Math.random() * 61) + 40; // 40-100
+            if (p.id !== user.id) {
+                // 상대방의 컨디션만 랜덤 부여 (40-100)
+                p.condition = Math.floor(Math.random() * 61) + 40; // 40-100
+            }
             // 모든 플레이어의 능력치는 originalStats로 리셋 (토너먼트 생성 시점의 고정 능력치)
             if (p.originalStats) {
                 p.stats = JSON.parse(JSON.stringify(p.originalStats));
             }
         });
-        console.log(`[startNextRound] Reset all player conditions from round_complete status`);
+        console.log(`[startNextRound] Reset opponent conditions from round_complete status, user condition maintained`);
     } else if (!hasConditionAlreadyAssigned) {
         // bracket_ready 상태에서 컨디션이 부여되지 않은 경우: 컨디션 부여
-        // (뒤로가기 후 다시 들어온 경우 등)
+        // (오늘 처음 입장했을 때 컨디션 조절 가능)
+        // 유저의 컨디션은 절대 변경하지 않음 (유효한 컨디션이 있으면 그대로 유지)
         state.players.forEach(p => {
-            if (p.condition === undefined || p.condition === null || p.condition === 1000 || 
-                p.condition < 40 || p.condition > 100) {
-                p.condition = Math.floor(Math.random() * 61) + 40; // 40-100
+            if (p.id === user.id) {
+                // 유저의 컨디션이 유효한 경우(40-100 사이)에는 절대 변경하지 않음
+                const hasValidUserCondition = p.condition !== undefined && 
+                                             p.condition !== null && 
+                                             p.condition !== 1000 && 
+                                             p.condition >= 40 && 
+                                             p.condition <= 100;
+                // 유효한 컨디션이 없을 때만 부여 (하위 호환성)
+                if (!hasValidUserCondition) {
+                    p.condition = Math.floor(Math.random() * 61) + 40; // 40-100
+                }
+                // 유효한 컨디션이 있으면 그대로 유지 (절대 변경하지 않음)
+            } else {
+                // 상대방의 컨디션만 확인 및 부여
+                if (p.condition === undefined || p.condition === null || p.condition === 1000 || 
+                    p.condition < 40 || p.condition > 100) {
+                    p.condition = Math.floor(Math.random() * 61) + 40; // 40-100
+                }
             }
             // 능력치는 originalStats로 리셋
             if (p.originalStats) {
@@ -897,19 +935,53 @@ export const startNextRound = (state: TournamentState, user: User) => {
         // 경기 시작은 START_TOURNAMENT_ROUND 액션으로 처리됨
         state.status = 'bracket_ready';
         
+        // 완료된 유저 경기 수 확인 (첫 경기인지 판단)
+        const finishedUserMatches = state.rounds.reduce((count, r) => {
+            return count + r.matches.filter(m => m.isUserMatch && m.isFinished).length;
+        }, 0);
+        
+        const isFirstMatch = finishedUserMatches === 0;
+        
+        // 첫 경기는 수동 시작 (nextRoundStartTime 설정하지 않음)
+        // 두 번째 경기부터는 자동 시작 (5초 후)
+        if (!isFirstMatch) {
+            state.nextRoundStartTime = Date.now() + 5000;
+        } else {
+            state.nextRoundStartTime = undefined;
+        }
+        
         // bracket_ready 상태로 변경할 때 컨디션이 유효하지 않은 경우에만 부여
         // (이전 경기에서 컨디션이 1000으로 초기화되었을 수 있음)
-        // 이미 유효한 컨디션이 있으면(40-100 사이) 다시 부여하지 않음 (회복제로 변경된 컨디션 유지)
+        // 유저의 컨디션은 절대 변경하지 않음 (처음 조정한 값을 경기 끝까지 유지)
+        // 상대방의 컨디션만 확인 및 부여
         state.players.forEach(p => {
-            // 컨디션이 undefined, null, 1000이거나 유효 범위(40-100)를 벗어나면 새로 부여
-            // 이미 유효한 컨디션이 있으면 다시 부여하지 않음
-            const hasValidCondition = p.condition !== undefined && 
-                                     p.condition !== null && 
-                                     p.condition !== 1000 && 
-                                     p.condition >= 40 && 
-                                     p.condition <= 100;
-            if (!hasValidCondition) {
-                p.condition = Math.floor(Math.random() * 61) + 40; // 40-100
+            // 유저의 컨디션은 절대 변경하지 않음 (유효한 컨디션이 있으면 그대로 유지)
+            if (p.id === user.id) {
+                // 유저의 컨디션이 유효한 경우(40-100 사이)에는 절대 변경하지 않음
+                const hasValidUserCondition = p.condition !== undefined && 
+                                             p.condition !== null && 
+                                             p.condition !== 1000 && 
+                                             p.condition >= 40 && 
+                                             p.condition <= 100;
+                // 유효한 컨디션이 없을 때만 부여 (하위 호환성)
+                if (!hasValidUserCondition) {
+                    p.condition = Math.floor(Math.random() * 61) + 40; // 40-100
+                }
+                // 유효한 컨디션이 있으면 그대로 유지 (절대 변경하지 않음)
+            } else {
+                // 상대방의 컨디션만 확인 및 부여
+                const hasValidCondition = p.condition !== undefined && 
+                                         p.condition !== null && 
+                                         p.condition !== 1000 && 
+                                         p.condition >= 40 && 
+                                         p.condition <= 100;
+                if (!hasValidCondition) {
+                    p.condition = Math.floor(Math.random() * 61) + 40; // 40-100
+                }
+            }
+            // 능력치는 originalStats로 리셋
+            if (p.originalStats) {
+                p.stats = JSON.parse(JSON.stringify(p.originalStats));
             }
         });
     } else {

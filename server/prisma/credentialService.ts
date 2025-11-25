@@ -241,3 +241,17 @@ export const deleteUserCredentialByUsername = async (
   });
 };
 
+export const updateUserCredentialUsername = async (
+  oldUsername: string,
+  newUsername: string
+): Promise<void> => {
+  const normalizedOldUsername = oldUsername.toLowerCase();
+  const normalizedNewUsername = newUsername.toLowerCase();
+  
+  await prisma.$executeRawUnsafe(
+    `UPDATE "UserCredential" SET username = $1 WHERE username = $2`,
+    normalizedNewUsername,
+    normalizedOldUsername
+  );
+};
+

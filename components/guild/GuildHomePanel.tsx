@@ -38,7 +38,7 @@ const GuildCheckInPanel: React.FC<{ guild: GuildType }> = ({ guild }) => {
     const progressPercent = totalMembers > 0 ? Math.min((todaysCheckIns / totalMembers) * 100, 100) : 0;
 
     const handleCheckIn = async () => {
-        const result = await handlers.handleAction({ type: 'GUILD_CHECK_IN' });
+        const result = await handlers.handleAction({ type: 'GUILD_CHECK_IN' }) as any;
         if (result?.error) {
             console.error('[GuildCheckInPanel] Check-in failed:', result.error);
             alert(result.error);
@@ -113,7 +113,7 @@ const GuildCheckInPanel: React.FC<{ guild: GuildType }> = ({ guild }) => {
                                 <p className="text-xs text-tertiary mt-0.5">{milestone.count}명</p>
                             </div>
                             <Button 
-                                onClick={() => canClaim && handleClaimMilestone(index)} 
+                                onClick={() => { if (canClaim) handleClaimMilestone(index); }} 
                                 disabled={!canClaim} 
                                 colorScheme="none"
                                 className={canClaim ? `${getLuxuryButtonClasses('success')} !text-xs !py-1.5 !px-2 mt-2 w-full` : `${getLuxuryButtonClasses('gray')} !text-xs !py-1.5 !px-2 mt-2 w-full`}

@@ -348,20 +348,29 @@ function getBoardStateForAi(
     // 보드 상태 복사
     const aiBoardState: types.BoardState = game.boardState.map(row => [...row]);
     
-    // 유저의 히든 돌을 빈 공간으로 처리
+    // 유저의 히든 돌을 빈 공간으로 처리 (단, AI가 아는 히든돌만 처리)
+    // aiKnownHiddenStones가 있으면 그것만 확인, 없으면 기존 로직 사용 (하위 호환성)
+    const aiKnownHiddenStones = (game as any).aiKnownHiddenStones;
     if (game.hiddenMoves && game.moveHistory) {
         for (let moveIndex = 0; moveIndex < game.moveHistory.length; moveIndex++) {
             if (game.hiddenMoves[moveIndex]) {
                 const move = game.moveHistory[moveIndex];
                 if (move && move.player === userPlayerEnum) {
-                    const { x, y } = move;
-                    // 공개되지 않은 히든 돌만 빈 공간으로 처리
-                    const isPermanentlyRevealed = game.permanentlyRevealedStones?.some(
-                        p => p.x === x && p.y === y
-                    );
-                    if (!isPermanentlyRevealed && aiBoardState[y]?.[x] === userPlayerEnum) {
-                        aiBoardState[y][x] = Player.None;
+                    // aiKnownHiddenStones가 있고 이 히든돌이 포함되어 있으면 AI가 알고 있는 히든돌
+                    // aiKnownHiddenStones가 없으면 기존 로직대로 모든 히든돌을 처리 (하위 호환성)
+                    const isAiKnown = aiKnownHiddenStones ? aiKnownHiddenStones[moveIndex] : true;
+                    
+                    if (isAiKnown) {
+                        const { x, y } = move;
+                        // 공개되지 않은 히든 돌만 빈 공간으로 처리
+                        const isPermanentlyRevealed = game.permanentlyRevealedStones?.some(
+                            p => p.x === x && p.y === y
+                        );
+                        if (!isPermanentlyRevealed && aiBoardState[y]?.[x] === userPlayerEnum) {
+                            aiBoardState[y][x] = Player.None;
+                        }
                     }
+                    // isAiKnown이 false면 유저가 히든 아이템으로 놓은 히든돌이므로 AI는 모름 (처리하지 않음)
                 }
             }
         }
@@ -617,8 +626,10 @@ export async function makeGoAiBotMove(
     game.passCount = 0;
     
     // 싱글플레이 턴 카운팅 업데이트 (AI가 수를 둘 때도 카운팅)
+    // 히든돌이 moveHistory에 추가되지 않은 경우를 고려하여 실제 유효한 수만 카운팅
     if (game.isSinglePlayer && game.stageId) {
-        game.totalTurns = game.moveHistory.length;
+        const validMoves = game.moveHistory.filter(m => m.x !== -1 && m.y !== -1);
+        game.totalTurns = validMoves.length;
     }
 
     // 6. 따낸 돌 처리 및 히든 돌 공개 처리
@@ -660,6 +671,18 @@ export async function makeGoAiBotMove(
                 const isPermanentlyRevealed = game.permanentlyRevealedStones?.some(p => p.x === capturedStone.x && p.y === capturedStone.y);
                 if (!isPermanentlyRevealed) {
                     capturedHiddenStones.push({ point: capturedStone, player: opponentPlayerEnum });
+                }
+            }
+        }
+        
+        // AI 초기 히든돌이 따내진 경우 확인
+        if ((game as any).aiInitialHiddenStone) {
+            const aiHidden = (game as any).aiInitialHiddenStone;
+            const isCaptured = result.capturedStones.some(s => s.x === aiHidden.x && s.y === aiHidden.y);
+            if (isCaptured) {
+                const isPermanentlyRevealed = game.permanentlyRevealedStones?.some(p => p.x === aiHidden.x && p.y === aiHidden.y);
+                if (!isPermanentlyRevealed) {
+                    capturedHiddenStones.push({ point: { x: aiHidden.x, y: aiHidden.y }, player: opponentPlayerEnum });
                 }
             }
         }
