@@ -8,7 +8,7 @@ export const processMove = (
     move: { x: number, y: number, player: PlayerType },
     koInfo: LiveGameSession['koInfo'],
     moveHistoryLength: number,
-    options?: { ignoreSuicide?: boolean }
+    options?: { ignoreSuicide?: boolean, isSinglePlayer?: boolean, opponentPlayer?: PlayerType }
 ): {
     isValid: boolean;
     newBoardState: BoardState;
@@ -19,6 +19,14 @@ export const processMove = (
     const { x, y, player } = move;
     const boardSize = boardState.length;
     const opponent = player === types.Player.Black ? types.Player.White : types.Player.Black;
+
+    // 싱글플레이 모드에서 상대방(AI) 돌 위에 놓는 것을 차단
+    if (options?.isSinglePlayer && options?.opponentPlayer) {
+        if (boardState[y][x] === options.opponentPlayer) {
+            console.error(`[processMove] CRITICAL: Attempted to place stone on opponent (AI) stone in single player mode at (${x}, ${y}), player=${player}, opponent=${options.opponentPlayer}`);
+            return { isValid: false, reason: 'occupied', newBoardState: boardState, capturedStones: [], newKoInfo: koInfo };
+        }
+    }
 
     if (y < 0 || y >= boardSize || x < 0 || x >= boardSize || boardState[y][x] !== types.Player.None) {
         return { isValid: false, reason: 'occupied', newBoardState: boardState, capturedStones: [], newKoInfo: koInfo };

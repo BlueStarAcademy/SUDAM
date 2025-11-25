@@ -1966,7 +1966,8 @@ const TournamentRoundViewer: React.FC<{
     tournamentType: TournamentType; 
     tournamentState?: TournamentState;
     nextRoundTrigger?: number;
-}> = ({ rounds, currentUser, tournamentType, tournamentState, nextRoundTrigger }) => {
+    nextRoundStartTime?: number | null;
+}> = ({ rounds, currentUser, tournamentType, tournamentState, nextRoundTrigger, nextRoundStartTime }) => {
     // FIX: Define the type for tab data to help TypeScript's inference.
     type TabData = { name: string; matches: Match[]; isInProgress: boolean; };
     
@@ -2080,6 +2081,42 @@ const TournamentRoundViewer: React.FC<{
             prevNextRoundTrigger.current = nextRoundTrigger;
         }
     }, [nextRoundTrigger, activeTab, getRoundsForTabs, tournamentType]);
+
+    // nextRoundStartTime이 설정되면 다음 경기가 있는 탭으로 자동 이동
+    const prevNextRoundStartTime = useRef<number | null | undefined>(nextRoundStartTime);
+    useEffect(() => {
+        if (nextRoundStartTime && nextRoundStartTime !== prevNextRoundStartTime.current && getRoundsForTabs && tournamentState) {
+            // 다음 경기가 있는 탭 찾기
+            const nextUserMatch = rounds
+                .flatMap((round, rIdx) => round.matches.map((match, mIdx) => ({ match, roundIndex: rIdx, matchIndex: mIdx })))
+                .find(({ match }) => !match.isFinished && match.isUserMatch);
+            
+            if (nextUserMatch) {
+                // 다음 경기가 있는 라운드 찾기
+                const nextRound = rounds[nextUserMatch.roundIndex];
+                if (nextRound) {
+                    // 해당 라운드가 포함된 탭 찾기
+                    const targetTabIndex = getRoundsForTabs.findIndex(tab => {
+                        if (tab.name === "결승&3/4위전") {
+                            return nextRound.name === "결승" || nextRound.name === "3,4위전";
+                        } else if (tab.name === "4강전") {
+                            return nextRound.name === "4강";
+                        } else {
+                            return tab.name === nextRound.name;
+                        }
+                    });
+                    
+                    if (targetTabIndex !== -1 && targetTabIndex !== activeTab) {
+                        setActiveTab(targetTabIndex);
+                    }
+                }
+            }
+            
+            prevNextRoundStartTime.current = nextRoundStartTime;
+        } else if (nextRoundStartTime !== prevNextRoundStartTime.current) {
+            prevNextRoundStartTime.current = nextRoundStartTime;
+        }
+    }, [nextRoundStartTime, getRoundsForTabs, tournamentState, rounds, activeTab]);
 
     if (!getRoundsForTabs) {
         const desiredOrder = ["16강", "8강", "4강", "3,4위전", "결승"];
@@ -2586,20 +2623,27 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = (props) => {
             return;
         }
         
-        // bracket_ready 상태이고 nextRoundStartTime이 설정되어 있으면 체크 시작
-        if (tournament.status === 'bracket_ready' && tournament.nextRoundStartTime) {
+        // bracket_ready, round_in_progress, round_complete 상태에서 nextRoundStartTime이 설정되어 있으면 체크 시작
+        // (시뮬레이션 경기장에서는 round_in_progress나 round_complete 상태에서도 자동 시작이 필요)
+        const shouldCheckNextRound = tournament.nextRoundStartTime && (
+            tournament.status === 'bracket_ready' || 
+            tournament.status === 'round_in_progress' || 
+            tournament.status === 'round_complete'
+        );
+        
+        if (shouldCheckNextRound) {
             const checkNextRound = () => {
                 const now = Date.now();
                 const timeUntilStart = tournament.nextRoundStartTime! - now;
                 
                 if (timeUntilStart <= 0) {
                     // 시간이 지났으면 다음 경기 시작
-                    console.log('[TournamentBracket] nextRoundStartTime 도달, 자동 경기 시작');
+                    console.log('[TournamentBracket] nextRoundStartTime 도달, 자동 경기 시작', { status: tournament.status });
                     if (nextRoundStartTimeCheckRef.current) {
                         clearInterval(nextRoundStartTimeCheckRef.current);
                         nextRoundStartTimeCheckRef.current = null;
                     }
-                    // bracket_ready 상태에서 자동 경기 시작
+                    // 자동 경기 시작
                     onAction({ type: 'START_TOURNAMENT_MATCH', payload: { type: tournament.type } });
                 } else {
                     // 남은 시간 표시 (최대 5초)
@@ -3307,7 +3351,12 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = (props) => {
     const footerButtons = renderFooterButton();
     
     // 자동 다음 경기 카운트다운 표시
-    const countdownDisplay = autoNextCountdown !== null ? (
+    // 경기가 진행 중일 때는 "경기 진행중" 표시
+    const countdownDisplay = tournament?.status === 'round_in_progress' ? (
+        <div className="flex items-center justify-center gap-2 text-blue-400 font-bold text-lg">
+            <span>경기 진행중</span>
+        </div>
+    ) : autoNextCountdown !== null ? (
         <div className="flex items-center justify-center gap-2 text-yellow-400 font-bold text-lg">
             <span>다음 경기 {autoNextCountdown}초 뒤 시작...</span>
         </div>
@@ -3337,6 +3386,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = (props) => {
                     tournamentType={tournament.type} 
                     tournamentState={tournament}
                     nextRoundTrigger={nextRoundTrigger}
+                    nextRoundStartTime={tournament.nextRoundStartTime}
                 />
             )}
             </div>

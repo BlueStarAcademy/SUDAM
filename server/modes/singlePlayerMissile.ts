@@ -79,6 +79,13 @@ function calculateSinglePlayerMissilePath(
             // moveHistory에서도 확인 (유저가 직접 착수한 돌인지 확인)
             const moveIndexAtNext = game.moveHistory.findIndex(m => m.x === next.x && m.y === next.y && m.player === myPlayerEnum);
             // 내 돌이면 멈춤 (배치돌이든 유저가 직접 착수한 돌이든 상관없이)
+            // 단, current가 아직 from 위치라면 (즉, 한 칸도 이동하지 못했다면) 
+            // 이는 이동 불가능한 상태이므로 break
+            if (current.x === from.x && current.y === from.y) {
+                // 한 칸도 이동하지 못했으므로 이동 불가능
+                break;
+            }
+            // 이미 한 칸 이상 이동했다면 현재 위치에서 멈춤
             break;
         }
         
@@ -261,6 +268,14 @@ export const updateSinglePlayerMissileState = async (game: types.LiveGameSession
                     if (stoneAtFrom === playerWhoMoved) {
                         game.boardState[af.y][af.x] = types.Player.None;
                     }
+                    // 싱글플레이 모드에서 목적지에 AI 돌이 있는지 확인
+                    const opponentPlayer = playerWhoMoved === types.Player.Black ? types.Player.White : types.Player.Black;
+                    const stoneAtTo = game.boardState[at.y]?.[at.x];
+                    if (game.isSinglePlayer && stoneAtTo === opponentPlayer) {
+                        console.error(`[SinglePlayer Missile] CRITICAL: Attempted to place stone on AI stone at (${at.x}, ${at.y}) during animation completion, gameId=${game.id}`);
+                        // AI 돌 위에 덮어씌우지 않음
+                        return;
+                    }
                     game.boardState[at.y][at.x] = playerWhoMoved;
                 }
                 
@@ -419,10 +434,16 @@ export const updateSinglePlayerMissileState = async (game: types.LiveGameSession
                     const stoneAtTo = game.boardState[animationTo.y]?.[animationTo.x];
                     const stoneAtFrom = game.boardState[animationFrom.y]?.[animationFrom.x];
                     
-                    // 보드 상태가 올바르지 않으면 수정
+                    // 보드 상태가 올바르지 않으면 수정 (단, 싱글플레이 모드에서 AI 돌 위에 덮어씌우지 않음)
                     if (stoneAtTo !== playerWhoMoved) {
-                        console.warn(`[SinglePlayer Missile] Board state mismatch at destination, fixing... gameId=${game.id}`);
-                        game.boardState[animationTo.y][animationTo.x] = playerWhoMoved;
+                        const opponentPlayer = playerWhoMoved === types.Player.Black ? types.Player.White : types.Player.Black;
+                        if (game.isSinglePlayer && stoneAtTo === opponentPlayer) {
+                            console.error(`[SinglePlayer Missile] CRITICAL: Cannot fix board state - AI stone at (${animationTo.x}, ${animationTo.y}), gameId=${game.id}`);
+                            // AI 돌 위에 덮어씌우지 않음
+                        } else {
+                            console.warn(`[SinglePlayer Missile] Board state mismatch at destination, fixing... gameId=${game.id}`);
+                            game.boardState[animationTo.y][animationTo.x] = playerWhoMoved;
+                        }
                     }
                     if (stoneAtFrom !== types.Player.None) {
                         console.warn(`[SinglePlayer Missile] Board state mismatch at source, fixing... gameId=${game.id}`);
@@ -525,6 +546,14 @@ export const updateSinglePlayerMissileState = async (game: types.LiveGameSession
                     if (stoneAtFrom === playerWhoMoved) {
                         game.boardState[af.y][af.x] = types.Player.None;
                     }
+                    // 싱글플레이 모드에서 목적지에 AI 돌이 있는지 확인
+                    const opponentPlayer = playerWhoMoved === types.Player.Black ? types.Player.White : types.Player.Black;
+                    const stoneAtTo = game.boardState[at.y]?.[at.x];
+                    if (game.isSinglePlayer && stoneAtTo === opponentPlayer) {
+                        console.error(`[SinglePlayer Missile] CRITICAL: Attempted to place stone on AI stone at (${at.x}, ${at.y}) during animation completion, gameId=${game.id}`);
+                        // AI 돌 위에 덮어씌우지 않음
+                        return;
+                    }
                     game.boardState[at.y][at.x] = playerWhoMoved;
                 }
                 
@@ -590,6 +619,14 @@ export const updateSinglePlayerMissileState = async (game: types.LiveGameSession
                     const stoneAtFrom = game.boardState[af.y]?.[af.x];
                     if (stoneAtFrom === playerWhoMoved) {
                         game.boardState[af.y][af.x] = types.Player.None;
+                    }
+                    // 싱글플레이 모드에서 목적지에 AI 돌이 있는지 확인
+                    const opponentPlayer = playerWhoMoved === types.Player.Black ? types.Player.White : types.Player.Black;
+                    const stoneAtTo = game.boardState[at.y]?.[at.x];
+                    if (game.isSinglePlayer && stoneAtTo === opponentPlayer) {
+                        console.error(`[SinglePlayer Missile] CRITICAL: Attempted to place stone on AI stone at (${at.x}, ${at.y}) during animation completion, gameId=${game.id}`);
+                        // AI 돌 위에 덮어씌우지 않음
+                        return;
                     }
                     game.boardState[at.y][at.x] = playerWhoMoved;
                 }
@@ -859,6 +896,13 @@ export const handleSinglePlayerMissileAction = async (game: types.LiveGameSessio
             }
             
             // 보드 상태 변경: 원래 자리의 돌 제거, 목적지에 돌 배치
+            // 싱글플레이 모드에서 목적지에 AI 돌이 있는지 최종 확인
+            const finalCheckStoneAtTo = game.boardState[to.y]?.[to.x];
+            if (finalCheckStoneAtTo === opponentEnum) {
+                console.error(`[SinglePlayer Missile] CRITICAL: Attempted to place stone on AI stone at (${to.x}, ${to.y}), gameId=${game.id}`);
+                return { error: "AI가 둔 자리에는 돌을 놓을 수 없습니다." };
+            }
+            
             // 원래 자리의 돌 제거
             game.boardState[from.y][from.x] = types.Player.None;
             // 목적지에 돌 배치

@@ -28,5 +28,13 @@ CREATE INDEX IF NOT EXISTS "EmailVerificationToken_email_idx" ON "EmailVerificat
 CREATE INDEX IF NOT EXISTS "EmailVerificationToken_expiresAt_idx" ON "EmailVerificationToken"("expiresAt");
 
 -- AddForeignKey
-ALTER TABLE "EmailVerificationToken" ADD CONSTRAINT IF NOT EXISTS "EmailVerificationToken_userId_fkey" FOREIGN KEY ("userId") REFERENCES "UserCredential"("userId") ON DELETE CASCADE ON UPDATE CASCADE;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint 
+        WHERE conname = 'EmailVerificationToken_userId_fkey'
+    ) THEN
+        ALTER TABLE "EmailVerificationToken" ADD CONSTRAINT "EmailVerificationToken_userId_fkey" FOREIGN KEY ("userId") REFERENCES "UserCredential"("userId") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;
 

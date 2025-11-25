@@ -60,10 +60,20 @@ const loadUserWithEquipmentAndInventory = async (query: () => Promise<any>) => {
   }
 };
 
-export async function listUsers(): Promise<User[]> {
+// Railway 환경 최적화: 필요한 경우에만 equipment/inventory 로드
+const isRailway = process.env.RAILWAY_ENVIRONMENT || process.env.NODE_ENV === 'production';
+
+export async function listUsers(options?: { includeEquipment?: boolean; includeInventory?: boolean }): Promise<User[]> {
+  const includeEquipment = options?.includeEquipment ?? !isRailway; // Railway에서는 기본적으로 제외
+  const includeInventory = options?.includeInventory ?? !isRailway; // Railway에서는 기본적으로 제외
+  
   try {
     const rows = await prisma.user.findMany({
-      include: { guildMember: true, equipment: true, inventory: true }
+      include: { 
+        guildMember: true, 
+        ...(includeEquipment && { equipment: true }), 
+        ...(includeInventory && { inventory: true })
+      }
     });
     return rows.map(mapUser);
   } catch (error: any) {

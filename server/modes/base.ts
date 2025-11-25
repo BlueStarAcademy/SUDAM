@@ -5,6 +5,7 @@ import { getGoLogic } from '../goLogic.js';
 // FIX: Changed import path to avoid circular dependency
 import { transitionToPlaying } from './shared.js';
 import { aiUserId } from '../aiPlayer.js';
+import { processMove } from '../goLogic.js';
 
 export const initializeBase = (game: types.LiveGameSession, now: number) => {
     game.gameStatus = 'base_placement';
@@ -12,6 +13,92 @@ export const initializeBase = (game: types.LiveGameSession, now: number) => {
     game.baseStones_p1 = [];
     game.baseStones_p2 = [];
     game.settings.komi = 0.5; // Base komi for bidding
+};
+
+// Helper function to check if a stone placement would result in immediate capture
+const wouldBeImmediatelyCaptured = (board: types.BoardState, x: number, y: number, player: types.Player): boolean => {
+    // Try placing the stone
+    const result = processMove(
+        board,
+        { x, y, player },
+        null, // no ko info for initial placement
+        0, // move history length
+        { ignoreSuicide: true } // allow suicide for initial check
+    );
+
+    if (!result.isValid) {
+        return true; // Invalid move, skip this position
+    }
+
+    // Check if the placed stone's group has only one liberty
+    // If so, check if opponent can capture it by playing at that liberty
+    const opponent = player === types.Player.Black ? types.Player.White : types.Player.Black;
+    const boardSize = board.length;
+    
+    // Get neighbors of the placed stone
+    const getNeighbors = (px: number, py: number) => {
+        const neighbors = [];
+        if (px > 0) neighbors.push({ x: px - 1, y: py });
+        if (px < boardSize - 1) neighbors.push({ x: px + 1, y: py });
+        if (py > 0) neighbors.push({ x: px, y: py - 1 });
+        if (py < boardSize - 1) neighbors.push({ x: px, y: py + 1 });
+        return neighbors;
+    };
+
+    // Find the group containing the placed stone
+    const findGroup = (startX: number, startY: number, playerColor: types.Player, currentBoard: types.BoardState) => {
+        if (currentBoard[startY]?.[startX] !== playerColor) return null;
+        const q: types.Point[] = [{ x: startX, y: startY }];
+        const visitedStones = new Set([`${startX},${startY}`]);
+        const libertyPoints = new Set<string>();
+        const stones: types.Point[] = [{ x: startX, y: startY }];
+
+        while (q.length > 0) {
+            const { x: cx, y: cy } = q.shift()!;
+            for (const n of getNeighbors(cx, cy)) {
+                const key = `${n.x},${n.y}`;
+                const neighborContent = currentBoard[n.y][n.x];
+
+                if (neighborContent === types.Player.None) {
+                    libertyPoints.add(key);
+                } else if (neighborContent === playerColor) {
+                    if (!visitedStones.has(key)) {
+                        visitedStones.add(key);
+                        q.push(n);
+                        stones.push(n);
+                    }
+                }
+            }
+        }
+        return { stones, liberties: Array.from(libertyPoints).map(k => {
+            const [nx, ny] = k.split(',').map(Number);
+            return { x: nx, y: ny };
+        }) };
+    };
+
+    const myGroup = findGroup(x, y, player, result.newBoardState);
+    if (!myGroup) {
+        return true; // Couldn't find group, skip
+    }
+
+    // If the group has only one liberty, check if opponent can capture by playing there
+    if (myGroup.liberties.length === 1) {
+        const liberty = myGroup.liberties[0];
+        const opponentResult = processMove(
+            result.newBoardState,
+            { x: liberty.x, y: liberty.y, player: opponent },
+            null,
+            1,
+            { ignoreSuicide: false }
+        );
+
+        // If opponent can capture our stone by playing at the liberty, it's a bad placement
+        if (opponentResult.isValid && opponentResult.capturedStones.some(s => s.x === x && s.y === y)) {
+            return true;
+        }
+    }
+
+    return false;
 };
 
 const placeRemainingStonesRandomly = (game: types.LiveGameSession, playerKey: 'baseStones_p1' | 'baseStones_p2') => {
@@ -31,11 +118,20 @@ const placeRemainingStonesRandomly = (game: types.LiveGameSession, playerKey: 'b
     (game.baseStones_p2 ?? []).forEach(p => occupied.add(`${p.x},${p.y}`));
     
     const { boardSize } = game.settings;
+    
+    // Determine player color based on playerKey
+    const playerColor = playerKey === 'baseStones_p1' ? types.Player.Black : types.Player.White;
+    const opponentColor = playerColor === types.Player.Black ? types.Player.White : types.Player.Black;
+    
+    // Create a temporary board state with currently placed stones
+    const tempBoard: types.BoardState = Array(boardSize).fill(0).map(() => Array(boardSize).fill(types.Player.None));
+    (game.baseStones_p1 ?? []).forEach(p => tempBoard[p.y][p.x] = types.Player.Black);
+    (game.baseStones_p2 ?? []).forEach(p => tempBoard[p.y][p.x] = types.Player.White);
 
     for (let i = 0; i < stonesToPlace; i++) {
         let x: number, y: number, key: string;
         let attempts = 0;
-        const maxAttempts = boardSize * boardSize * 2;
+        const maxAttempts = boardSize * boardSize * 10; // Increased attempts to account for capture checks
         
         do {
             x = Math.floor(Math.random() * boardSize);
@@ -43,11 +139,17 @@ const placeRemainingStonesRandomly = (game: types.LiveGameSession, playerKey: 'b
             key = `${x},${y}`;
             attempts++;
             if (attempts > maxAttempts) {
-                console.warn(`[BaseGo] Could not find a random spot after ${maxAttempts} attempts. Stopping placement.`);
+                console.warn(`[BaseGo] Could not find a valid random spot after ${maxAttempts} attempts. Stopping placement.`);
                 return;
             }
-        } while (occupied.has(key));
+        } while (
+            occupied.has(key) || 
+            // Check if this placement would result in immediate capture
+            wouldBeImmediatelyCaptured(tempBoard, x, y, playerColor)
+        );
         
+        // Place the stone on temp board for next iteration
+        tempBoard[y][x] = playerColor;
         game[playerKey]!.push({ x, y });
         occupied.add(key);
     }

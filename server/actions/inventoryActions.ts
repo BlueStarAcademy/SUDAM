@@ -47,7 +47,7 @@ const ALL_SLOTS: EquipmentSlot[] = ['fan', 'board', 'top', 'bottom', 'bowl', 'st
 const GRADE_ORDER: ItemGrade[] = [ItemGrade.Normal, ItemGrade.Uncommon, ItemGrade.Rare, ItemGrade.Epic, ItemGrade.Legendary, ItemGrade.Mythic];
 
 export const currencyBundles: Record<string, { type: 'gold' | 'diamonds', min: number, max: number }> = {
-    // '골드 꾸러미1' 제거됨 (버그로 인한 삭제)
+    '골드 꾸러미1': { type: 'gold', min: 10, max: 500 },
     '골드 꾸러미2': { type: 'gold', min: 100, max: 1000 },
     '골드 꾸러미3': { type: 'gold', min: 500, max: 3000 },
     '골드 꾸러미4': { type: 'gold', min: 1000, max: 10000 },
@@ -449,10 +449,18 @@ export const handleInventoryAction = async (volatileState: VolatileState, action
                 normalizedItemName = normalizedItemName.replace('다이아꾸러미', '다이아 꾸러미');
             }
             
-            // 디버깅: 아이템 이름 확인
-            
             // 정규화된 이름으로 먼저 찾고, 없으면 원본 이름으로도 시도
             let bundleInfo = currencyBundles[normalizedItemName] || currencyBundles[item.name];
+            
+            // 여전히 찾지 못한 경우, 숫자 부분을 추출하여 매칭 시도
+            if (!bundleInfo) {
+                const match = normalizedItemName.match(/(골드|다이아)\s*꾸러미\s*(\d+)/);
+                if (match) {
+                    const [, type, num] = match;
+                    const bundleKey = `${type} 꾸러미${num}`;
+                    bundleInfo = currencyBundles[bundleKey];
+                }
+            }
             if (bundleInfo) {
                 const individualAmounts: number[] = [];
                 let totalGoldGained = 0;

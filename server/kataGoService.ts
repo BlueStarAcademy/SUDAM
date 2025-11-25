@@ -21,16 +21,20 @@ const CONFIG_PATH = path.resolve(__dirname, './temp_katago_config.cfg');
 const KATAGO_HOME_PATH = process.env.KATAGO_HOME_PATH || path.resolve(__dirname, './katago_home');
 
 // KataGo 설정 - 환경 변수로 조정 가능
-const KATAGO_NUM_ANALYSIS_THREADS = parseInt(process.env.KATAGO_NUM_ANALYSIS_THREADS || '4', 10);
-const KATAGO_NUM_SEARCH_THREADS = parseInt(process.env.KATAGO_NUM_SEARCH_THREADS || '8', 10);
-const KATAGO_MAX_VISITS = parseInt(process.env.KATAGO_MAX_VISITS || '1000', 10);
-const KATAGO_NN_MAX_BATCH_SIZE = parseInt(process.env.KATAGO_NN_MAX_BATCH_SIZE || '16', 10);
+// Railway 환경에 맞게 KataGo 설정 최적화
+const isRailway = process.env.RAILWAY_ENVIRONMENT || process.env.NODE_ENV === 'production';
+const KATAGO_NUM_ANALYSIS_THREADS = parseInt(process.env.KATAGO_NUM_ANALYSIS_THREADS || (isRailway ? '2' : '4'), 10);
+const KATAGO_NUM_SEARCH_THREADS = parseInt(process.env.KATAGO_NUM_SEARCH_THREADS || (isRailway ? '4' : '8'), 10);
+const KATAGO_MAX_VISITS = parseInt(process.env.KATAGO_MAX_VISITS || (isRailway ? '500' : '1000'), 10);
+const KATAGO_NN_MAX_BATCH_SIZE = parseInt(process.env.KATAGO_NN_MAX_BATCH_SIZE || (isRailway ? '8' : '16'), 10);
 
 // 배포 환경에서 KataGo HTTP API URL (환경 변수로 설정 가능)
 // 로컬 환경에서도 배포된 사이트의 KataGo를 사용할 수 있도록 DEPLOYED_SITE_URL 지원
 const DEPLOYED_SITE_URL = process.env.DEPLOYED_SITE_URL || process.env.RAILWAY_PUBLIC_DOMAIN;
-const KATAGO_API_URL = process.env.KATAGO_API_URL || (DEPLOYED_SITE_URL ? `${DEPLOYED_SITE_URL}/api/katago/analyze` : undefined);
-const USE_HTTP_API = !!KATAGO_API_URL; // API URL이 설정되어 있으면 HTTP API 사용
+const KATAGO_API_URL = process.env.KATAGO_API_URL && process.env.KATAGO_API_URL.trim() !== '' 
+    ? process.env.KATAGO_API_URL 
+    : (DEPLOYED_SITE_URL ? `${DEPLOYED_SITE_URL}/api/katago/analyze` : undefined);
+const USE_HTTP_API = !!KATAGO_API_URL && KATAGO_API_URL.trim() !== ''; // API URL이 설정되어 있으면 HTTP API 사용
 const IS_LOCAL = process.env.NODE_ENV !== 'production'; // 로컬 환경 확인
 
 const LETTERS = "ABCDEFGHJKLMNOPQRST";
@@ -509,10 +513,10 @@ maxVisits = ${KATAGO_MAX_VISITS}
             const id = analysisQuery.id;
             
             const timeout = setTimeout(() => {
-                console.error(`[KataGo] Query ${id} timed out after 60 seconds.`);
+                console.error(`[KataGo] Query ${id} timed out after 300 seconds.`);
                 this.pendingQueries.delete(id);
-                reject(new Error(`KataGo query ${id} timed out after 60 seconds.`));
-            }, 60000); // 60초로 증가 (계가에 더 많은 시간 필요)
+                reject(new Error(`KataGo query ${id} timed out after 300 seconds.`));
+            }, 300000); // 300초(5분)로 증가 (계가에 더 많은 시간 필요)
             
             this.pendingQueries.set(id, { resolve, reject, timeout });
             
@@ -749,7 +753,7 @@ export const analyzeGame = async (session: LiveGameSession, options?: { maxVisit
                     'Content-Type': 'application/json',
                     'Content-Length': Buffer.byteLength(postData)
                 },
-                timeout: 120000 // 120초 타임아웃 (계가에 더 많은 시간 필요)
+                timeout: isRailway ? 60000 : 300000 // Railway: 60초, 로컬: 300초(5분) 타임아웃
             };
             
             const req = httpModule.request(url, options, (res) => {
@@ -784,7 +788,7 @@ export const analyzeGame = async (session: LiveGameSession, options?: { maxVisit
             req.on('timeout', () => {
                 console.error(`[KataGo HTTP] Request timeout for queryId=${cleanQuery.id}`);
                 req.destroy();
-                reject(new Error('KataGo API request timed out after 120 seconds'));
+                reject(new Error('KataGo API request timed out after 300 seconds'));
             });
             
             req.write(postData);

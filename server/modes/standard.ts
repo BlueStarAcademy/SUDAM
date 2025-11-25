@@ -242,18 +242,57 @@ const handleStandardAction = async (volatileState: types.VolatileState, game: ty
 
             const { x, y, isHidden, boardState: clientBoardState, moveHistory: clientMoveHistory } = payload;
             
-            // 클라이언트에서 보낸 boardState를 우선적으로 사용 (더 최신 상태일 수 있음)
-            if (clientBoardState && Array.isArray(clientBoardState) && clientBoardState.length > 0) {
-                console.log(`[handleStandardAction] PLACE_STONE: using client boardState, gameId=${game.id}`);
-                game.boardState = clientBoardState;
-            }
-            if (clientMoveHistory && Array.isArray(clientMoveHistory) && clientMoveHistory.length > 0) {
-                console.log(`[handleStandardAction] PLACE_STONE: using client moveHistory, gameId=${game.id}`);
-                game.moveHistory = clientMoveHistory;
+            const opponentPlayerEnum = myPlayerEnum === types.Player.Black ? types.Player.White : (myPlayerEnum === types.Player.White ? types.Player.Black : types.Player.None);
+            
+            // 싱글플레이 모드에서는 서버의 실제 boardState를 기준으로 체크 (클라이언트 boardState를 신뢰하지 않음)
+            // DB에서 최신 게임 상태를 가져와서 확인
+            let serverBoardState = game.boardState;
+            let serverMoveHistory = game.moveHistory;
+            
+            if (game.isSinglePlayer) {
+                // 싱글플레이에서는 서버의 실제 boardState를 사용
+                const { getLiveGame } = await import('../db.js');
+                const freshGame = await getLiveGame(game.id);
+                if (freshGame) {
+                    serverBoardState = freshGame.boardState;
+                    serverMoveHistory = freshGame.moveHistory;
+                }
             }
             
-            const opponentPlayerEnum = myPlayerEnum === types.Player.Black ? types.Player.White : (myPlayerEnum === types.Player.White ? types.Player.Black : types.Player.None);
-            const stoneAtTarget = game.boardState[y][x];
+            const stoneAtTarget = serverBoardState[y][x];
+            
+            // 싱글플레이 모드에서 AI가 둔 자리 체크 (서버 boardState 기준) - 반드시 먼저 체크
+            if (game.isSinglePlayer) {
+                // boardState에 상대방(AI) 돌이 있으면 무조건 차단
+                if (stoneAtTarget === opponentPlayerEnum) {
+                    console.error(`[handleStandardAction] PLACE_STONE BLOCKED: AI stone at (${x}, ${y}), gameId=${game.id}, stoneAtTarget=${stoneAtTarget}, opponentPlayerEnum=${opponentPlayerEnum}`);
+                    return { error: 'AI가 둔 자리에는 돌을 놓을 수 없습니다.' };
+                }
+                
+                // moveHistory에서도 추가 확인
+                const moveIndexAtTarget = serverMoveHistory.findIndex(m => m.x === x && m.y === y);
+                if (moveIndexAtTarget !== -1) {
+                    const moveAtTarget = serverMoveHistory[moveIndexAtTarget];
+                    if (moveAtTarget && moveAtTarget.player === opponentPlayerEnum) {
+                        console.error(`[handleStandardAction] PLACE_STONE BLOCKED: AI move in history at (${x}, ${y}), gameId=${game.id}`);
+                        return { error: 'AI가 둔 자리에는 돌을 놓을 수 없습니다.' };
+                    }
+                }
+                
+                // 서버 boardState를 게임 객체에 반영 (클라이언트 boardState 무시)
+                game.boardState = serverBoardState;
+                game.moveHistory = serverMoveHistory;
+            } else {
+                // 싱글플레이가 아닌 경우에만 클라이언트 boardState 사용
+                if (clientBoardState && Array.isArray(clientBoardState) && clientBoardState.length > 0) {
+                    console.log(`[handleStandardAction] PLACE_STONE: using client boardState, gameId=${game.id}`);
+                    game.boardState = clientBoardState;
+                }
+                if (clientMoveHistory && Array.isArray(clientMoveHistory) && clientMoveHistory.length > 0) {
+                    console.log(`[handleStandardAction] PLACE_STONE: using client moveHistory, gameId=${game.id}`);
+                    game.moveHistory = clientMoveHistory;
+                }
+            }
 
             // 싱글플레이 모드에서 AI 초기 히든돌 확인
             const isAiInitialHiddenStone = game.isSinglePlayer && 
@@ -317,6 +356,15 @@ const handleStandardAction = async (volatileState: types.VolatileState, game: ty
 
             const move = { x, y, player: myPlayerEnum };
             
+            // 싱글플레이 모드에서 processMove 호출 전 최종 체크
+            if (game.isSinglePlayer) {
+                const finalStoneCheck = game.boardState[y][x];
+                if (finalStoneCheck === opponentPlayerEnum) {
+                    console.error(`[handleStandardAction] PLACE_STONE CRITICAL BLOCK: AI stone detected at (${x}, ${y}) before processMove, gameId=${game.id}`);
+                    return { error: 'AI가 둔 자리에는 돌을 놓을 수 없습니다.' };
+                }
+            }
+            
             if (isHidden) {
                 const hiddenKey = user.id === game.player1.id ? 'hidden_stones_used_p1' : 'hidden_stones_used_p2';
                 const usedCount = game[hiddenKey] || 0;
@@ -326,7 +374,27 @@ const handleStandardAction = async (volatileState: types.VolatileState, game: ty
                 game[hiddenKey] = usedCount + 1;
             }
 
-            const result = processMove(game.boardState, move, game.koInfo, game.moveHistory.length);
+            const result = processMove(
+                game.boardState, 
+                move, 
+                game.koInfo, 
+                game.moveHistory.length,
+                { 
+                    ignoreSuicide: false,
+                    isSinglePlayer: game.isSinglePlayer,
+                    opponentPlayer: game.isSinglePlayer ? opponentPlayerEnum : undefined
+                }
+            );
+            
+            // processMove 결과 검증 (싱글플레이)
+            if (game.isSinglePlayer && result.isValid) {
+                // processMove 후에도 해당 위치에 상대방 돌이 있는지 확인
+                const afterMoveCheck = result.newBoardState[y][x];
+                if (afterMoveCheck !== myPlayerEnum) {
+                    console.error(`[handleStandardAction] PLACE_STONE CRITICAL: After processMove, stone at (${x}, ${y}) is not player's stone (${afterMoveCheck}), gameId=${game.id}`);
+                    return { error: 'AI가 둔 자리에는 돌을 놓을 수 없습니다.' };
+                }
+            }
 
             if (!result.isValid) {
                 return { error: `Invalid move: ${result.reason}` };

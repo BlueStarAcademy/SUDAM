@@ -157,13 +157,45 @@ interface CachedUser {
 }
 
 const userCache = new Map<string, CachedUser>();
-const CACHE_TTL = 3000; // 3초 캐시 (데이터 일관성과 성능의 균형 - Railway 환경 최적화)
+// Railway 환경에서는 캐시 TTL을 늘려서 데이터베이스 쿼리 감소
+const isRailway = process.env.RAILWAY_ENVIRONMENT || process.env.NODE_ENV === 'production';
+const CACHE_TTL = isRailway ? 30000 : 3000; // Railway: 30초, 로컬: 3초 캐시
+const MAX_CACHE_SIZE = 1000; // 최대 캐시 크기 제한 (메모리 누수 방지)
 
-export const getAllUsers = async (): Promise<User[]> => {
-    return listUsers();
+// Railway 최적화: 기본적으로 equipment/inventory 제외
+export const getAllUsers = async (options?: { includeEquipment?: boolean; includeInventory?: boolean }): Promise<User[]> => {
+    const { listUsers } = await import('./prisma/userService.js');
+    return listUsers(options);
+};
+
+// 캐시 크기 제한 (LRU 방식으로 오래된 항목 제거)
+const cleanupCache = () => {
+    if (userCache.size > MAX_CACHE_SIZE) {
+        const entries = Array.from(userCache.entries());
+        // TTL이 지난 항목 먼저 제거
+        const now = Date.now();
+        entries.forEach(([key, value]) => {
+            if (now - value.timestamp > CACHE_TTL) {
+                userCache.delete(key);
+            }
+        });
+        // 여전히 크기가 크면 오래된 항목부터 제거
+        if (userCache.size > MAX_CACHE_SIZE) {
+            const sorted = entries
+                .filter(([key]) => userCache.has(key)) // 이미 삭제된 항목 제외
+                .sort((a, b) => a[1].timestamp - b[1].timestamp);
+            const toRemove = sorted.slice(0, userCache.size - MAX_CACHE_SIZE);
+            toRemove.forEach(([key]) => userCache.delete(key));
+        }
+    }
 };
 
 export const getUser = async (id: string): Promise<User | null> => {
+    // 캐시 정리 (주기적으로)
+    if (Math.random() < 0.1) { // 10% 확률로 캐시 정리 (성능 오버헤드 최소화)
+        cleanupCache();
+    }
+    
     // 캐시 확인
     const cached = userCache.get(id);
     const now = Date.now();

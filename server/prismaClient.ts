@@ -12,11 +12,18 @@ const getDatabaseUrl = () => {
   }
   
   // 연결 풀링 파라미터 추가 (Railway 환경 최적화)
-  // connection_limit: 최대 연결 수 증가
-  // pool_timeout: 연결 대기 시간
-  // connect_timeout: 연결 타임아웃
+  // Railway 무료/스타터 플랜에 맞게 연결 수 조정
+  // connection_limit: 최대 연결 수 (Railway 제한 고려)
+  // pool_timeout: 연결 대기 시간 단축
+  // connect_timeout: 연결 타임아웃 단축
+  // statement_cache_size: 쿼리 캐시 크기
   const separator = url.includes('?') ? '&' : '?';
-  return `${url}${separator}connection_limit=25&pool_timeout=20&connect_timeout=10`;
+  // Railway 환경에서는 연결 수를 줄이고 타임아웃을 단축하여 성능 최적화
+  const isRailway = url.includes('railway') || process.env.RAILWAY_ENVIRONMENT;
+  const connectionLimit = isRailway ? '10' : '25'; // Railway는 연결 수 제한이 있으므로 줄임
+  const poolTimeout = isRailway ? '10' : '20'; // Railway는 대기 시간 단축
+  const connectTimeout = isRailway ? '5' : '10'; // Railway는 연결 타임아웃 단축
+  return `${url}${separator}connection_limit=${connectionLimit}&pool_timeout=${poolTimeout}&connect_timeout=${connectTimeout}&statement_cache_size=0`;
 };
 
 const prisma = new PrismaClient({

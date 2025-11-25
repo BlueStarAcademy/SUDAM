@@ -874,14 +874,9 @@ export const handleSinglePlayerAction = async (volatileState: VolatileState, act
             const newLevelInfo = missionInfo.levels[missionState.level - 1];
             if (newLevelInfo) {
                 // 수령하지 않은 재화는 유지 (새 레벨의 최대 생산량을 초과하지 않도록 제한)
+                // 강화 시에는 기존 재화만 유지하고, 새로운 초기 생산량은 추가하지 않음
                 const preservedAmount = Math.min(previousAccumulatedAmount, newLevelInfo.maxCapacity);
                 missionState.accumulatedAmount = preservedAmount;
-                
-                // 재화가 없거나 새 레벨의 초기 생산량이 더 크면 초기 생산량 적용
-                if (preservedAmount === 0 || newLevelInfo.rewardAmount > preservedAmount) {
-                    const initialAmount = Math.min(newLevelInfo.rewardAmount, newLevelInfo.maxCapacity);
-                    missionState.accumulatedAmount = Math.max(preservedAmount, initialAmount);
-                }
                 
                 // 재화가 유지된 경우 lastCollectionTime도 유지, 새로 시작하는 경우만 업데이트
                 if (preservedAmount === 0) {

@@ -396,7 +396,9 @@ const startServer = async () => {
 
             // --- START NEW OFFLINE AP REGEN LOGIC ---
             if (now - lastOfflineRegenAt >= OFFLINE_REGEN_INTERVAL_MS) {
-                const allUsers = await db.getAllUsers();
+                // Railway 최적화: equipment/inventory 없이 사용자 목록만 로드
+                const { listUsers } = await import('./prisma/userService.js');
+                const allUsers = await listUsers({ includeEquipment: false, includeInventory: false });
                 
                 // 매일 0시에 토너먼트 상태 자동 리셋 확인 (processDailyQuestReset에서 처리되지만, 
                 // 메인 루프에서도 날짜 변경 시 체크하여 오프라인 사용자도 리셋되도록 보장)
@@ -479,7 +481,9 @@ const startServer = async () => {
                         console.log(`[WeeklyLeagueUpdate] Processing weekly league updates for all users at Monday 0:00 KST`);
                         setLastWeeklyLeagueUpdateTimestamp(now);
                         
-                        const allUsersForLeagueUpdate = await db.getAllUsers();
+                        // Railway 최적화: equipment/inventory 없이 사용자 목록만 로드
+                        const { listUsers } = await import('./prisma/userService.js');
+                        const allUsersForLeagueUpdate = await listUsers({ includeEquipment: false, includeInventory: false });
                         let usersUpdated = 0;
                         let mailsSent = 0;
                         
@@ -534,7 +538,9 @@ const startServer = async () => {
             const BOT_SCORE_UPDATE_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
             if (!lastBotScoreUpdateAt || (now - lastBotScoreUpdateAt >= BOT_SCORE_UPDATE_INTERVAL_MS)) {
                 const { updateBotLeagueScores } = await import('./scheduledTasks.js');
-                const allUsersForBotUpdate = await db.getAllUsers();
+                // Railway 최적화: equipment/inventory 없이 사용자 목록만 로드
+                const { listUsers } = await import('./prisma/userService.js');
+                const allUsersForBotUpdate = await listUsers({ includeEquipment: false, includeInventory: false });
                 let botsUpdated = 0;
                 
                 for (const user of allUsersForBotUpdate) {
@@ -961,7 +967,9 @@ const startServer = async () => {
                 await kvRepository.setKV('withdrawnEmails', withdrawnEmails);
             }
             
-            const allUsers = await db.getAllUsers();
+            // Railway 최적화: equipment/inventory 없이 사용자 목록만 로드
+            const { listUsers } = await import('./prisma/userService.js');
+            const allUsers = await listUsers({ includeEquipment: false, includeInventory: false });
             
             // 이메일 중복 확인
             const existingUserByEmail = allUsers.find(u => u.email?.toLowerCase() === trimmedEmail.toLowerCase());
@@ -1859,7 +1867,9 @@ const startServer = async () => {
             console.log('[Admin] ========== 봇 점수 복구 시작 ==========');
             const { getStartOfDayKST, getKSTFullYear, getKSTMonth, getKSTDate_UTC } = await import('../utils/timeUtils.js');
             
-            const allUsers = await db.getAllUsers();
+            // Railway 최적화: equipment/inventory 없이 사용자 목록만 로드
+            const { listUsers } = await import('./prisma/userService.js');
+            const allUsers = await listUsers({ includeEquipment: false, includeInventory: false });
             const now = Date.now();
             const todayStart = getStartOfDayKST(now);
             let updatedCount = 0;
