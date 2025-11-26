@@ -429,7 +429,12 @@ const startServer = async () => {
                         updatedUser = await updateBotLeagueScores(updatedUser);
                     }
                     
-                    if (JSON.stringify(user) !== JSON.stringify(updatedUser)) {
+                    // 최적화: 간단한 필드 비교로 변경 (JSON.stringify 대신)
+                    const hasChanges = user.actionPoints !== updatedUser.actionPoints ||
+                        user.gold !== updatedUser.gold ||
+                        user.singlePlayerMissions !== updatedUser.singlePlayerMissions ||
+                        user.weeklyCompetitors !== updatedUser.weeklyCompetitors;
+                    if (hasChanges) {
                         await db.updateUser(updatedUser);
                     }
                 }
@@ -489,9 +494,7 @@ const startServer = async () => {
                         
                         // 1. 티어변동 처리 (이전 주간 점수로 순위 계산 후 티어 결정)
                         for (const user of allUsersForLeagueUpdate) {
-                            const userBeforeUpdate = JSON.parse(JSON.stringify(user));
                             const updatedUser = await processWeeklyLeagueUpdates(user);
-                            const userAfterUpdate = JSON.parse(JSON.stringify(updatedUser));
                             
                             // 메일이 추가되었는지 확인
                             const mailAdded = (updatedUser.mail?.length || 0) > (user.mail?.length || 0);
@@ -500,7 +503,12 @@ const startServer = async () => {
                                 console.log(`[WeeklyLeagueUpdate] Mail sent to user ${user.nickname} (${user.id})`);
                             }
                             
-                            if (JSON.stringify(userBeforeUpdate) !== JSON.stringify(userAfterUpdate)) {
+                            // 최적화: 간단한 필드 비교로 변경 (JSON.stringify 대신)
+                            const hasChanges = user.league !== updatedUser.league ||
+                                user.tournamentScore !== updatedUser.tournamentScore ||
+                                user.mail?.length !== updatedUser.mail?.length ||
+                                user.weeklyCompetitors !== updatedUser.weeklyCompetitors;
+                            if (hasChanges) {
                                 await db.updateUser(updatedUser);
                                 usersUpdated++;
                             }

@@ -1,4 +1,5 @@
 import { User, LiveGameSession, AppState, UserCredentials, AdminLog, Announcement, OverrideAnnouncement, GameMode, HomeBoardPost } from '../types.ts';
+import { deepClone } from './utils/cloneHelper.js';
 import { getInitialState } from './initialData.ts';
 import {
     listUsers,
@@ -188,7 +189,7 @@ export const getAllUsers = async (options?: { includeEquipment?: boolean; includ
     // 캐시 업데이트 (equipment/inventory가 필요 없는 경우에만)
     if (canUseCache) {
         allUsersCache = {
-            users: JSON.parse(JSON.stringify(users)), // 깊은 복사
+            users: deepClone(users), // 깊은 복사 (최적화된 방식)
             timestamp: Date.now()
         };
     }
@@ -244,7 +245,7 @@ export const getUser = async (id: string, options?: { includeEquipment?: boolean
     if (user && canUseCache) {
         // 캐시에 저장 (equipment/inventory가 필요 없는 경우에만)
         userCache.set(id, {
-            user: JSON.parse(JSON.stringify(user)), // 깊은 복사
+            user: deepClone(user), // 깊은 복사 (최적화된 방식)
             timestamp: Date.now()
         });
     } else if (!user) {
@@ -290,18 +291,18 @@ export const updateUser = async (user: User): Promise<void> => {
 
         if (prevInventoryCount > 0 && nextInventoryCount === 0) {
             console.error(`[DB] CRITICAL: updateUser would clear inventory for ${user.id}. Restoring previous inventory snapshot.`);
-            user.inventory = JSON.parse(JSON.stringify(existing.inventory));
+            user.inventory = deepClone(existing.inventory);
         }
         if (prevEquipmentCount > 0 && nextEquipmentCount === 0) {
             console.error(`[DB] CRITICAL: updateUser would clear equipment for ${user.id}. Restoring previous equipment snapshot.`);
-            user.equipment = JSON.parse(JSON.stringify(existing.equipment));
+            user.equipment = deepClone(existing.equipment);
         }
     }
 
     await prismaUpdateUser(user);
     // 사용자 정보 업데이트 후 캐시 즉시 업데이트 (DB 재조회 방지로 성능 향상)
     userCache.set(user.id, {
-        user: JSON.parse(JSON.stringify(user)), // 깊은 복사
+        user: deepClone(user), // 깊은 복사 (최적화된 방식)
         timestamp: Date.now()
     });
     // getAllUsers 캐시도 무효화 (사용자 정보 변경 시)

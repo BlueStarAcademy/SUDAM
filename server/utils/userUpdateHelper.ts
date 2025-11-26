@@ -1,4 +1,5 @@
 import { User } from '../../types/index.js';
+import { deepClone } from './cloneHelper.js';
 
 /**
  * 액션 타입에 따라 필요한 User 필드만 반환하는 헬퍼 함수
@@ -71,7 +72,7 @@ export function getSelectiveUserUpdate(
     
     // 모든 필드를 포함해야 하는 경우
     if (includeAll) {
-        return JSON.parse(JSON.stringify(user));
+        return deepClone(user);
     }
     
     // 액션 타입에 해당하는 필드 가져오기
@@ -93,7 +94,7 @@ export function getSelectiveUserUpdate(
             const value = user[key];
             if (value !== undefined) {
                 if (typeof value === 'object' && value !== null) {
-                    selectiveUser[key] = JSON.parse(JSON.stringify(value)) as any;
+                    selectiveUser[key] = deepClone(value) as any;
                 } else {
                     selectiveUser[key] = value as any;
                 }
@@ -132,7 +133,7 @@ export function getUserDelta(oldUser: User | null, newUser: User): Partial<User>
         // 깊은 비교
         if (JSON.stringify(oldValue) !== JSON.stringify(newValue)) {
             if (typeof newValue === 'object' && newValue !== null) {
-                delta[field] = JSON.parse(JSON.stringify(newValue)) as any;
+                delta[field] = deepClone(newValue) as any;
             } else {
                 delta[field] = newValue as any;
             }
