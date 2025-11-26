@@ -5,9 +5,9 @@ import * as db from './db.js';
 // Railway 환경에서는 캐시 TTL을 늘려서 데이터베이스 쿼리 감소
 // 로컬 환경도 성능 개선을 위해 캐시 TTL 증가
 const isRailway = process.env.RAILWAY_ENVIRONMENT || process.env.NODE_ENV === 'production';
-const CACHE_TTL_MS = isRailway ? 60 * 1000 : 15 * 1000; // Railway: 60초, 로컬: 15초 캐시
+const CACHE_TTL_MS = isRailway ? 120 * 1000 : 30 * 1000; // Railway: 120초, 로컬: 30초 캐시 (성능 개선)
 // Railway DB는 네트워크 지연이 크므로 사용자 캐시 TTL을 더 길게 설정
-const USER_CACHE_TTL_MS = isRailway ? 1200 * 1000 : 300 * 1000; // Railway: 20분, 로컬: 5분 사용자 캐시 (성능 대폭 개선)
+const USER_CACHE_TTL_MS = isRailway ? 1800 * 1000 : 600 * 1000; // Railway: 30분, 로컬: 10분 사용자 캐시 (성능 대폭 개선)
 
 /**
  * 게임 상태를 캐시에서 가져오거나 DB에서 로드

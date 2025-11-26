@@ -162,13 +162,13 @@ const userCache = new Map<string, CachedUser>();
 // 로컬 환경도 성능 개선을 위해 캐시 TTL 증가
 const isRailway = process.env.RAILWAY_ENVIRONMENT || process.env.NODE_ENV === 'production';
 // Railway DB는 네트워크 지연이 크므로 캐시 TTL을 더 길게 설정
-const CACHE_TTL = isRailway ? 120000 : 30000; // Railway: 120초, 로컬: 30초 캐시 (성능 대폭 개선)
-const MAX_CACHE_SIZE = 2000; // 최대 캐시 크기 제한 증가 (더 많은 사용자 캐싱)
+const CACHE_TTL = isRailway ? 180000 : 60000; // Railway: 180초, 로컬: 60초 캐시 (성능 대폭 개선)
+const MAX_CACHE_SIZE = 3000; // 최대 캐시 크기 제한 증가 (더 많은 사용자 캐싱)
 
 // Railway 최적화: 기본적으로 equipment/inventory 제외
 // getAllUsers 결과 캐싱 (WebSocket 연결 시마다 호출되므로)
 let allUsersCache: { users: User[]; timestamp: number } | null = null;
-const ALL_USERS_CACHE_TTL = isRailway ? 10000 : 5000; // Railway: 10초, 로컬: 5초 캐시 (성능 최적화)
+const ALL_USERS_CACHE_TTL = isRailway ? 30000 : 15000; // Railway: 30초, 로컬: 15초 캐시 (성능 최적화)
 
 export const getAllUsers = async (options?: { includeEquipment?: boolean; includeInventory?: boolean }): Promise<User[]> => {
     // equipment/inventory가 필요 없는 경우에만 캐시 사용

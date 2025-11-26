@@ -276,44 +276,86 @@ export const broadcastToGameParticipants = (gameId: string, message: any, game: 
         }
     });
     
+    // 최적화: 메시지 직렬화를 한 번만 수행
     const messageString = JSON.stringify(message);
     let sentCount = 0;
-    wss.clients.forEach(client => {
+    let errorCount = 0;
+    
+    // 최적화: Array.from 대신 직접 순회 (메모리 효율)
+    for (const client of wss.clients) {
         if (client.readyState === WebSocket.OPEN) {
-            const userId = wsUserIdMap.get(client);
-            if (userId && participantIds.has(userId)) {
-                client.send(messageString);
-                sentCount++;
+            try {
+                const userId = wsUserIdMap.get(client);
+                if (userId && participantIds.has(userId)) {
+                    client.send(messageString, (err) => {
+                        if (err) {
+                            errorCount++;
+                            console.error(`[WebSocket] Error sending to user ${userId}:`, err);
+                        }
+                    });
+                    sentCount++;
+                }
+            } catch (error) {
+                errorCount++;
+                console.error('[WebSocket] Error in broadcastToGameParticipants:', error);
             }
         }
-    });
-    if (sentCount > 0) {
-        console.log(`[WebSocket] Sent GAME_UPDATE to ${sentCount} participants for game ${gameId}`);
+    }
+    
+    // 개발 환경에서만 로깅 (프로덕션 성능 향상)
+    if (process.env.NODE_ENV === 'development' && sentCount > 0) {
+        console.log(`[WebSocket] Sent GAME_UPDATE to ${sentCount} participants for game ${gameId}${errorCount > 0 ? ` (${errorCount} errors)` : ''}`);
     }
 };
 
 export const broadcast = (message: any) => {
     if (!wss) return;
+    // 최적화: 메시지 직렬화를 한 번만 수행
     const messageString = JSON.stringify(message);
-    wss.clients.forEach(client => {
+    let errorCount = 0;
+    
+    // 최적화: Array.from 대신 직접 순회 (메모리 효율)
+    for (const client of wss.clients) {
         if (client.readyState === WebSocket.OPEN) {
-            client.send(messageString);
+            try {
+                client.send(messageString, (err) => {
+                    if (err) {
+                        errorCount++;
+                        // 에러는 조용히 처리 (너무 많은 로그 방지)
+                    }
+                });
+            } catch (error) {
+                errorCount++;
+            }
         }
-    });
+    }
+    
+    // 에러가 많이 발생한 경우에만 로깅
+    if (errorCount > 10 && process.env.NODE_ENV === 'development') {
+        console.warn(`[WebSocket] Broadcast had ${errorCount} errors`);
+    }
 };
 
 // 특정 사용자에게만 메시지를 보내는 함수
 export const sendToUser = (userId: string, message: any) => {
     if (!wss) return;
+    // 최적화: 메시지 직렬화를 한 번만 수행
     const messageString = JSON.stringify({ ...message, targetUserId: userId });
-    wss.clients.forEach(client => {
+    
+    // 최적화: Array.from 대신 직접 순회 (메모리 효율)
+    for (const client of wss.clients) {
         if (client.readyState === WebSocket.OPEN) {
-            const clientUserId = wsUserIdMap.get(client);
-            if (clientUserId === userId) {
-                client.send(messageString);
+            try {
+                const clientUserId = wsUserIdMap.get(client);
+                if (clientUserId === userId) {
+                    client.send(messageString);
+                    return; // 사용자 찾으면 즉시 반환 (불필요한 순회 방지)
+                }
+            } catch (error) {
+                // 에러는 조용히 처리
             }
         }
-    });
+    }
 };
 
 // USER_UPDATE 최적화: 변경된 필드만 전송 (대역폭 절약)
@@ -349,10 +391,25 @@ export const broadcastUserUpdate = (user: any, changedFields?: string[]) => {
     }
     
     const message = { type: 'USER_UPDATE', payload: { [user.id]: optimizedUser } };
+    // 최적화: 메시지 직렬화를 한 번만 수행
     const messageString = JSON.stringify(message);
-    wss.clients.forEach(client => {
+    let errorCount = 0;
+    
+    // 최적화: Array.from 대신 직접 순회 (메모리 효율)
+    for (const client of wss.clients) {
         if (client.readyState === WebSocket.OPEN) {
-            client.send(messageString);
+            try {
+                client.send(messageString, (err) => {
+                    if (err) errorCount++;
+                });
+            } catch (error) {
+                errorCount++;
+            }
         }
-    });
+    }
+    
+    // 에러가 많이 발생한 경우에만 로깅
+    if (errorCount > 10 && process.env.NODE_ENV === 'development') {
+        console.warn(`[WebSocket] broadcastUserUpdate had ${errorCount} errors`);
+    }
 };

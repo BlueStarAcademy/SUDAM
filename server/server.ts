@@ -1621,9 +1621,11 @@ const startServer = async () => {
                 return res.status(401).json({ message: '인증 정보가 없습니다.' });
             }
 
-            if (isDev) console.log('[/api/state] Getting user from DB');
-            let user = await db.getUser(userId);
-            if (isDev) console.log('[/api/state] User retrieved from DB');
+            if (isDev) console.log('[/api/state] Getting user from cache/DB');
+            // 캐시를 우선 사용하여 DB 쿼리 최소화 (Railway 네트워크 지연 대응)
+            const { getCachedUser } = await import('./gameCache.js');
+            let user = await getCachedUser(userId);
+            if (isDev) console.log('[/api/state] User retrieved from cache/DB');
             if (!user) {
                 if (isDev) console.log(`[API/State] User ${userId} not found, cleaning up connection and returning 401.`);
                 delete volatileState.userConnections[userId]; // Clean up just in case
