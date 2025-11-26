@@ -201,15 +201,37 @@ const handleStandardAction = async (volatileState: types.VolatileState, game: ty
             if (payload.triggerAutoScoring) {
                 console.log(`[handleStandardAction] triggerAutoScoring received for game ${game.id}, updating game state...`);
                 
-                // 클라이언트에서 전송한 게임 상태를 반영
-                if (payload.totalTurns !== undefined) {
+                // 싱글플레이 게임은 메모리 캐시에서 최신 상태 확인
+                if (game.isSinglePlayer && game.id.startsWith('sp-game-')) {
+                    const { getCachedGame } = await import('../gameCache.js');
+                    const cachedGame = await getCachedGame(game.id);
+                    if (cachedGame) {
+                        // 캐시된 게임 상태를 사용 (더 최신 상태일 수 있음)
+                        game.boardState = cachedGame.boardState;
+                        game.moveHistory = cachedGame.moveHistory;
+                        game.totalTurns = cachedGame.totalTurns;
+                        game.blackTimeLeft = cachedGame.blackTimeLeft;
+                        game.whiteTimeLeft = cachedGame.whiteTimeLeft;
+                        game.captures = cachedGame.captures;
+                        game.koInfo = cachedGame.koInfo;
+                        console.log(`[handleStandardAction] Using cached game state: totalTurns=${game.totalTurns}, moveHistoryLength=${game.moveHistory?.length || 0}`);
+                    }
+                }
+                
+                // 클라이언트에서 전송한 게임 상태를 반영 (캐시가 없거나 캐시보다 클라이언트가 더 최신인 경우)
+                if (payload.totalTurns !== undefined && (!game.totalTurns || payload.totalTurns > game.totalTurns)) {
                     game.totalTurns = payload.totalTurns;
                 }
-                if (payload.moveHistory) {
+                if (payload.moveHistory && payload.moveHistory.length > (game.moveHistory?.length || 0)) {
                     game.moveHistory = payload.moveHistory;
                 }
-                if (payload.boardState) {
-                    game.boardState = payload.boardState;
+                if (payload.boardState && Array.isArray(payload.boardState) && payload.boardState.length > 0) {
+                    // 클라이언트 boardState와 서버 boardState를 병합 (서버 우선)
+                    const serverBoardState = game.boardState || payload.boardState;
+                    // 클라이언트가 보낸 최신 moveHistory를 기준으로 boardState 검증
+                    if (payload.moveHistory && payload.moveHistory.length > 0) {
+                        game.boardState = payload.boardState;
+                    }
                 }
                 if (payload.blackTimeLeft !== undefined) {
                     game.blackTimeLeft = payload.blackTimeLeft;
@@ -219,6 +241,12 @@ const handleStandardAction = async (volatileState: types.VolatileState, game: ty
                 }
                 
                 console.log(`[handleStandardAction] Game state updated: totalTurns=${game.totalTurns}, moveHistoryLength=${game.moveHistory?.length || 0}, boardStateSize=${game.boardState?.length || 0}`);
+                
+                // 게임 캐시 업데이트 (계가 시작 전에 최신 상태 저장)
+                if (game.isSinglePlayer && game.id.startsWith('sp-game-')) {
+                    const { updateGameCache } = await import('../gameCache.js');
+                    updateGameCache(game);
+                }
                 
                 // 게임 상태를 scoring으로 변경하고 계가 처리
                 game.gameStatus = 'scoring';
@@ -627,6 +655,26 @@ const handleStandardAction = async (volatileState: types.VolatileState, game: ty
                  game.turnStartTime = undefined;
             }
 
+            // 싱글플레이 자동 계가 체크: 사용자가 돌을 놓은 후 totalTurns 업데이트
+            if (game.isSinglePlayer && game.stageId) {
+                const { SINGLE_PLAYER_STAGES } = await import('../../constants/singlePlayerConstants.js');
+                const stage = SINGLE_PLAYER_STAGES.find(s => s.id === game.stageId);
+                const autoScoringTurns = stage?.autoScoringTurns;
+                
+                if (autoScoringTurns !== undefined) {
+                    // 유효한 수만 카운팅 (패스 제외)
+                    const validMoves = game.moveHistory.filter(m => m.x !== -1 && m.y !== -1);
+                    const newTotalTurns = validMoves.length;
+                    game.totalTurns = newTotalTurns;
+                    
+                    // 마지막 턴에 사용자가 돌을 놓은 경우 체크
+                    // totalTurns가 autoScoringTurns-1이면 다음 AI 턴이 마지막 턴이므로 AI가 반드시 돌을 놓아야 함
+                    if (newTotalTurns === autoScoringTurns - 1) {
+                        console.log(`[handleStandardAction] Last turn reached: totalTurns=${newTotalTurns}, autoScoringTurns=${autoScoringTurns}, next turn will trigger auto-scoring after AI move`);
+                    }
+                }
+            }
+            
             // After move logic
             if (game.mode === types.GameMode.Capture || game.isSinglePlayer) {
                 const target = game.effectiveCaptureTargets![myPlayerEnum];

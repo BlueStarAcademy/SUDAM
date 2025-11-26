@@ -904,6 +904,55 @@ const startServer = async () => {
         });
     });
 
+    // 랭킹 API 엔드포인트
+    app.get('/api/ranking/:type', async (req, res) => {
+        try {
+            const { type } = req.params;
+            const { limit, offset } = req.query;
+            const limitNum = limit ? parseInt(limit as string, 10) : undefined;
+            const offsetNum = offset ? parseInt(offset as string, 10) : 0;
+
+            const { buildRankingCache } = await import('./rankingCache.js');
+            const cache = await buildRankingCache();
+
+            let rankings: any[] = [];
+            switch (type) {
+                case 'strategic':
+                    rankings = cache.strategic;
+                    break;
+                case 'playful':
+                    rankings = cache.playful;
+                    break;
+                case 'championship':
+                    rankings = cache.championship;
+                    break;
+                case 'combat':
+                    rankings = cache.combat;
+                    break;
+                case 'manner':
+                    rankings = cache.manner;
+                    break;
+                default:
+                    return res.status(400).json({ error: 'Invalid ranking type' });
+            }
+
+            // 페이지네이션 적용
+            if (limitNum) {
+                rankings = rankings.slice(offsetNum, offsetNum + limitNum);
+            }
+
+            res.json({
+                type,
+                rankings,
+                total: cache[type as keyof typeof cache].length,
+                cached: Date.now() - cache.timestamp < 60000 // 1분 이내면 캐시된 데이터
+            });
+        } catch (error) {
+            console.error('[API/Ranking] Error:', error);
+            res.status(500).json({ error: 'Failed to fetch rankings' });
+        }
+    });
+
     app.post('/api/auth/register', async (req, res) => {
         try {
             console.log('[/api/auth/register] Received request body:', JSON.stringify(req.body));
@@ -1864,95 +1913,84 @@ const startServer = async () => {
         }
     });
 
-    // 긴급 봇 점수 복구 엔드포인트 (7일치 강제 복구)
+    // 긴급 봇 점수 복구 엔드포인트 (점수가 0인 봇만 복구)
+    // KataGo 상태 확인 엔드포인트 (관리자 전용)
+    app.get('/api/admin/katago-status', async (req, res) => {
+        try {
+            const { getKataGoManager, initializeKataGo } = await import('./kataGoService.js');
+            const manager = getKataGoManager();
+            
+            // KataGo 프로세스 상태 확인
+            const processRunning = manager && (manager as any).process && !(manager as any).process.killed;
+            const isStarting = (manager as any).isStarting || false;
+            const pendingQueries = (manager as any).pendingQueries ? (manager as any).pendingQueries.size : 0;
+            
+            // 환경 변수 확인
+            const config = {
+                KATAGO_PATH: process.env.KATAGO_PATH || 'not set',
+                KATAGO_MODEL_PATH: process.env.KATAGO_MODEL_PATH || 'not set',
+                KATAGO_HOME_PATH: process.env.KATAGO_HOME_PATH || 'not set',
+                KATAGO_API_URL: process.env.KATAGO_API_URL || 'not set',
+                KATAGO_NUM_ANALYSIS_THREADS: process.env.KATAGO_NUM_ANALYSIS_THREADS || 'not set',
+                KATAGO_NUM_SEARCH_THREADS: process.env.KATAGO_NUM_SEARCH_THREADS || 'not set',
+                KATAGO_MAX_VISITS: process.env.KATAGO_MAX_VISITS || 'not set',
+                KATAGO_NN_MAX_BATCH_SIZE: process.env.KATAGO_NN_MAX_BATCH_SIZE || 'not set',
+                NODE_ENV: process.env.NODE_ENV || 'not set',
+                RAILWAY_ENVIRONMENT: process.env.RAILWAY_ENVIRONMENT || 'not set',
+                USE_HTTP_API: !!(process.env.KATAGO_API_URL && process.env.KATAGO_API_URL.trim() !== ''),
+            };
+            
+            // 로그 파일 읽기 시도
+            let logContent = null;
+            try {
+                const fs = await import('fs');
+                const path = await import('path');
+                const logPath = path.resolve(process.cwd(), 'katago', 'katago_analysis_log.txt');
+                if (fs.existsSync(logPath)) {
+                    const logStats = fs.statSync(logPath);
+                    const logBuffer = fs.readFileSync(logPath);
+                    // 최근 500줄만 읽기 (파일이 클 수 있음)
+                    const logLines = logBuffer.toString().split('\n');
+                    const recentLines = logLines.slice(-500);
+                    logContent = {
+                        path: logPath,
+                        size: logStats.size,
+                        lastModified: logStats.mtime.toISOString(),
+                        recentLines: recentLines,
+                        totalLines: logLines.length
+                    };
+                }
+            } catch (logError: any) {
+                console.error('[Admin] Failed to read KataGo log:', logError.message);
+            }
+            
+            res.json({
+                status: processRunning ? 'running' : (isStarting ? 'starting' : 'stopped'),
+                processRunning,
+                isStarting,
+                pendingQueries,
+                config,
+                log: logContent
+            });
+        } catch (error: any) {
+            console.error('[Admin] Error getting KataGo status:', error);
+            res.status(500).json({ error: error.message });
+        }
+    });
+    
     app.post('/api/admin/recover-bot-scores', async (req, res) => {
         try {
             console.log('[Admin] ========== 봇 점수 복구 시작 ==========');
-            const { getStartOfDayKST, getKSTFullYear, getKSTMonth, getKSTDate_UTC } = await import('../utils/timeUtils.js');
             
-            // Railway 최적화: equipment/inventory 없이 사용자 목록만 로드
-            const { listUsers } = await import('./prisma/userService.js');
-            const allUsers = await listUsers({ includeEquipment: false, includeInventory: false });
-            const now = Date.now();
-            const todayStart = getStartOfDayKST(now);
-            let updatedCount = 0;
-            let totalBotsUpdated = 0;
+            // recoverAllBotScores 함수 사용 (일관성 유지)
+            const { recoverAllBotScores } = await import('./scheduledTasks.js');
             
-            for (const user of allUsers) {
-                if (!user.weeklyCompetitors || user.weeklyCompetitors.length === 0) {
-                    continue;
-                }
-                
-                // DB에서 최신 데이터 가져오기
-                const freshUser = await db.getUser(user.id);
-                if (!freshUser) continue;
-                
-                const updatedUser = JSON.parse(JSON.stringify(freshUser));
-                if (!updatedUser.weeklyCompetitorsBotScores) {
-                    updatedUser.weeklyCompetitorsBotScores = {};
-                }
-                
-                let hasChanges = false;
-                const competitorsUpdateDay = freshUser.lastWeeklyCompetitorsUpdate 
-                    ? getStartOfDayKST(freshUser.lastWeeklyCompetitorsUpdate)
-                    : todayStart;
-                
-                for (const competitor of updatedUser.weeklyCompetitors) {
-                    if (!competitor.id.startsWith('bot-')) {
-                        continue;
-                    }
-                    
-                    const botId = competitor.id;
-                    const daysDiff = 6; // 7일치 (0~6 = 7일)
-                    
-                    let totalGain = 0;
-                    let yesterdayScore = 0;
-                    
-                    // 경쟁상대 업데이트일부터 7일치 점수 계산
-                    for (let dayOffset = 0; dayOffset <= daysDiff; dayOffset++) {
-                        const targetDate = new Date(competitorsUpdateDay + (dayOffset * 24 * 60 * 60 * 1000));
-                        const kstYear = getKSTFullYear(targetDate.getTime());
-                        const kstMonth = getKSTMonth(targetDate.getTime()) + 1;
-                        const kstDate = getKSTDate_UTC(targetDate.getTime());
-                        const dateStr = `${kstYear}-${String(kstMonth).padStart(2, '0')}-${String(kstDate).padStart(2, '0')}`;
-                        const seedStr = `${botId}-${dateStr}`;
-                        
-                        let seed = 0;
-                        for (let i = 0; i < seedStr.length; i++) {
-                            seed = ((seed << 5) - seed) + seedStr.charCodeAt(i);
-                            seed = seed & seed;
-                        }
-                        const randomVal = Math.abs(Math.sin(seed)) * 10000;
-                        const dailyGain = Math.floor((randomVal % 50)) + 1;
-                        totalGain += dailyGain;
-                        
-                        if (dayOffset === daysDiff && daysDiff > 0) {
-                            yesterdayScore = totalGain - dailyGain;
-                        }
-                    }
-                    
-                    updatedUser.weeklyCompetitorsBotScores[botId] = {
-                        score: totalGain,
-                        lastUpdate: now,
-                        yesterdayScore: yesterdayScore
-                    };
-                    
-                    hasChanges = true;
-                    totalBotsUpdated++;
-                    console.log(`[Admin] 봇 ${botId} (${competitor.nickname || 'Unknown'}): ${totalGain}점 (7일치)`);
-                }
-                
-                if (hasChanges) {
-                    // DB에 직접 저장
-                    await db.updateUser(updatedUser);
-                    updatedCount++;
-                    console.log(`[Admin] 유저 ${user.nickname} (${user.id}) 업데이트 완료`);
-                }
-            }
+            // forceDays를 지정하지 않으면 점수가 0인 봇만 복구
+            // 점수가 0이면 경쟁상대 업데이트일부터 오늘까지 자동 계산
+            await recoverAllBotScores();
             
             console.log(`[Admin] ========== 봇 점수 복구 완료 ==========`);
-            console.log(`[Admin] 업데이트된 유저: ${updatedCount}명, 총 봇 수: ${totalBotsUpdated}개`);
-            res.status(200).json({ success: true, message: `봇 점수 복구 완료. ${updatedCount}명의 유저, ${totalBotsUpdated}개의 봇 업데이트됨.` });
+            res.status(200).json({ success: true, message: '봇 점수 복구 완료. 점수가 0이었던 모든 봇의 점수가 복구되었습니다.' });
         } catch (error: any) {
             console.error('[Admin] 봇 점수 복구 오류:', error);
             console.error('[Admin] 오류 스택:', error.stack);

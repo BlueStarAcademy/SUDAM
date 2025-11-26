@@ -800,6 +800,15 @@ export const analyzeGame = async (session: LiveGameSession, options?: { maxVisit
         console.log(`[KataGo] Starting analysis query for game ${session.id} (isSinglePlayer: ${session.isSinglePlayer}, stageId: ${session.stageId})`);
         console.log(`[KataGo] Query details: boardSize=${query.boardXSize}x${query.boardYSize}, moves=${query.moves?.length || 0}, initialStones=${(query as any).initialStones?.length || 0}`);
         console.log(`[KataGo] USE_HTTP_API=${USE_HTTP_API}, KATAGO_API_URL=${KATAGO_API_URL || 'not set'}, IS_LOCAL=${IS_LOCAL}`);
+        console.log(`[KataGo] KataGo config: NUM_ANALYSIS_THREADS=${KATAGO_NUM_ANALYSIS_THREADS}, NUM_SEARCH_THREADS=${KATAGO_NUM_SEARCH_THREADS}, MAX_VISITS=${KATAGO_MAX_VISITS}, NN_MAX_BATCH_SIZE=${KATAGO_NN_MAX_BATCH_SIZE}`);
+        
+        // 쿼리 검증
+        if (!query.boardXSize || !query.boardYSize) {
+            throw new Error(`Invalid board size: ${query.boardXSize}x${query.boardYSize}`);
+        }
+        if ((query.moves?.length || 0) === 0 && ((query as any).initialStones?.length || 0) === 0) {
+            console.warn(`[KataGo] Warning: Empty moves and initialStones for game ${session.id}, but continuing analysis`);
+        }
         
         let response: any;
         

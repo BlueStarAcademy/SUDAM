@@ -117,7 +117,10 @@ export const handleGuildAction = async (volatileState: VolatileState, action: Se
                 // Clear user.guildId if set (will be updated after guild creation)
                 if (user.guildId) {
                     user.guildId = undefined;
-                    await db.updateUser(user);
+                    // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+                    db.updateUser(user).catch(err => {
+                        console.error(`[CREATE_GUILD] Failed to clear guildId for user ${user.id}:`, err);
+                    });
                 }
             } else {
                 // For non-admin users, check if already in a guild
@@ -162,7 +165,15 @@ export const handleGuildAction = async (volatileState: VolatileState, action: Se
             
             await db.setKV('guilds', guilds);
             await broadcast({ type: 'GUILD_UPDATE', payload: { guilds } });
-            await db.updateUser(user);
+            
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[CREATE_GUILD] Failed to save user ${user.id}:`, err);
+            });
+
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+            const { broadcastUserUpdate } = await import('../socket.js');
+            broadcastUserUpdate(user, ['guildId', 'diamonds']);
             
             return { clientResponse: { guild: newGuild, updatedUser: user } };
         }
@@ -216,7 +227,16 @@ export const handleGuildAction = async (volatileState: VolatileState, action: Se
 
             await db.setKV('guilds', guilds);
             await broadcast({ type: 'GUILD_UPDATE', payload: { guilds } });
-            await db.updateUser(user);
+            
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[JOIN_GUILD] Failed to save user ${user.id}:`, err);
+            });
+
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+            const { broadcastUserUpdate } = await import('../socket.js');
+            broadcastUserUpdate(user, ['guildId', 'guildApplications']);
+            
             return { clientResponse: { updatedUser: user } };
         }
 
@@ -230,10 +250,17 @@ export const handleGuildAction = async (volatileState: VolatileState, action: Se
                 await db.setKV('guilds', guilds);
                 await broadcast({ type: 'GUILD_UPDATE', payload: { guilds } });
             }
-            if (user.guildApplications) {
-                user.guildApplications = user.guildApplications.filter(id => id !== guildId);
-                await db.updateUser(user);
-            }
+                if (user.guildApplications) {
+                    user.guildApplications = user.guildApplications.filter(id => id !== guildId);
+                    // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+                    db.updateUser(user).catch(err => {
+                        console.error(`[GUILD_CANCEL_APPLICATION] Failed to save user ${user.id}:`, err);
+                    });
+
+                    // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+                    const { broadcastUserUpdate } = await import('../socket.js');
+                    broadcastUserUpdate(user, ['guildApplications']);
+                }
             return { clientResponse: { updatedUser: user } };
         }
         
@@ -266,7 +293,16 @@ export const handleGuildAction = async (volatileState: VolatileState, action: Se
             applicant.guildId = guild.id;
             await db.setKV('guilds', guilds);
             await broadcast({ type: 'GUILD_UPDATE', payload: { guilds } });
-            await db.updateUser(applicant);
+            
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(applicant).catch(err => {
+                console.error(`[GUILD_ACCEPT_APPLICANT] Failed to save applicant ${applicant.id}:`, err);
+            });
+
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+            const { broadcastUserUpdate } = await import('../socket.js');
+            broadcastUserUpdate(applicant, ['guildId', 'guildApplications']);
+            
             return { clientResponse: { guilds } };
         }
 
@@ -286,7 +322,15 @@ export const handleGuildAction = async (volatileState: VolatileState, action: Se
             const applicant = await db.getUser(applicantId);
             if (applicant && applicant.guildApplications) {
                 applicant.guildApplications = applicant.guildApplications.filter(id => id !== guildId);
-                await db.updateUser(applicant);
+                
+                // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+                db.updateUser(applicant).catch(err => {
+                    console.error(`[GUILD_REJECT_APPLICANT] Failed to save applicant ${applicant.id}:`, err);
+                });
+
+                // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+                const { broadcastUserUpdate } = await import('../socket.js');
+                broadcastUserUpdate(applicant, ['guildApplications']);
             }
 
             await db.setKV('guilds', guilds);
@@ -314,7 +358,16 @@ export const handleGuildAction = async (volatileState: VolatileState, action: Se
             user.guildId = null;
             await db.setKV('guilds', guilds);
             await broadcast({ type: 'GUILD_UPDATE', payload: { guilds } });
-            await db.updateUser(user);
+            
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[GUILD_LEAVE] Failed to save user ${user.id}:`, err);
+            });
+
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+            const { broadcastUserUpdate } = await import('../socket.js');
+            broadcastUserUpdate(user, ['guildId']);
+            
             return { clientResponse: { updatedUser: user, guilds } };
         }
 
@@ -332,7 +385,15 @@ export const handleGuildAction = async (volatileState: VolatileState, action: Se
                 const targetUser = await db.getUser(targetMemberId);
                 if (targetUser) {
                     targetUser.guildId = null;
-                    await db.updateUser(targetUser);
+                    
+                    // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+                    db.updateUser(targetUser).catch(err => {
+                        console.error(`[GUILD_KICK_MEMBER] Failed to save target user ${targetUser.id}:`, err);
+                    });
+
+                    // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+                    const { broadcastUserUpdate } = await import('../socket.js');
+                    broadcastUserUpdate(targetUser, ['guildId']);
                 }
                 await db.setKV('guilds', guilds);
                 await broadcast({ type: 'GUILD_UPDATE', payload: { guilds } });
@@ -458,7 +519,16 @@ export const handleGuildAction = async (volatileState: VolatileState, action: Se
             guild.dailyCheckInRewardsClaimed.push({ userId: user.id, milestoneIndex });
 
             await db.setKV('guilds', guilds);
-            await db.updateUser(user);
+            
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[GUILD_CLAIM_CHECK_IN_REWARD] Failed to save user ${user.id}:`, err);
+            });
+
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+            const { broadcastUserUpdate } = await import('../socket.js');
+            broadcastUserUpdate(user, ['guildCoins']);
+            
             await broadcast({ type: 'GUILD_UPDATE', payload: { guilds } });
             return { clientResponse: { updatedUser: user, guilds } };
         }
@@ -488,7 +558,16 @@ export const handleGuildAction = async (volatileState: VolatileState, action: Se
             mission.claimedBy.push(user.id);
             
             await db.setKV('guilds', guilds);
-            await db.updateUser(user);
+            
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[GUILD_CLAIM_MISSION_REWARD] Failed to save user ${user.id}:`, err);
+            });
+
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+            const { broadcastUserUpdate } = await import('../socket.js');
+            broadcastUserUpdate(user, ['guildCoins']);
+            
             await broadcast({ type: 'GUILD_UPDATE', payload: { guilds } });
             return { clientResponse: { updatedUser: user, guilds } };
         }
@@ -544,7 +623,17 @@ export const handleGuildAction = async (volatileState: VolatileState, action: Se
             updateQuestProgress(user, 'guild_donate');
 
             await db.setKV('guilds', guilds);
-            await db.updateUser(user);
+            
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[${type}] Failed to save user ${user.id}:`, err);
+            });
+
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+            const { broadcastUserUpdate } = await import('../socket.js');
+            const changedFields = type === 'GUILD_DONATE_GOLD' ? ['gold'] : ['diamonds'];
+            broadcastUserUpdate(user, changedFields);
+            
             await broadcast({ type: 'GUILD_UPDATE', payload: { guilds } });
             console.log(`[handleGuildAction] ${type} completed successfully`);
             return {
@@ -649,7 +738,15 @@ export const handleGuildAction = async (volatileState: VolatileState, action: Se
             // Special handling for Stat Points
             if (itemToBuy.itemId === '보너스 스탯 +5') {
                 user.bonusStatPoints = (user.bonusStatPoints || 0) + 5;
-                await db.updateUser(user);
+                
+                // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+                db.updateUser(user).catch(err => {
+                    console.error(`[BUY_GUILD_SHOP_ITEM] Failed to save user ${user.id}:`, err);
+                });
+
+                // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+                const { broadcastUserUpdate } = await import('../socket.js');
+                broadcastUserUpdate(user, ['bonusStatPoints', 'guildCoins']);
                 
                 const rewardSummary = {
                     reward: { bonus: '스탯+5' },
@@ -687,7 +784,14 @@ export const handleGuildAction = async (volatileState: VolatileState, action: Se
                 return { error: '인벤토리 공간이 부족합니다.' };
             }
             
-            await db.updateUser(user);
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[BUY_GUILD_SHOP_ITEM] Failed to save user ${user.id}:`, err);
+            });
+
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+            const { broadcastUserUpdate } = await import('../socket.js');
+            broadcastUserUpdate(user, ['inventory', 'guildCoins']);
             
             return { clientResponse: { updatedUser: user, obtainedItemsBulk: itemsToAdd } };
         }
@@ -771,9 +875,16 @@ export const handleGuildAction = async (volatileState: VolatileState, action: Se
                 return { error: '인벤토리 공간이 부족합니다.' };
             }
 
-                await db.updateUser(user);
+                // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+                db.updateUser(user).catch(err => {
+                    console.error(`[BUY_GUILD_SHOP_ITEM] Failed to save user ${user.id}:`, err);
+                });
+
+                // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+                const { broadcastUserUpdate } = await import('../socket.js');
+                broadcastUserUpdate(user, ['inventory', 'guildCoins']);
+                
             await broadcast({ type: 'GUILD_UPDATE', payload: { guilds } }); // Broadcast guilds
-            await broadcast({ type: 'USER_UPDATE', payload: { [user.id]: user } }); // Broadcast updated user
 
             return { clientResponse: { updatedUser: user, obtainedItemsBulk: itemsToAdd } };
         }

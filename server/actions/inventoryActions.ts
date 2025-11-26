@@ -310,104 +310,76 @@ export const handleInventoryAction = async (volatileState: VolatileState, action
                 user.blacksmithLevel++;
             }
 
-            try {
-                // 데이터베이스에 저장 (캐시 자동 업데이트됨)
-                await db.updateUser(user);
-            } catch (error: any) {
-                console.error(`[COMBINE_ITEMS] Error updating user ${user.id}:`, error);
-                console.error(`[COMBINE_ITEMS] Error stack:`, error.stack);
-                return { error: '데이터 저장 중 오류가 발생했습니다.' };
-            }
-
             // 선택적 필드만 반환 (메시지 크기 최적화)
             const updatedUser = getSelectiveUserUpdate(user, 'COMBINE_ITEMS');
 
-            // WebSocket으로 사용자 업데이트 브로드캐스트 (전체 객체는 WebSocket에서만)
-            const fullUserForBroadcast = JSON.parse(JSON.stringify(user));
-            broadcast({ type: 'USER_UPDATE', payload: { [user.id]: fullUserForBroadcast } });
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[COMBINE_ITEMS] Failed to save user ${user.id}:`, err);
+            });
 
-            // 시스템 메시지 전송 조건:
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+            const { broadcastUserUpdate } = await import('../socket.js');
+            broadcastUserUpdate(user, ['inventory', 'blacksmithXp', 'blacksmithLevel']);
+
+            // 시스템 메시지 전송 조건 (비동기로 처리하여 응답 지연 최소화):
             // 1. 전설등급 3개를 합쳐서 대성공하여 신화등급이 나온 경우
             // 2. 신화등급 3개를 합쳐서 대성공하여 D.신화등급이 나온 경우
             const shouldSendMessage = 
                 (grade === 'legendary' && outcomeGrade === 'mythic' && finalIsGreatSuccess) || // 전설 합성 대성공 → 신화
                 (grade === 'mythic' && outcomeGrade === 'mythic' && isDivineMythic); // 신화 합성 대성공 → D.신화
             
+            // 시스템 메시지 전송을 비동기로 처리 (응답 지연 최소화)
             if (shouldSendMessage) {
-                try {
-                    // DB에서 다시 읽은 후 인벤토리에서 방금 만든 아이템 찾기
-                    // createdAt 시간으로 정확히 찾기 (가장 최근에 만들어진 같은 조건의 아이템)
-                    // 모든 공유되는 장비는 방금 만들어진 장비여야 함
-                    let actualItem = user.inventory.find(i => 
-                        i.name === actualAddedItem.name && 
-                        i.grade === outcomeGrade && 
-                        i.slot === actualAddedItem.slot &&
-                        i.isDivineMythic === actualAddedItem.isDivineMythic &&
-                        i.createdAt === newItemCreatedAt
-                    );
-                    
-                    // createdAt이 정확히 일치하지 않으면, 같은 조건의 아이템 중 가장 최근 것을 찾기
-                    if (!actualItem) {
-                        const candidates = user.inventory.filter(i => 
-                            i.name === actualAddedItem.name && 
-                            i.grade === outcomeGrade && 
-                            i.slot === actualAddedItem.slot &&
-                            i.isDivineMythic === actualAddedItem.isDivineMythic
-                        );
-                        if (candidates.length > 0) {
-                            // 가장 최근에 만들어진 아이템 선택
-                            actualItem = candidates.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))[0];
-                        }
-                    }
-                    
-                    // 그래도 찾지 못하면 actualAddedItem 사용
-                    if (!actualItem) {
-                        actualItem = actualAddedItem;
-                    }
-                    
-                    const itemName = actualItem.name;
-                    
-                    // 조사 처리 (을/를)
-                    const particle = /[가-힣]$/.test(itemName) && (itemName.charCodeAt(itemName.length - 1) - 0xAC00) % 28 === 0 ? '를' : '을';
-                    
-                    const systemMessage: ChatMessage = {
-                        id: `msg-${randomUUID()}`,
-                        user: { id: 'system', nickname: '시스템' },
-                        text: `${user.nickname}님이 장비 합성을 통해 ${itemName}${particle} 획득했습니다`,
-                        system: true,
-                        timestamp: Date.now(),
-                        itemLink: {
-                            itemId: actualItem.id,
-                            userId: user.id,
-                            itemName: itemName,
-                            itemGrade: actualItem.grade
-                        },
-                        userLink: {
-                            userId: user.id,
-                            userName: user.nickname
-                        }
-                    };
+                // 실제 아이템은 이미 알고 있으므로 복잡한 검색 생략
+                const itemName = actualAddedItem.name;
+                
+                // 조사 처리 (을/를)
+                const particle = /[가-힣]$/.test(itemName) && (itemName.charCodeAt(itemName.length - 1) - 0xAC00) % 28 === 0 ? '를' : '을';
+                
+                // 비동기로 시스템 메시지 전송 (응답 지연 최소화)
+                Promise.resolve().then(() => {
+                    try {
+                        const systemMessage: ChatMessage = {
+                            id: `msg-${randomUUID()}`,
+                            user: { id: 'system', nickname: '시스템' },
+                            text: `${user.nickname}님이 장비 합성을 통해 ${itemName}${particle} 획득했습니다`,
+                            system: true,
+                            timestamp: Date.now(),
+                            itemLink: {
+                                itemId: actualAddedItem.id,
+                                userId: user.id,
+                                itemName: itemName,
+                                itemGrade: actualAddedItem.grade
+                            },
+                            userLink: {
+                                userId: user.id,
+                                userName: user.nickname
+                            }
+                        };
 
-                    // 전체 채팅창에 메시지 추가
-                    if (!volatileState.waitingRoomChats['global']) {
-                        volatileState.waitingRoomChats['global'] = [];
-                    }
-                    volatileState.waitingRoomChats['global'].push(systemMessage);
-                    if (volatileState.waitingRoomChats['global'].length > 100) {
-                        volatileState.waitingRoomChats['global'].shift();
-                    }
-
-
-                    // 채팅 메시지를 모든 클라이언트에 브로드캐스트
-                    broadcast({
-                        type: 'WAITING_ROOM_CHAT_UPDATE',
-                        payload: {
-                            'global': volatileState.waitingRoomChats['global']
+                        // 전체 채팅창에 메시지 추가
+                        if (!volatileState.waitingRoomChats['global']) {
+                            volatileState.waitingRoomChats['global'] = [];
                         }
-                    });
-                } catch (error: any) {
-                    console.error(`[COMBINE_ITEMS] 신화 등급 장비 시스템 메시지 전송 중 오류:`, error);
-                }
+                        volatileState.waitingRoomChats['global'].push(systemMessage);
+                        if (volatileState.waitingRoomChats['global'].length > 100) {
+                            volatileState.waitingRoomChats['global'].shift();
+                        }
+
+                        // 채팅 메시지를 모든 클라이언트에 브로드캐스트
+                        broadcast({
+                            type: 'WAITING_ROOM_CHAT_UPDATE',
+                            payload: {
+                                'global': volatileState.waitingRoomChats['global']
+                            }
+                        });
+                    } catch (error: any) {
+                        console.error(`[COMBINE_ITEMS] 신화 등급 장비 시스템 메시지 전송 중 오류:`, error);
+                    }
+                }).catch(err => {
+                    console.error(`[COMBINE_ITEMS] 시스템 메시지 전송 실패:`, err);
+                });
             }
 
             return { 
@@ -521,15 +493,6 @@ export const handleInventoryAction = async (volatileState: VolatileState, action
                 // 인벤토리 참조 변경 (배열 복사로 충분)
                 user.inventory = [...user.inventory];
                 
-                try {
-                    // 데이터베이스에 저장 (캐시 자동 업데이트됨)
-                    await db.updateUser(user);
-                } catch (error: any) {
-                    console.error(`[USE_ITEM] Error updating user ${user.id} (bundle):`, error);
-                    console.error(`[USE_ITEM] Error stack:`, error.stack);
-                    return { error: '데이터 저장 중 오류가 발생했습니다.' };
-                }
-                
                 // 각각의 획득 수치를 별도의 아이템으로 반환 (표시용)
                 const obtainedItems: Partial<InventoryItem>[] = individualAmounts.map(amount => ({
                     name: bundleInfo.type === 'gold' ? '골드' : '다이아',
@@ -543,9 +506,17 @@ export const handleInventoryAction = async (volatileState: VolatileState, action
                 // 하지만 bundle 처리의 경우에도 getSelectiveUserUpdate를 사용하여 일관성 유지
                 const updatedUser = getSelectiveUserUpdate(user, 'USE_ITEM');
                 
-                // WebSocket으로 사용자 업데이트 브로드캐스트 (전체 객체는 WebSocket에서만)
-                const fullUserForBroadcast = JSON.parse(JSON.stringify(user));
-                broadcast({ type: 'USER_UPDATE', payload: { [user.id]: fullUserForBroadcast } });
+                // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+                db.updateUser(user).catch(err => {
+                    console.error(`[USE_ITEM] Failed to save user ${user.id} (bundle):`, err);
+                });
+
+                // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+                const { broadcastUserUpdate } = await import('../socket.js');
+                const changedFields = bundleInfo.type === 'gold' 
+                    ? ['inventory', 'gold'] 
+                    : ['inventory', 'diamonds'];
+                broadcastUserUpdate(user, changedFields);
                 
                 return { clientResponse: { obtainedItemsBulk: obtainedItems, updatedUser } };
             }
@@ -574,21 +545,17 @@ export const handleInventoryAction = async (volatileState: VolatileState, action
             // 새 배열 생성 (성능 최적화)
             user.inventory = [...tempInventoryAfterUse, ...finalItemsToAdd];
             
-            try {
-                // 데이터베이스에 저장 (캐시 자동 업데이트됨)
-                await db.updateUser(user);
-            } catch (error: any) {
-                console.error(`[USE_ITEM] Error updating user ${user.id}:`, error);
-                console.error(`[USE_ITEM] Error stack:`, error.stack);
-                return { error: '데이터 저장 중 오류가 발생했습니다.' };
-            }
-            
             // 선택적 필드만 반환 (메시지 크기 최적화)
             const updatedUser = getSelectiveUserUpdate(user, 'USE_ITEM', { includeAll: true });
             
-            // WebSocket으로 사용자 업데이트 브로드캐스트 (전체 객체는 WebSocket에서만)
-            const fullUserForBroadcast = JSON.parse(JSON.stringify(user));
-            broadcast({ type: 'USER_UPDATE', payload: { [user.id]: fullUserForBroadcast } });
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[USE_ITEM] Failed to save user ${user.id}:`, err);
+            });
+
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+            const { broadcastUserUpdate } = await import('../socket.js');
+            broadcastUserUpdate(user, ['inventory']);
             
             return { clientResponse: { obtainedItemsBulk: allObtainedItems, updatedUser } };
         }
@@ -636,15 +603,6 @@ export const handleInventoryAction = async (volatileState: VolatileState, action
             user.gold += totalGoldGained;
             user.diamonds += totalDiamondsGained;
 
-            try {
-                // 데이터베이스에 저장 (캐시 자동 업데이트됨)
-                await db.updateUser(user);
-            } catch (error: any) {
-                console.error(`[USE_ALL_ITEMS_OF_TYPE] Error updating user ${user.id}:`, error);
-                console.error(`[USE_ALL_ITEMS_OF_TYPE] Error stack:`, error.stack);
-                return { error: '데이터 저장 중 오류가 발생했습니다.' };
-            }
-            
             // Prepare client response
             const clientResponseItems = [...allObtainedItems];
             if (totalGoldGained > 0) clientResponseItems.push({ name: '골드', quantity: totalGoldGained, image: '/images/icon/Gold.png', type: 'material', grade: 'uncommon' } as any);
@@ -653,9 +611,17 @@ export const handleInventoryAction = async (volatileState: VolatileState, action
             // 선택적 필드만 반환 (메시지 크기 최적화)
             const updatedUser = getSelectiveUserUpdate(user, 'USE_ALL_ITEMS_OF_TYPE', { includeAll: true });
 
-            // WebSocket으로 사용자 업데이트 브로드캐스트 (전체 객체는 WebSocket에서만)
-            const fullUserForBroadcast = JSON.parse(JSON.stringify(user));
-            broadcast({ type: 'USER_UPDATE', payload: { [user.id]: fullUserForBroadcast } });
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[USE_ALL_ITEMS_OF_TYPE] Failed to save user ${user.id}:`, err);
+            });
+
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+            const { broadcastUserUpdate } = await import('../socket.js');
+            const changedFields = ['inventory'];
+            if (totalGoldGained > 0) changedFields.push('gold');
+            if (totalDiamondsGained > 0) changedFields.push('diamonds');
+            broadcastUserUpdate(user, changedFields);
 
             return { clientResponse: { obtainedItemsBulk: clientResponseItems, updatedUser } };
         }
@@ -703,16 +669,14 @@ export const handleInventoryAction = async (volatileState: VolatileState, action
             // 선택적 필드만 반환 (메시지 크기 최적화)
             const updatedUser = getSelectiveUserUpdate(user, 'TOGGLE_EQUIP_ITEM', { includeAll: true });
             
-            // WebSocket으로 사용자 업데이트 브로드캐스트 (전체 객체는 WebSocket에서만)
-            // 캐시에 업데이트된 사용자 데이터를 사용하여 즉시 반영
-            const fullUserForBroadcast = JSON.parse(JSON.stringify(user));
-            broadcast({ type: 'USER_UPDATE', payload: { [user.id]: fullUserForBroadcast } });
-            
             // DB 저장은 비동기로 처리하여 응답 지연 최소화
             db.updateUser(user).catch((error: any) => {
-                console.error(`[TOGGLE_EQUIP_ITEM] Error updating user ${user.id}:`, error);
-                console.error(`[TOGGLE_EQUIP_ITEM] Error stack:`, error.stack);
+                console.error(`[TOGGLE_EQUIP_ITEM] Failed to save user ${user.id}:`, error);
             });
+            
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+            const { broadcastUserUpdate } = await import('../socket.js');
+            broadcastUserUpdate(user, ['inventory', 'equipment', 'actionPoints']);
             
             return { clientResponse: { updatedUser } };
         }
@@ -797,21 +761,17 @@ export const handleInventoryAction = async (volatileState: VolatileState, action
             // 인벤토리를 깊은 복사하여 새로운 배열로 할당 (참조 문제 방지)
             user.inventory = JSON.parse(JSON.stringify(user.inventory));
 
-            try {
-                // 데이터베이스에 저장 (캐시 자동 업데이트됨)
-                await db.updateUser(user);
-            } catch (error: any) {
-                console.error(`[SELL_ITEM] Error updating user ${user.id}:`, error);
-                console.error(`[SELL_ITEM] Error stack:`, error.stack);
-                return { error: '데이터 저장 중 오류가 발생했습니다.' };
-            }
-            
             // 선택적 필드만 반환 (메시지 크기 최적화)
             const updatedUser = getSelectiveUserUpdate(user, 'SELL_ITEM');
             
-            // WebSocket으로 사용자 업데이트 브로드캐스트 (전체 객체는 WebSocket에서만)
-            const fullUserForBroadcast = JSON.parse(JSON.stringify(user));
-            broadcast({ type: 'USER_UPDATE', payload: { [user.id]: fullUserForBroadcast } });
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[SELL_ITEM] Failed to save user ${user.id}:`, err);
+            });
+
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+            const { broadcastUserUpdate } = await import('../socket.js');
+            broadcastUserUpdate(user, ['inventory', 'gold']);
             
             return { 
                 clientResponse: { 
@@ -996,23 +956,19 @@ export const handleInventoryAction = async (volatileState: VolatileState, action
             // 인벤토리를 깊은 복사하여 새로운 배열로 할당 (참조 문제 방지)
             user.inventory = JSON.parse(JSON.stringify(user.inventory));
             
-            try {
-                // 데이터베이스에 저장 (캐시 자동 업데이트됨)
-                await db.updateUser(user);
-            } catch (error: any) {
-                console.error(`[ENHANCE_ITEM] Error updating user ${user.id}:`, error);
-                console.error(`[ENHANCE_ITEM] Error stack:`, error.stack);
-                return { error: '데이터 저장 중 오류가 발생했습니다.' };
-            }
-            
             const itemBeforeEnhancement = JSON.parse(JSON.stringify(originalItemState));
             
             // 선택적 필드만 반환 (메시지 크기 최적화)
             const updatedUser = getSelectiveUserUpdate(user, 'ENHANCE_ITEM');
 
-            // WebSocket으로 사용자 업데이트 브로드캐스트 (전체 객체는 WebSocket에서만)
-            const fullUserForBroadcast = JSON.parse(JSON.stringify(user));
-            broadcast({ type: 'USER_UPDATE', payload: { [user.id]: fullUserForBroadcast } });
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[ENHANCE_ITEM] Failed to save user ${user.id}:`, err);
+            });
+
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+            const { broadcastUserUpdate } = await import('../socket.js');
+            broadcastUserUpdate(user, ['inventory', 'gold', 'diamonds', 'blacksmithXp', 'blacksmithLevel']);
             
             return { 
                 clientResponse: { 
@@ -1246,30 +1202,25 @@ export const handleInventoryAction = async (volatileState: VolatileState, action
             // 인벤토리를 깊은 복사하여 새로운 배열로 할당 (참조 문제 방지)
             user.inventory = JSON.parse(JSON.stringify(user.inventory));
             
-            try {
-                // 데이터베이스에 저장 (캐시 자동 업데이트됨)
-                await db.updateUser(user);
-            } catch (error: any) {
-                console.error(`[REFINE_EQUIPMENT] Error updating user ${user.id}:`, error);
-                console.error(`[REFINE_EQUIPMENT] Error stack:`, error.stack);
-                return { error: '데이터 저장 중 오류가 발생했습니다.' };
-            }
-            
             const itemBeforeRefinement = JSON.parse(JSON.stringify(originalItemState));
-            
-            // 저장 후 업데이트된 아이템 찾기 (DB에서 다시 읽은 user의 inventory에서)
-            const updatedItem = user.inventory.find(i => i.id === itemId);
-            if (!updatedItem) {
-                console.error(`[REFINE_EQUIPMENT] Updated item not found in inventory after save: ${itemId}`);
-                return { error: '제련 후 아이템을 찾을 수 없습니다.' };
-            }
             
             // 선택적 필드만 반환 (메시지 크기 최적화)
             const updatedUser = getSelectiveUserUpdate(user, 'REFINE_EQUIPMENT');
             
-            // WebSocket으로 사용자 업데이트 브로드캐스트 (전체 객체는 WebSocket에서만)
-            const fullUserForBroadcast = JSON.parse(JSON.stringify(user));
-            broadcast({ type: 'USER_UPDATE', payload: { [user.id]: fullUserForBroadcast } });
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[REFINE_EQUIPMENT] Failed to save user ${user.id}:`, err);
+            });
+
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+            const { broadcastUserUpdate } = await import('../socket.js');
+            broadcastUserUpdate(user, ['inventory']);
+            
+            // 저장 후 업데이트된 아이템 찾기
+            const updatedItem = user.inventory.find(i => i.id === itemId);
+            if (!updatedItem) {
+                console.error(`[REFINE_EQUIPMENT] Updated item not found in inventory: ${itemId}`);
+            }
             
             return { 
                 clientResponse: { 
@@ -1353,21 +1304,17 @@ export const handleInventoryAction = async (volatileState: VolatileState, action
             // 인벤토리를 깊은 복사하여 새로운 배열로 할당 (참조 문제 방지)
             user.inventory = JSON.parse(JSON.stringify(user.inventory));
             
-            try {
-                // 데이터베이스에 저장 (캐시 자동 업데이트됨)
-                await db.updateUser(user);
-            } catch (error: any) {
-                console.error(`[DISASSEMBLE_ITEM] Error updating user ${user.id}:`, error);
-                console.error(`[DISASSEMBLE_ITEM] Error stack:`, error.stack);
-                return { error: '데이터 저장 중 오류가 발생했습니다.' };
-            }
-
             // 선택적 필드만 반환 (메시지 크기 최적화)
             const updatedUser = getSelectiveUserUpdate(user, 'DISASSEMBLE_ITEM');
 
-            // WebSocket으로 사용자 업데이트 브로드캐스트 (전체 객체는 WebSocket에서만)
-            const fullUserForBroadcast = JSON.parse(JSON.stringify(user));
-            broadcast({ type: 'USER_UPDATE', payload: { [user.id]: fullUserForBroadcast } });
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[DISASSEMBLE_ITEM] Failed to save user ${user.id}:`, err);
+            });
+
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+            const { broadcastUserUpdate } = await import('../socket.js');
+            broadcastUserUpdate(user, ['inventory', 'blacksmithXp', 'blacksmithLevel']);
 
             return { 
                 clientResponse: { 
@@ -1447,21 +1394,17 @@ export const handleInventoryAction = async (volatileState: VolatileState, action
                 await guildService.updateGuildMissionProgress(user.guildId, 'materialCrafts', quantity, guilds);
             }
             
-            try {
-                // 데이터베이스에 저장 (캐시 자동 업데이트됨)
-                await db.updateUser(user);
-            } catch (error: any) {
-                console.error(`[CRAFT_MATERIAL] Error updating user ${user.id}:`, error);
-                console.error(`[CRAFT_MATERIAL] Error stack:`, error.stack);
-                return { error: '데이터 저장 중 오류가 발생했습니다.' };
-            }
-            
             // 선택적 필드만 반환 (메시지 크기 최적화)
             const updatedUser = getSelectiveUserUpdate(user, 'CRAFT_MATERIAL', { includeAll: true });
 
-            // WebSocket으로 사용자 업데이트 브로드캐스트 (전체 객체는 WebSocket에서만)
-            const fullUserForBroadcast = JSON.parse(JSON.stringify(user));
-            broadcast({ type: 'USER_UPDATE', payload: { [user.id]: fullUserForBroadcast } });
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[CRAFT_MATERIAL] Failed to save user ${user.id}:`, err);
+            });
+
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+            const { broadcastUserUpdate } = await import('../socket.js');
+            broadcastUserUpdate(user, ['inventory']);
         
             return {
                 clientResponse: {
@@ -1500,14 +1443,17 @@ export const handleInventoryAction = async (volatileState: VolatileState, action
             user.diamonds -= expansionCost;
             user.inventorySlots[category] += EXPANSION_AMOUNT;
 
-            await db.updateUser(user);
-            
             // 선택적 필드만 반환 (메시지 크기 최적화)
             const updatedUser = getSelectiveUserUpdate(user, 'EXPAND_INVENTORY');
             
-            // WebSocket으로 사용자 업데이트 브로드캐스트 (전체 객체는 WebSocket에서만)
-            const fullUserForBroadcast = JSON.parse(JSON.stringify(user));
-            broadcast({ type: 'USER_UPDATE', payload: { [user.id]: fullUserForBroadcast } });
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[EXPAND_INVENTORY] Failed to save user ${user.id}:`, err);
+            });
+
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+            const { broadcastUserUpdate } = await import('../socket.js');
+            broadcastUserUpdate(user, ['inventorySlots', 'diamonds']);
             
             return { clientResponse: { updatedUser } };
         }

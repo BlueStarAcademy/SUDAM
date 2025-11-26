@@ -64,14 +64,18 @@ export const handleRewardAction = async (volatileState: VolatileState, action: S
             user.inventory = finalItemsToAdd;
         
             mail.attachmentsClaimed = true;
-            await db.updateUser(user);
             
-            // 깊은 복사로 updatedUser 생성하여 React가 변경을 확실히 감지하도록 함
-            const updatedUser = JSON.parse(JSON.stringify(user));
+            // 선택적 필드만 반환 (메시지 크기 최적화)
+            const updatedUser = getSelectiveUserUpdate(user, 'CLAIM_MAIL_ATTACHMENTS');
             
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[CLAIM_MAIL_ATTACHMENTS] Failed to save user ${user.id}:`, err);
+            });
+
             // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화: 변경된 필드만 전송)
             const { broadcastUserUpdate } = await import('../socket.js');
-            broadcastUserUpdate(updatedUser, ['inventory', 'equipment', 'quests', 'gold', 'diamonds', 'actionPoints']);
+            broadcastUserUpdate(user, ['inventory', 'mail', 'gold', 'diamonds', 'actionPoints']);
             
             return {
                 clientResponse: {
@@ -115,14 +119,17 @@ export const handleRewardAction = async (volatileState: VolatileState, action: S
 
             for (const mail of mailsToClaim) mail.attachmentsClaimed = true;
 
-            await db.updateUser(user);
+            // 선택적 필드만 반환 (메시지 크기 최적화)
+            const updatedUser = getSelectiveUserUpdate(user, 'CLAIM_ALL_MAIL_ATTACHMENTS');
             
-            // 깊은 복사로 updatedUser 생성하여 React가 변경을 확실히 감지하도록 함
-            const updatedUser = JSON.parse(JSON.stringify(user));
-            
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[CLAIM_ALL_MAIL_ATTACHMENTS] Failed to save user ${user.id}:`, err);
+            });
+
             // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화: 변경된 필드만 전송)
             const { broadcastUserUpdate } = await import('../socket.js');
-            broadcastUserUpdate(updatedUser, ['inventory', 'equipment', 'quests', 'gold', 'diamonds', 'actionPoints']);
+            broadcastUserUpdate(user, ['inventory', 'mail', 'gold', 'diamonds', 'actionPoints']);
             
             const reward: QuestReward = {
                 gold: totalGold,
@@ -270,14 +277,17 @@ export const handleRewardAction = async (volatileState: VolatileState, action: S
                 }
             }
 
-            await db.updateUser(user);
+            // 선택적 필드만 반환 (메시지 크기 최적화)
+            const updatedUser = getSelectiveUserUpdate(user, 'CLAIM_QUEST_REWARD');
             
-            // 깊은 복사로 updatedUser 생성하여 React가 변경을 확실히 감지하도록 함
-            const updatedUser = JSON.parse(JSON.stringify(user));
-            
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[CLAIM_QUEST_REWARD] Failed to save user ${user.id}:`, err);
+            });
+
             // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화: 변경된 필드만 전송)
             const { broadcastUserUpdate } = await import('../socket.js');
-            broadcastUserUpdate(updatedUser, ['inventory', 'equipment', 'quests', 'gold', 'diamonds', 'actionPoints']);
+            broadcastUserUpdate(user, ['inventory', 'quests', 'gold', 'diamonds', 'actionPoints']);
             
             return { 
                 clientResponse: { 
@@ -301,14 +311,18 @@ export const handleRewardAction = async (volatileState: VolatileState, action: S
             }
 
             user.mail.splice(mailIndex, 1);
-            await db.updateUser(user);
             
-            // 깊은 복사로 updatedUser 생성
-            const updatedUser = JSON.parse(JSON.stringify(user));
+            // 선택적 필드만 반환 (메시지 크기 최적화)
+            const updatedUser = getSelectiveUserUpdate(user, 'DELETE_MAIL');
             
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[DELETE_MAIL] Failed to save user ${user.id}:`, err);
+            });
+
             // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화: 변경된 필드만 전송)
             const { broadcastUserUpdate } = await import('../socket.js');
-            broadcastUserUpdate(updatedUser, ['inventory', 'equipment', 'quests', 'gold', 'diamonds', 'actionPoints']);
+            broadcastUserUpdate(user, ['mail']);
             
             // HTTP 응답에도 updatedUser 포함 (즉시 클라이언트 상태 업데이트)
             return { clientResponse: { updatedUser } };
@@ -327,14 +341,17 @@ export const handleRewardAction = async (volatileState: VolatileState, action: S
             });
             const deletedCount = beforeCount - user.mail.length;
             
-            await db.updateUser(user);
+            // 선택적 필드만 반환 (메시지 크기 최적화)
+            const updatedUser = getSelectiveUserUpdate(user, 'DELETE_ALL_CLAIMED_MAIL');
             
-            // 깊은 복사로 updatedUser 생성
-            const updatedUser = JSON.parse(JSON.stringify(user));
-            
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[DELETE_ALL_CLAIMED_MAIL] Failed to save user ${user.id}:`, err);
+            });
+
             // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화: 변경된 필드만 전송)
             const { broadcastUserUpdate } = await import('../socket.js');
-            broadcastUserUpdate(updatedUser, ['inventory', 'equipment', 'quests', 'gold', 'diamonds', 'actionPoints']);
+            broadcastUserUpdate(user, ['mail']);
             
             return { 
                 clientResponse: { 
@@ -362,14 +379,20 @@ export const handleRewardAction = async (volatileState: VolatileState, action: S
             }
             
             mail.isRead = true;
-            await db.updateUser(user);
             
+            // 선택적 필드만 반환 (메시지 크기 최적화)
+            const updatedUser = getSelectiveUserUpdate(user, 'MARK_MAIL_AS_READ');
+            
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[MARK_MAIL_AS_READ] Failed to save user ${user.id}:`, err);
+            });
+
             // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화: 변경된 필드만 전송)
-            const updatedUserCopy = JSON.parse(JSON.stringify(user));
             const { broadcastUserUpdate } = await import('../socket.js');
-            broadcastUserUpdate(updatedUserCopy, ['mail']);
+            broadcastUserUpdate(user, ['mail']);
             
-            return { clientResponse: { updatedUser: updatedUserCopy } };
+            return { clientResponse: { updatedUser } };
         }
         case 'CLAIM_TOURNAMENT_REWARD': {
             const { tournamentType } = payload as { tournamentType: TournamentType };
@@ -648,7 +671,14 @@ export const handleRewardAction = async (volatileState: VolatileState, action: S
             // 선택적 필드만 반환 (메시지 크기 최적화)
             const updatedUser = getSelectiveUserUpdate(freshUser, 'CLAIM_TOURNAMENT_REWARD', { includeAll: true });
             
-            // WebSocket으로 사용자 업데이트 브로드캐스트 (전체 객체는 WebSocket에서만)
+            // DB 저장은 비동기로 처리하여 응답 지연 최소화
+            db.updateUser(freshUser).catch((error: any) => {
+                console.error(`[CLAIM_TOURNAMENT_REWARD] Failed to save user ${freshUser.id}:`, error);
+            });
+
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+            const { broadcastUserUpdate } = await import('../socket.js');
+            broadcastUserUpdate(freshUser, ['inventory', 'gold', 'diamonds', 'tournamentScore', 'neighborhoodRewardClaimed', 'nationalRewardClaimed', 'worldRewardClaimed', 'lastNeighborhoodTournament', 'lastNationalTournament', 'lastWorldTournament']);
             const fullUserForBroadcast = JSON.parse(JSON.stringify(freshUser));
             const { broadcast } = await import('../socket.js');
             broadcast({ type: 'USER_UPDATE', payload: { [freshUser.id]: fullUserForBroadcast } });

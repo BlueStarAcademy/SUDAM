@@ -16,6 +16,7 @@ import { getPanelEdgeImages } from '../constants/panelEdges.js';
 import { SINGLE_PLAYER_STAGES } from '../constants/singlePlayerConstants.js';
 import { calculateUserEffects } from '../services/effectService.js';
 import { ACTION_POINT_REGEN_INTERVAL_MS } from '../constants/rules.js';
+import { aiUserId } from '../constants/auth.js';
 
 export const useApp = () => {
     // --- State Management ---
@@ -875,72 +876,86 @@ export const useApp = () => {
                         totalTurns = validMoves.length;
                     }
                     
-                    if (totalTurns !== undefined && totalTurns !== null && autoScoringTurns) {
-                        try {
-                            if (totalTurns >= autoScoringTurns) {
-                                // totalTurns를 업데이트
-                                updateResult.updatedGame.totalTurns = totalTurns;
-                                if (updateResult.updatedGame.gameStatus === 'playing') {
-                                    shouldTriggerAutoScoring = true;
-                                    const gameTypeLabel = gameType === 'singleplayer' ? 'SinglePlayer' : 'AiGame';
-                                    console.log(`[handleAction] ${actionTypeName} - Auto-scoring triggered at ${updateResult.updatedGame.totalTurns} turns (${gameTypeLabel}, stageId: ${game.stageId || 'N/A'}) - IMMEDIATELY FREEZING GAME`);
-                                    
-                                    // 즉시 게임 상태를 보존하여 게임 초기화 방지 (동기적으로 처리)
-                                    const preservedBoardState = updateResult.updatedGame.boardState && updateResult.updatedGame.boardState.length > 0
-                                        ? updateResult.updatedGame.boardState
-                                        : (game.boardState || updateResult.updatedGame.boardState);
-                                    const preservedMoveHistory = updateResult.updatedGame.moveHistory && updateResult.updatedGame.moveHistory.length > 0
-                                        ? updateResult.updatedGame.moveHistory
-                                        : (game.moveHistory || updateResult.updatedGame.moveHistory);
-                                    const preservedTotalTurns = updateResult.updatedGame.totalTurns ?? game.totalTurns;
-                                    const preservedBlackTimeLeft = updateResult.updatedGame.blackTimeLeft ?? game.blackTimeLeft;
-                                    const preservedWhiteTimeLeft = updateResult.updatedGame.whiteTimeLeft ?? game.whiteTimeLeft;
-                                    
-                                    autoScoringPreservedState = {
-                                        boardState: preservedBoardState,
-                                        moveHistory: preservedMoveHistory,
-                                        totalTurns: preservedTotalTurns,
-                                        blackTimeLeft: preservedBlackTimeLeft,
-                                        whiteTimeLeft: preservedWhiteTimeLeft,
-                                    };
-                                    
-                                    console.log(`[handleAction] IMMEDIATELY preserving game state for scoring: boardStateSize=${preservedBoardState?.length || 0}, moveHistoryLength=${preservedMoveHistory?.length || 0}, totalTurns=${preservedTotalTurns}, blackTimeLeft=${preservedBlackTimeLeft}, whiteTimeLeft=${preservedWhiteTimeLeft}`);
-                                    
-                                    // 게임 상태를 즉시 scoring으로 변경하여 반환값에 반영 (게임 초기화 방지)
-                                    updateResult.updatedGame.gameStatus = 'scoring' as const;
-                                    updateResult.updatedGame.boardState = preservedBoardState;
-                                    updateResult.updatedGame.moveHistory = preservedMoveHistory;
-                                    updateResult.updatedGame.totalTurns = preservedTotalTurns;
-                                    updateResult.updatedGame.blackTimeLeft = preservedBlackTimeLeft;
-                                    updateResult.updatedGame.whiteTimeLeft = preservedWhiteTimeLeft;
-                                    
-                                    // 게임 상태를 즉시 scoring으로 변경 (게임 초기화 방지)
-                                    updateGameState((currentGames) => {
-                                        const currentGame = currentGames[gameId];
-                                        if (currentGame && currentGame.gameStatus === 'playing') {
-                                            return { 
-                                                ...currentGames, 
-                                                [gameId]: { 
-                                                    ...currentGame,
-                                                    ...updateResult.updatedGame, // 최신 업데이트 결과 포함 (gameStatus: 'scoring')
-                                                    // boardState, moveHistory, totalTurns, 시간 정보는 반드시 보존
-                                                    boardState: preservedBoardState,
-                                                    moveHistory: preservedMoveHistory,
-                                                    totalTurns: preservedTotalTurns,
-                                                    blackTimeLeft: preservedBlackTimeLeft,
-                                                    whiteTimeLeft: preservedWhiteTimeLeft,
-                                                } 
+                        if (totalTurns !== undefined && totalTurns !== null && autoScoringTurns) {
+                            try {
+                                // AI 차례인지 확인 (싱글플레이에서만)
+                                const currentPlayerEnum = updateResult.updatedGame.currentPlayer;
+                                const isAiTurn = gameType === 'singleplayer' && 
+                                    ((currentPlayerEnum === Player.White && updateResult.updatedGame.whitePlayerId === aiUserId) ||
+                                     (currentPlayerEnum === Player.Black && updateResult.updatedGame.blackPlayerId === aiUserId));
+                                
+                                if (totalTurns >= autoScoringTurns) {
+                                    // totalTurns를 업데이트
+                                    updateResult.updatedGame.totalTurns = totalTurns;
+                                    if (updateResult.updatedGame.gameStatus === 'playing') {
+                                        // AI 차례라면 자동 계가를 트리거하지 않고, AI가 수를 두도록 함
+                                        if (isAiTurn) {
+                                            console.log(`[handleAction] ${actionTypeName} - Auto-scoring reached but it's AI turn, waiting for AI move: totalTurns=${totalTurns}, autoScoringTurns=${autoScoringTurns}, currentPlayer=${currentPlayerEnum === Player.White ? 'White' : 'Black'}`);
+                                            // 게임 상태를 playing으로 유지하여 AI가 수를 두도록 함
+                                            // shouldTriggerAutoScoring을 false로 유지 (기본값)
+                                        } else {
+                                            // 플레이어 차례라면 자동 계가 트리거
+                                            shouldTriggerAutoScoring = true;
+                                            const gameTypeLabel = gameType === 'singleplayer' ? 'SinglePlayer' : 'AiGame';
+                                            console.log(`[handleAction] ${actionTypeName} - Auto-scoring triggered at ${updateResult.updatedGame.totalTurns} turns (${gameTypeLabel}, stageId: ${game.stageId || 'N/A'}) - IMMEDIATELY FREEZING GAME`);
+                                            
+                                            // 즉시 게임 상태를 보존하여 게임 초기화 방지 (동기적으로 처리)
+                                            const preservedBoardState = updateResult.updatedGame.boardState && updateResult.updatedGame.boardState.length > 0
+                                                ? updateResult.updatedGame.boardState
+                                                : (game.boardState || updateResult.updatedGame.boardState);
+                                            const preservedMoveHistory = updateResult.updatedGame.moveHistory && updateResult.updatedGame.moveHistory.length > 0
+                                                ? updateResult.updatedGame.moveHistory
+                                                : (game.moveHistory || updateResult.updatedGame.moveHistory);
+                                            const preservedTotalTurns = updateResult.updatedGame.totalTurns ?? game.totalTurns;
+                                            const preservedBlackTimeLeft = updateResult.updatedGame.blackTimeLeft ?? game.blackTimeLeft;
+                                            const preservedWhiteTimeLeft = updateResult.updatedGame.whiteTimeLeft ?? game.whiteTimeLeft;
+                                            
+                                            autoScoringPreservedState = {
+                                                boardState: preservedBoardState,
+                                                moveHistory: preservedMoveHistory,
+                                                totalTurns: preservedTotalTurns,
+                                                blackTimeLeft: preservedBlackTimeLeft,
+                                                whiteTimeLeft: preservedWhiteTimeLeft,
                                             };
+                                            
+                                            console.log(`[handleAction] IMMEDIATELY preserving game state for scoring: boardStateSize=${preservedBoardState?.length || 0}, moveHistoryLength=${preservedMoveHistory?.length || 0}, totalTurns=${preservedTotalTurns}, blackTimeLeft=${preservedBlackTimeLeft}, whiteTimeLeft=${preservedWhiteTimeLeft}`);
+                                            
+                                            // 게임 상태를 즉시 scoring으로 변경하여 반환값에 반영 (게임 초기화 방지)
+                                            updateResult.updatedGame.gameStatus = 'scoring' as const;
+                                            updateResult.updatedGame.boardState = preservedBoardState;
+                                            updateResult.updatedGame.moveHistory = preservedMoveHistory;
+                                            updateResult.updatedGame.totalTurns = preservedTotalTurns;
+                                            updateResult.updatedGame.blackTimeLeft = preservedBlackTimeLeft;
+                                            updateResult.updatedGame.whiteTimeLeft = preservedWhiteTimeLeft;
+                                            
+                                            // 게임 상태를 즉시 scoring으로 변경 (게임 초기화 방지)
+                                            updateGameState((currentGames) => {
+                                                const currentGame = currentGames[gameId];
+                                                if (currentGame && currentGame.gameStatus === 'playing') {
+                                                    return { 
+                                                        ...currentGames, 
+                                                        [gameId]: { 
+                                                            ...currentGame,
+                                                            ...updateResult.updatedGame, // 최신 업데이트 결과 포함 (gameStatus: 'scoring')
+                                                            // boardState, moveHistory, totalTurns, 시간 정보는 반드시 보존
+                                                            boardState: preservedBoardState,
+                                                            moveHistory: preservedMoveHistory,
+                                                            totalTurns: preservedTotalTurns,
+                                                            blackTimeLeft: preservedBlackTimeLeft,
+                                                            whiteTimeLeft: preservedWhiteTimeLeft,
+                                                        } 
+                                                    };
+                                                }
+                                                return currentGames;
+                                            });
                                         }
-                                        return currentGames;
-                                    });
+                                    }
                                 }
+                            } catch (err) {
+                                console.error(`[handleAction] Failed to check auto-scoring:`, err);
                             }
-                        } catch (err) {
-                            console.error(`[handleAction] Failed to check auto-scoring:`, err);
                         }
                     }
-                }
                 }
                 
                 // 자동 계가 트리거가 필요한 경우 서버에 요청 (비동기로 처리)

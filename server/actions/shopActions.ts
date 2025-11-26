@@ -82,21 +82,17 @@ export const handleShopAction = async (volatileState: VolatileState, action: Ser
                 // updatedInventory는 이미 새로운 배열이므로 직접 할당 (성능 최적화)
                 user.inventory = updatedInventory;
                 
-                try {
-                    // 데이터베이스에 저장 (캐시 자동 업데이트됨 - db.updateUser가 gameCache도 업데이트)
-                    await db.updateUser(user);
-                } catch (error: any) {
-                    console.error(`[BUY_SHOP_ITEM] Error updating user ${user.id}:`, error);
-                    console.error(`[BUY_SHOP_ITEM] Error stack:`, error.stack);
-                    return { error: '데이터 저장 중 오류가 발생했습니다.' };
-                }
-
                 // 선택적 필드만 반환 (메시지 크기 최적화)
                 const updatedUser = getSelectiveUserUpdate(user, 'BUY_SHOP_ITEM', { includeAll: true });
 
-                // WebSocket으로 사용자 업데이트 브로드캐스트 (전체 객체는 WebSocket에서만)
-                const fullUserForBroadcast = JSON.parse(JSON.stringify(user));
-                broadcast({ type: 'USER_UPDATE', payload: { [user.id]: fullUserForBroadcast } });
+                // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+                db.updateUser(user).catch(err => {
+                    console.error(`[BUY_SHOP_ITEM] Failed to save user ${user.id}:`, err);
+                });
+
+                // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+                const { broadcastUserUpdate } = await import('../socket.js');
+                broadcastUserUpdate(user, ['inventory', 'gold', 'diamonds']);
 
                 return { clientResponse: { obtainedItemsBulk: obtainedItems, updatedUser } };
             } catch (error: any) {
@@ -197,21 +193,17 @@ export const handleShopAction = async (volatileState: VolatileState, action: Ser
                 user.dailyShopPurchases[itemId].date = now;
             }
             
-            try {
-                // 데이터베이스에 저장 (캐시 자동 업데이트됨)
-                await db.updateUser(user);
-            } catch (error: any) {
-                console.error(`[BUY_MATERIAL_BOX] Error updating user ${user.id}:`, error);
-                console.error(`[BUY_MATERIAL_BOX] Error stack:`, error.stack);
-                return { error: '데이터 저장 중 오류가 발생했습니다.' };
-            }
-            
             // 선택적 필드만 반환 (메시지 크기 최적화)
             const updatedUser = getSelectiveUserUpdate(user, 'BUY_MATERIAL_BOX', { includeAll: true });
 
-            // WebSocket으로 사용자 업데이트 브로드캐스트 (전체 객체는 WebSocket에서만)
-            const fullUserForBroadcast = JSON.parse(JSON.stringify(user));
-            broadcast({ type: 'USER_UPDATE', payload: { [user.id]: fullUserForBroadcast } });
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[BUY_MATERIAL_BOX] Failed to save user ${user.id}:`, err);
+            });
+
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+            const { broadcastUserUpdate } = await import('../socket.js');
+            broadcastUserUpdate(user, ['inventory', 'gold', 'diamonds', 'dailyShopPurchases']);
 
             // 아이템을 이름별로 집계하되, 원본 아이템의 모든 속성(image 포함)을 보존
             const itemMap = new Map<string, InventoryItem>();
@@ -259,11 +251,16 @@ export const handleShopAction = async (volatileState: VolatileState, action: Ser
             }
             user.actionPoints.current += ACTION_POINT_PURCHASE_REFILL_AMOUNT;
             
-            await db.updateUser(user);
-            const updatedUser = JSON.parse(JSON.stringify(user));
+            const updatedUser = getSelectiveUserUpdate(user, 'PURCHASE_ACTION_POINTS');
             
-            // WebSocket으로 사용자 업데이트 브로드캐스트
-            broadcast({ type: 'USER_UPDATE', payload: { [user.id]: updatedUser } });
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[PURCHASE_ACTION_POINTS] Failed to save user ${user.id}:`, err);
+            });
+
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+            const { broadcastUserUpdate } = await import('../socket.js');
+            broadcastUserUpdate(user, ['actionPoints', 'diamonds', 'actionPointPurchasesToday', 'lastActionPointPurchaseDate']);
             
             return { clientResponse: { updatedUser } };
         }
@@ -292,11 +289,16 @@ export const handleShopAction = async (volatileState: VolatileState, action: Ser
             
             user.inventorySlots[category] = Math.min(MAX_INVENTORY_SIZE, user.inventorySlots[category] + EXPANSION_AMOUNT);
             
-            await db.updateUser(user);
-            const updatedUser = JSON.parse(JSON.stringify(user));
+            const updatedUser = getSelectiveUserUpdate(user, 'EXPAND_INVENTORY');
             
-            // WebSocket으로 사용자 업데이트 브로드캐스트
-            broadcast({ type: 'USER_UPDATE', payload: { [user.id]: updatedUser } });
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[EXPAND_INVENTORY] Failed to save user ${user.id}:`, err);
+            });
+
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+            const { broadcastUserUpdate } = await import('../socket.js');
+            broadcastUserUpdate(user, ['inventorySlots', 'diamonds']);
             
             return { clientResponse: { updatedUser } };
         }
@@ -324,11 +326,17 @@ export const handleShopAction = async (volatileState: VolatileState, action: Ser
             }
 
             user.ownedBorders.push(borderId);
-            await db.updateUser(user);
-            const updatedUser = JSON.parse(JSON.stringify(user));
             
-            // WebSocket으로 사용자 업데이트 브로드캐스트
-            broadcast({ type: 'USER_UPDATE', payload: { [user.id]: updatedUser } });
+            const updatedUser = getSelectiveUserUpdate(user, 'BUY_BORDER');
+            
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[BUY_BORDER] Failed to save user ${user.id}:`, err);
+            });
+
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+            const { broadcastUserUpdate } = await import('../socket.js');
+            broadcastUserUpdate(user, ['ownedBorders', 'gold', 'diamonds']);
             
             return { clientResponse: { updatedUser } };
         }
@@ -417,21 +425,17 @@ export const handleShopAction = async (volatileState: VolatileState, action: Ser
             // 인벤토리를 깊은 복사하여 새로운 배열로 할당 (참조 문제 방지)
             user.inventory = JSON.parse(JSON.stringify(updatedInventory));
             
-            try {
-                // 데이터베이스에 저장 (캐시 자동 업데이트됨)
-                await db.updateUser(user);
-            } catch (error: any) {
-                console.error(`[BUY_CONDITION_POTION] Error updating user ${user.id}:`, error);
-                console.error(`[BUY_CONDITION_POTION] Error stack:`, error.stack);
-                return { error: '데이터 저장 중 오류가 발생했습니다.' };
-            }
-
             // 선택적 필드만 반환 (메시지 크기 최적화)
             const updatedUser = getSelectiveUserUpdate(user, 'BUY_CONDITION_POTION', { includeAll: true });
 
-            // WebSocket으로 사용자 업데이트 브로드캐스트 (전체 객체는 WebSocket에서만)
-            const fullUserForBroadcast = JSON.parse(JSON.stringify(user));
-            broadcast({ type: 'USER_UPDATE', payload: { [user.id]: fullUserForBroadcast } });
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[BUY_CONDITION_POTION] Failed to save user ${user.id}:`, err);
+            });
+
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+            const { broadcastUserUpdate } = await import('../socket.js');
+            broadcastUserUpdate(user, ['inventory', 'gold', 'dailyShopPurchases']);
 
             return { 
                 clientResponse: { 
@@ -526,21 +530,17 @@ export const handleShopAction = async (volatileState: VolatileState, action: Ser
             // 인벤토리를 깊은 복사하여 새로운 배열로 할당 (참조 문제 방지)
             user.inventory = JSON.parse(JSON.stringify(updatedInventory));
             
-            try {
-                // 데이터베이스에 저장 (캐시 자동 업데이트됨)
-                await db.updateUser(user);
-            } catch (error: any) {
-                console.error(`[BUY_CONSUMABLE] Error updating user ${user.id}:`, error);
-                console.error(`[BUY_CONSUMABLE] Error stack:`, error.stack);
-                return { error: '데이터 저장 중 오류가 발생했습니다.' };
-            }
-
             // 선택적 필드만 반환 (메시지 크기 최적화)
             const updatedUser = getSelectiveUserUpdate(user, 'BUY_CONSUMABLE', { includeAll: true });
 
-            // WebSocket으로 사용자 업데이트 브로드캐스트 (전체 객체는 WebSocket에서만)
-            const fullUserForBroadcast = JSON.parse(JSON.stringify(user));
-            broadcast({ type: 'USER_UPDATE', payload: { [user.id]: fullUserForBroadcast } });
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[BUY_CONSUMABLE] Failed to save user ${user.id}:`, err);
+            });
+
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+            const { broadcastUserUpdate } = await import('../socket.js');
+            broadcastUserUpdate(user, ['inventory', 'gold', 'diamonds']);
 
             return { 
                 clientResponse: { 
@@ -655,28 +655,23 @@ export const handleShopAction = async (volatileState: VolatileState, action: Ser
                 user.dailyShopPurchases[itemId].date = now;
             }
 
-            try {
-                await db.updateUser(user);
-                
-                // 캐시 즉시 업데이트 (DB 재조회 제거로 성능 향상)
-                // updateUser가 이미 캐시를 업데이트하므로 추가 작업 불필요
-                
-                const updatedUser = getSelectiveUserUpdate(user, 'BUY_TOWER_ITEM', { includeAll: true });
-                
-                // WebSocket으로 사용자 업데이트 브로드캐스트 (전체 객체는 WebSocket에서만)
-                const fullUserForBroadcast = JSON.parse(JSON.stringify(user));
-                broadcast({ type: 'USER_UPDATE', payload: { [user.id]: fullUserForBroadcast } });
+            const updatedUser = getSelectiveUserUpdate(user, 'BUY_TOWER_ITEM', { includeAll: true });
+            
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[BUY_TOWER_ITEM] Failed to save user ${user.id}:`, err);
+            });
 
-                return {
-                    clientResponse: {
-                        obtainedItemsBulk: finalItemsToAdd,
-                        updatedUser
-                    }
-                };
-            } catch (error: any) {
-                console.error(`[BUY_TOWER_ITEM] Error updating user ${user.id}:`, error);
-                return { error: '구매 처리 중 오류가 발생했습니다.' };
-            }
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+            const { broadcastUserUpdate } = await import('../socket.js');
+            broadcastUserUpdate(user, ['inventory', 'gold', 'diamonds', 'dailyShopPurchases']);
+
+            return {
+                clientResponse: {
+                    obtainedItemsBulk: finalItemsToAdd,
+                    updatedUser
+                }
+            };
         }
         default:
             return { error: 'Unknown shop action.' };

@@ -46,9 +46,13 @@ export function calculateSimpleAiMove(
             const neighbors = getNeighbors(point.x, point.y, boardSize);
             for (const neighbor of neighbors) {
                 const key = `${neighbor.x},${neighbor.y}`;
-                if (!checkedPoints.has(key) && boardState[neighbor.y][neighbor.x] === Player.None) {
-                    checkedPoints.add(key);
-                    candidates.push(neighbor);
+                // 빈 칸만 후보로 추가 (이미 돌이 있는 위치는 제외)
+                if (!checkedPoints.has(key)) {
+                    const stoneAtPos = boardState[neighbor.y]?.[neighbor.x];
+                    if (stoneAtPos === Player.None) {
+                        checkedPoints.add(key);
+                        candidates.push(neighbor);
+                    }
                 }
             }
         }

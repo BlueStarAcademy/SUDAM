@@ -59,6 +59,10 @@ const ItemDisplay: React.FC<{ item: InventoryItem }> = ({ item }) => {
                     {item.options?.main && (
                         <p className="font-semibold text-yellow-300 text-xs whitespace-nowrap overflow-hidden text-ellipsis" title={item.options.main.display}>{item.options.main.display}</p>
                     )}
+                    {/* 제련 가능 횟수 표시 */}
+                    <p className={`text-xs font-semibold mt-1 ${(item as any).refinementCount > 0 ? 'text-amber-400' : 'text-red-400'}`}>
+                        제련 가능: {(item as any).refinementCount > 0 ? `${(item as any).refinementCount}회` : '제련불가'}
+                    </p>
                 </div>
             </div>
             <div className="w-full text-sm text-left space-y-1 bg-black/30 p-2 rounded-lg flex-grow overflow-y-auto">

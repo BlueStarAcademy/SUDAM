@@ -249,6 +249,16 @@ export const getGameResult = async (game: LiveGameSession): Promise<LiveGameSess
     // 카타고 분석 시작
     console.log(`[getGameResult] Starting KataGo analysis for game ${game.id}...`);
     console.log(`[getGameResult] Game details: isSinglePlayer=${game.isSinglePlayer}, stageId=${game.stageId}, moveHistoryLength=${game.moveHistory.length}, boardSize=${game.settings.boardSize}`);
+    console.log(`[getGameResult] Board state validation: boardState exists=${!!game.boardState}, boardState size=${game.boardState?.length || 0}x${game.boardState?.[0]?.length || 0}, moveHistory length=${game.moveHistory?.length || 0}`);
+    
+    // 게임 상태 검증 (KataGo 분석 전)
+    if (!game.boardState || !Array.isArray(game.boardState) || game.boardState.length === 0) {
+        console.error(`[getGameResult] ERROR: Invalid boardState for game ${game.id}, cannot start KataGo analysis`);
+        game.gameStatus = 'ended';
+        game.isAnalyzing = false;
+        await db.saveGame(game);
+        return game;
+    }
     
     // 보존된 게임 상태를 클로저에 저장하여 분석 완료 후에도 사용 가능하도록 함
     const savedPreservedGameState = preservedGameState;
@@ -257,9 +267,18 @@ export const getGameResult = async (game: LiveGameSession): Promise<LiveGameSess
     analyzeGame(game)
         .then(async (baseAnalysis) => {
             console.log(`[getGameResult] KataGo analysis completed for game ${game.id}, getting fresh game state...`);
-            const freshGame = await db.getLiveGame(game.id);
+            // 싱글플레이 게임은 메모리 캐시에서 먼저 찾기 (DB에 저장되지 않을 수 있음)
+            let freshGame = null;
+            if (game.isSinglePlayer) {
+                const { getCachedGame } = await import('./gameCache.js');
+                freshGame = await getCachedGame(game.id);
+            }
+            // 캐시에서 못 찾으면 DB에서 찾기
             if (!freshGame) {
-                console.error(`[getGameResult] Game ${game.id} not found in database after analysis`);
+                freshGame = await db.getLiveGame(game.id);
+            }
+            if (!freshGame) {
+                console.error(`[getGameResult] Game ${game.id} not found in cache or database after analysis`);
                 return;
             }
             
@@ -403,7 +422,16 @@ export const getGameResult = async (game: LiveGameSession): Promise<LiveGameSess
         .catch(async (error) => {
             console.error(`[getGameResult] KataGo analysis failed for game ${game.id}:`, error);
             console.error(`[getGameResult] Error stack:`, error instanceof Error ? error.stack : 'No stack trace');
-            const failedGame = await db.getLiveGame(game.id);
+            // 싱글플레이 게임은 메모리 캐시에서 먼저 찾기
+            let failedGame = null;
+            if (game.isSinglePlayer) {
+                const { getCachedGame } = await import('./gameCache.js');
+                failedGame = await getCachedGame(game.id);
+            }
+            // 캐시에서 못 찾으면 DB에서 찾기
+            if (!failedGame) {
+                failedGame = await db.getLiveGame(game.id);
+            }
             if (failedGame && failedGame.gameStatus === 'scoring') {
                 console.log(`[getGameResult] Game ${failedGame.id} still in scoring state, setting isAnalyzing to false and ending game with fallback winner`);
                 failedGame.isAnalyzing = false;

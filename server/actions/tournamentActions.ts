@@ -366,12 +366,10 @@ export const startTournamentSessionForUser = async (user: User, tournamentType: 
         console.error(`[TournamentActions] Failed to save user ${freshUser.id}:`, err);
     });
     
-    // 깊은 복사로 updatedUser 생성
-    const updatedUser = JSON.parse(JSON.stringify(freshUser));
-    
     // WebSocket으로 사용자 업데이트 브로드캐스트 (옵션)
     if (!skipBroadcast) {
-        broadcast({ type: 'USER_UPDATE', payload: { [freshUser.id]: updatedUser } });
+        const { broadcastUserUpdate } = await import('../socket.js');
+        broadcastUserUpdate(freshUser, ['lastNeighborhoodTournament', 'lastNationalTournament', 'lastWorldTournament']);
     }
     
     return { success: true, updatedUser };
@@ -547,13 +545,11 @@ export const handleTournamentAction = async (volatileState: VolatileState, actio
             if (!volatileState.activeTournaments) volatileState.activeTournaments = {};
             volatileState.activeTournaments[user.id] = tournamentState;
             
-            // 깊은 복사로 updatedUser 생성하여 React가 변경을 확실히 감지하도록 함
-            const updatedUser = JSON.parse(JSON.stringify(freshUser));
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+            const { broadcastUserUpdate } = await import('../socket.js');
+            broadcastUserUpdate(freshUser, ['lastNeighborhoodTournament', 'lastNationalTournament', 'lastWorldTournament']);
             
-            // WebSocket으로 사용자 업데이트 브로드캐스트
-            broadcast({ type: 'USER_UPDATE', payload: { [freshUser.id]: updatedUser } });
-            
-            return { clientResponse: { redirectToTournament: type, updatedUser } };
+            return { clientResponse: { redirectToTournament: type, updatedUser: freshUser } };
         }
 
         case 'SKIP_TOURNAMENT_END': {
@@ -675,7 +671,11 @@ export const handleTournamentAction = async (volatileState: VolatileState, actio
                 }
 
                 (user as any)[stateKey] = tournamentState;
-                await db.updateUser(user);
+                
+                // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+                db.updateUser(user).catch(err => {
+                    console.error(`[SKIP_TOURNAMENT_END] Failed to save user ${user.id}:`, err);
+                });
 
                 if (volatileState.activeTournaments && tournamentState.status !== 'round_in_progress') {
                     delete volatileState.activeTournaments[user.id];
@@ -839,11 +839,9 @@ export const handleTournamentAction = async (volatileState: VolatileState, actio
                 return { error: '데이터 저장 중 오류가 발생했습니다.' };
             }
 
-            // 깊은 복사로 updatedUser 생성
-            const updatedUser = JSON.parse(JSON.stringify(user));
-
-            // WebSocket으로 사용자 업데이트 브로드캐스트
-            broadcast({ type: 'USER_UPDATE', payload: { [user.id]: updatedUser } });
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+            const { broadcastUserUpdate } = await import('../socket.js');
+            broadcastUserUpdate(user, ['actionPoints']);
 
             return { 
                 clientResponse: { 
@@ -1106,11 +1104,11 @@ export const handleTournamentAction = async (volatileState: VolatileState, actio
                 console.error(`[TournamentActions] Failed to save user ${freshUser.id}:`, err);
             });
 
-            // WebSocket으로 사용자 업데이트 브로드캐스트
-            const updatedUserCopy = JSON.parse(JSON.stringify(freshUser));
-            broadcast({ type: 'USER_UPDATE', payload: { [freshUser.id]: updatedUserCopy } });
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+            const { broadcastUserUpdate } = await import('../socket.js');
+            broadcastUserUpdate(freshUser, ['lastNeighborhoodTournament', 'lastNationalTournament', 'lastWorldTournament']);
 
-            return { clientResponse: { updatedUser: updatedUserCopy } };
+            return { clientResponse: { updatedUser: freshUser } };
         }
 
         case 'COMPLETE_TOURNAMENT_SIMULATION': {
@@ -1420,11 +1418,11 @@ export const handleTournamentAction = async (volatileState: VolatileState, actio
             // DB 저장
             await db.updateUser(freshUser);
 
-            // WebSocket으로 사용자 업데이트 브로드캐스트
-            const updatedUserCopy = JSON.parse(JSON.stringify(freshUser));
-            broadcast({ type: 'USER_UPDATE', payload: { [freshUser.id]: updatedUserCopy } });
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+            const { broadcastUserUpdate } = await import('../socket.js');
+            broadcastUserUpdate(freshUser, ['lastNeighborhoodTournament', 'lastNationalTournament', 'lastWorldTournament']);
 
-            return { clientResponse: { updatedUser: updatedUserCopy } };
+            return { clientResponse: { updatedUser: freshUser } };
         }
 
         case 'ENTER_TOURNAMENT_VIEW':

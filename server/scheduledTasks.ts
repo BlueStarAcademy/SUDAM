@@ -1036,9 +1036,14 @@ export async function recoverAllBotScores(forceDays?: number): Promise<void> {
             const currentScore = botScoreData?.score || 0;
             
             // forceDays가 지정되면 무조건 복구, 아니면 점수가 0이거나 없으면 복구
+            // 단, 점수가 0이면 무조건 복구 (forceDays와 무관하게)
             if (forceDays === undefined && currentScore > 0 && botScoreData) {
+                // 점수가 있는 경우에만 스킵
                 continue;
             }
+            
+            // 점수가 0이면 무조건 복구 (forceDays가 없어도)
+            // 이미 위에서 currentScore > 0인 경우는 continue되었으므로 여기서는 점수가 0이거나 없는 경우만 처리
             
             // forceDays가 지정되면 그만큼, 아니면 경쟁상대 업데이트일부터 오늘까지
             const daysDiff = forceDays !== undefined 
@@ -1046,22 +1051,26 @@ export async function recoverAllBotScores(forceDays?: number): Promise<void> {
                 : Math.floor((todayStart - competitorsUpdateDay) / (1000 * 60 * 60 * 24));
             
             if (daysDiff < 0) {
+                console.log(`[OneTimeRecover] 봇 ${botId} 경쟁상대 업데이트일이 미래입니다. 스킵`);
                 continue;
             }
+            
+            // 최대 7일치까지만 복구 (안전장치)
+            const effectiveDaysDiff = Math.min(daysDiff, 6); // 0~6 = 7일
             
             let totalGain = 0;
             let yesterdayScore = 0;
             
             // 경쟁상대 업데이트일부터 지정된 일수만큼 점수 추가
-            for (let dayOffset = 0; dayOffset <= daysDiff; dayOffset++) {
+            for (let dayOffset = 0; dayOffset <= effectiveDaysDiff; dayOffset++) {
                 const targetDate = new Date(competitorsUpdateDay + (dayOffset * 24 * 60 * 60 * 1000));
                 const dailyGain = getBotScoreForDate(botId, targetDate);
                 totalGain += dailyGain;
                 
                 // 어제 점수 계산
-                if (dayOffset === daysDiff && daysDiff > 0) {
+                if (dayOffset === effectiveDaysDiff && effectiveDaysDiff > 0) {
                     yesterdayScore = totalGain - dailyGain;
-                } else if (daysDiff === 0) {
+                } else if (effectiveDaysDiff === 0) {
                     yesterdayScore = 0;
                 }
             }
@@ -1074,7 +1083,7 @@ export async function recoverAllBotScores(forceDays?: number): Promise<void> {
             
             hasChanges = true;
             totalBotsRecovered++;
-            console.log(`[OneTimeRecover] Recovered bot ${botId} for user ${user.nickname}: ${totalGain} points (${daysDiff + 1} days${forceDays ? ' forced' : ''})`);
+            console.log(`[OneTimeRecover] Recovered bot ${botId} (${competitor.nickname || 'Unknown'}) for user ${user.nickname}: ${totalGain} points (${effectiveDaysDiff + 1} days${forceDays ? ' forced' : ''})`);
         }
         
         if (hasChanges) {
@@ -1286,6 +1295,14 @@ export async function processDailyRankings(): Promise<void> {
     
     lastDailyRankingUpdateTimestamp = now;
     console.log(`[DailyRanking] Updated daily rankings for ${allUsers.length} users, updated bot scores for ${botsUpdated} users`);
+    
+    // 랭킹 캐시 무효화 (새로운 랭킹이 계산되었으므로)
+    try {
+        const { invalidateRankingCache } = await import('./rankingCache.js');
+        invalidateRankingCache();
+    } catch (error) {
+        console.error('[DailyRanking] Failed to invalidate ranking cache:', error);
+    }
 }
 
 // 매일 0시 KST에 일일 퀘스트 초기화 및 토너먼트 상태 리셋

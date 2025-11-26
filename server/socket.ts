@@ -95,12 +95,12 @@ export const createWebSocketServer = (server: Server) => {
                     return;
                 }
                 
-                // 성능 최적화: 전체 사용자 한 번에 로드 (캐시 활용, 개별 조회보다 빠름)
+                // 성능 최적화: 온라인 사용자만 로드 (랭킹은 별도 API 사용)
                 const allUsers = await db.getAllUsers({ includeEquipment: false, includeInventory: false });
                 const onlineUserIds = Object.keys(volatileState.userStatuses);
                 const onlineUsersData: Record<string, any> = {};
                 
-                // 온라인 사용자만 필터링
+                // 온라인 사용자만 필터링하여 전송 (랭킹은 /api/ranking 엔드포인트 사용)
                 for (const user of allUsers) {
                     if (onlineUserIds.includes(user.id)) {
                         const nickname = user.nickname && user.nickname.trim().length > 0 ? user.nickname : user.username;
@@ -171,7 +171,7 @@ export const createWebSocketServer = (server: Server) => {
                 const guilds = await kvRepository.getKV<Record<string, any>>('guilds') || {};
                 
                 const allData = {
-                    users: onlineUsersData, // 온라인 사용자만 포함
+                    users: onlineUsersData, // 온라인 사용자만 포함 (랭킹은 /api/ranking 엔드포인트 사용)
                     liveGames,
                     singlePlayerGames,
                     towerGames,

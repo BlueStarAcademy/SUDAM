@@ -3,6 +3,7 @@ import { User, UserWithStatus, GameMode } from '../../types.js';
 import Avatar from '../Avatar.js';
 import { RANKING_TIERS, AVATAR_POOL, BORDER_POOL, SPECIAL_GAME_MODES, PLAYFUL_GAME_MODES } from '../../constants';
 import { useAppContext } from '../../hooks/useAppContext.js';
+import { useRanking } from '../../hooks/useRanking.js';
 import Button from '../Button.js';
 
 interface RankingListProps {
@@ -37,74 +38,35 @@ const getCurrentSeasonName = () => {
 
 
 const RankingList: React.FC<RankingListProps> = ({ currentUser, mode, onViewUser, onShowTierInfo, onShowPastRankings, lobbyType }) => {
-    const { allUsers } = useAppContext();
-
-    const allRankedUsers = useMemo(() => {
-        const gameModes = lobbyType === 'strategic' ? SPECIAL_GAME_MODES : PLAYFUL_GAME_MODES;
-        const scoreMode = lobbyType === 'strategic' ? 'standard' : 'playful';
-        const mode = lobbyType;
-        
-        // 10판 이상의 대국을 한 유저는 모두 표시 (점수가 없어도 포함)
-        return allUsers
-            .filter(u => {
-                if (!u || !u.id) return false;
-                // 총 게임 수 계산 (모든 종류의 전략바둑 또는 놀이바둑 경기의 누적 판수)
-                let totalGames = 0;
-                if (u.stats) {
-                    for (const gameMode of gameModes) {
-                        const gameStats = u.stats[gameMode.mode];
-                        if (gameStats) {
-                            totalGames += (gameStats.wins || 0) + (gameStats.losses || 0);
-                        }
-                    }
-                }
-                // 10판 이상이면 포함 (점수와 무관)
-                return totalGames >= 10;
-            })
-            .map(u => {
-                // dailyRankings가 있으면 우선 사용 (현재 시즌 랭킹점수)
-                // dailyRankings.score는 1200에서의 차이값이므로 1200을 더해서 실제 점수로 표시
-                if (u.dailyRankings?.[mode]) {
-                    return {
-                        ...u,
-                        avgScore: 1200 + u.dailyRankings[mode].score,
-                        rank: u.dailyRankings[mode].rank
-                    };
-                } else {
-                    // 없으면 시즌 시작 시 초기값인 1200점 사용 (현재 시즌 랭킹점수)
-                    return { ...u, avgScore: 1200 };
-                }
-            })
-            .sort((a, b) => {
-                // rank가 있으면 rank 기준으로 정렬, 없으면 점수 기준으로 정렬
-                if ((a as any).rank !== undefined && (b as any).rank !== undefined) {
-                    return (a as any).rank - (b as any).rank;
-                }
-                return b.avgScore - a.avgScore;
-            });
-    }, [allUsers, lobbyType]);
-
-    const eligibleRankedUsers = useMemo(() => {
-        const gameModes = lobbyType === 'strategic' ? SPECIAL_GAME_MODES : PLAYFUL_GAME_MODES;
-        return allRankedUsers.filter(u => {
-            let totalGames = 0;
-            for (const game of gameModes) {
-                const gameStats = u.stats?.[game.mode];
-                if (gameStats) {
-                    totalGames += (gameStats.wins || 0) + (gameStats.losses || 0);
-                }
-            }
-            return totalGames >= 10;
-        });
-    }, [allRankedUsers, lobbyType]);
+    const rankingType = lobbyType === 'strategic' ? 'strategic' : 'playful';
+    const { rankings, loading, error, total } = useRanking(rankingType);
     
+    const allRankedUsers = useMemo(() => {
+        return rankings.map(entry => ({
+            id: entry.id,
+            nickname: entry.nickname,
+            avatarId: entry.avatarId,
+            borderId: entry.borderId,
+            avgScore: entry.score,
+            rank: entry.rank,
+            totalGames: entry.totalGames,
+            wins: entry.wins,
+            losses: entry.losses,
+            league: entry.league,
+            // User 타입 호환성을 위한 더미 필드
+            stats: {} as any,
+            dailyRankings: {} as any
+        }));
+    }, [rankings]);
+
+    const eligibleRankedUsers = allRankedUsers.filter(u => u.totalGames >= 10);
     const totalEligiblePlayers = eligibleRankedUsers.length;
     const sproutTier = RANKING_TIERS[RANKING_TIERS.length - 1];
 
     const myRankIndex = allRankedUsers.findIndex(u => u.id === currentUser.id);
     const myRankData = myRankIndex !== -1 ? { 
         user: allRankedUsers[myRankIndex], 
-        rank: (allRankedUsers[myRankIndex] as any).rank || (myRankIndex + 1), 
+        rank: allRankedUsers[myRankIndex].rank || (myRankIndex + 1), 
         score: allRankedUsers[myRankIndex].avgScore 
     } : null;
 
@@ -145,37 +107,19 @@ const RankingList: React.FC<RankingListProps> = ({ currentUser, mode, onViewUser
 
     const topUsers = allRankedUsers.slice(0, displayCount);
 
-    const getTierForUser = useCallback((user: User & { avgScore: number }) => {
+    const getTierForUser = useCallback((user: { id: string; avgScore: number; totalGames: number }) => {
         const rankAmongEligible = eligibleRankedUsers.findIndex(u => u.id === user.id) + 1;
         if (rankAmongEligible === 0) { // Should not happen if they are eligible, but as a fallback
             return sproutTier;
         }
 
-        const gameModes = lobbyType === 'strategic' ? SPECIAL_GAME_MODES : PLAYFUL_GAME_MODES;
-        let totalGames = 0;
-        for (const game of gameModes) {
-            const gameStats = user.stats?.[game.mode];
-            if (gameStats) {
-                totalGames += (gameStats.wins || 0) + (gameStats.losses || 0);
-            }
-        }
-
-        return getTier(user.avgScore, rankAmongEligible, totalGames);
-    }, [lobbyType, eligibleRankedUsers, sproutTier]);
+        return getTier(user.avgScore, rankAmongEligible, user.totalGames);
+    }, [eligibleRankedUsers, sproutTier]);
 
 
-    const renderRankItem = useCallback((user: User & { avgScore: number }, rank: number, isMyRankDisplay: boolean) => {
-        const gameModes = lobbyType === 'strategic' ? SPECIAL_GAME_MODES : PLAYFUL_GAME_MODES;
-        let wins = 0;
-        let losses = 0;
-        for (const game of gameModes) {
-            const gameStats = user.stats?.[game.mode];
-            if (gameStats) {
-                wins += gameStats.wins || 0;
-                losses += gameStats.losses || 0;
-            }
-        }
-
+    const renderRankItem = useCallback((user: { id: string; nickname: string; avatarId: string; borderId: string; avgScore: number; totalGames: number; wins: number; losses: number }, rank: number, isMyRankDisplay: boolean) => {
+        const wins = user.wins || 0;
+        const losses = user.losses || 0;
         const winRate = (wins + losses) > 0 ? Math.round((wins / (wins + losses)) * 100) : 0;
         const score = user.avgScore;
         const tier = getTierForUser(user);
@@ -244,10 +188,14 @@ const RankingList: React.FC<RankingListProps> = ({ currentUser, mode, onViewUser
             )}
 
             <ul className="space-y-2 overflow-y-auto pr-2 h-72">
-                 {topUsers.length > 0 ? (
+                 {loading ? (
+                     <p className="text-center text-tertiary pt-8">랭킹을 불러오는 중...</p>
+                 ) : error ? (
+                     <p className="text-center text-red-500 pt-8">랭킹을 불러오는데 실패했습니다.</p>
+                 ) : topUsers.length > 0 ? (
                      <>
-                         {topUsers.map((user, index) => {
-                             const rank = (user as any).rank || (index + 1);
+                         {topUsers.map((user) => {
+                             const rank = user.rank || 1;
                              return renderRankItem(user, rank, false);
                          })}
                          {displayCount < allRankedUsers.length && (

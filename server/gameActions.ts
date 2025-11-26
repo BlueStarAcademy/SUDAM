@@ -211,6 +211,34 @@ export const handleAction = async (volatileState: VolatileState, action: ServerA
     // Game Actions (require gameId)
     // 도전의 탑은 클라이언트에서만 실행되므로 서버에서 착수 액션을 처리하지 않음
     if (gameId && type !== 'LEAVE_AI_GAME') {
+        // 싱글플레이 미사일 액션은 먼저 처리 (게임이 캐시에 없을 수 있음)
+        if (type === 'START_MISSILE_SELECTION' || type === 'LAUNCH_MISSILE' || type === 'CANCEL_MISSILE_SELECTION' || type === 'MISSILE_INVALID_SELECTION' || type === 'MISSILE_ANIMATION_COMPLETE') {
+            // 게임 ID가 sp-game-으로 시작하면 싱글플레이 게임으로 간주
+            if (gameId.startsWith('sp-game-')) {
+                const { handleSinglePlayerAction } = await import('./actions/singlePlayerActions.js');
+                const result = await handleSinglePlayerAction(volatileState, action, userData);
+                // singlePlayerActions에서 이미 저장 및 브로드캐스트를 처리하므로 여기서는 결과만 반환
+                return result || { error: result?.error || 'Failed to process single player missile action.' };
+            }
+        }
+        
+        // 싱글플레이 자동 계가 트리거 (PLACE_STONE with triggerAutoScoring) 처리
+        if (type === 'PLACE_STONE' && payload?.triggerAutoScoring && gameId.startsWith('sp-game-')) {
+            // 싱글플레이 게임은 메모리 캐시에서 먼저 찾기
+            const { getCachedGame } = await import('./gameCache.js');
+            let game = await getCachedGame(gameId);
+            if (!game) {
+                const db = await import('./db.js');
+                game = await db.getLiveGame(gameId);
+            }
+            if (!game || !game.isSinglePlayer) {
+                return { error: 'Invalid single player game.' };
+            }
+            // handleStandardAction을 통해 처리 (싱글플레이 게임도 표준 액션 핸들러 사용)
+            const { handleStandardAction } = await import('./modes/standard.js');
+            return await handleStandardAction(volatileState, game, action, userData);
+        }
+        
         // 캐시를 사용하여 DB 조회 최소화
         const { getCachedGame, updateGameCache } = await import('./gameCache.js');
         const game = await getCachedGame(gameId);
@@ -244,7 +272,7 @@ export const handleAction = async (volatileState: VolatileState, action: ServerA
             }
             // 미사일 액션은 서버에서 처리해야 함 (게임 상태 변경)
             if (type === 'START_MISSILE_SELECTION' || type === 'LAUNCH_MISSILE' || type === 'CANCEL_MISSILE_SELECTION' || type === 'MISSILE_INVALID_SELECTION' || type === 'MISSILE_ANIMATION_COMPLETE') {
-                // 싱글플레이 게임의 경우 싱글플레이 핸들러로 라우팅
+                // 싱글플레이 게임의 경우 싱글플레이 핸들러로 라우팅 (이미 위에서 처리했지만 중복 방지)
                 if (game.isSinglePlayer) {
                     const { handleSinglePlayerAction } = await import('./actions/singlePlayerActions.js');
                     const result = await handleSinglePlayerAction(volatileState, action, userData);

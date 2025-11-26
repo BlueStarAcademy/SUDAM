@@ -374,7 +374,11 @@ export const handleSinglePlayerAction = async (volatileState: VolatileState, act
             }
 
             await db.saveGame(game);
-            await db.updateUser(user);
+            
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[START_SINGLE_PLAYER_GAME] Failed to save user ${user.id}:`, err);
+            });
 
             volatileState.userStatuses[user.id] = { status: UserStatus.InGame, mode: game.mode, gameId: game.id };
 
@@ -384,7 +388,7 @@ export const handleSinglePlayerAction = async (volatileState: VolatileState, act
             // 그 다음 사용자 상태 브로드캐스트
             broadcast({ type: 'USER_STATUS_UPDATE', payload: volatileState.userStatuses });
             const { broadcastUserUpdate } = await import('../socket.js');
-            broadcastUserUpdate(user);
+            broadcastUserUpdate(user, ['actionPoints', 'singlePlayerProgress']);
 
             // 클라이언트가 즉시 게임을 로드할 수 있도록 게임 데이터를 응답에 포함
             const gameCopy = JSON.parse(JSON.stringify(game));
@@ -393,7 +397,16 @@ export const handleSinglePlayerAction = async (volatileState: VolatileState, act
         case 'CONFIRM_SINGLE_PLAYER_GAME_START': {
             const { gameId } = payload;
             console.log(`[handleSinglePlayerAction] CONFIRM_SINGLE_PLAYER_GAME_START received:`, { gameId, userId: user.id });
-            const game = await db.getLiveGame(gameId);
+            
+            // 싱글플레이 게임은 메모리 캐시에서 먼저 찾기 (DB에 저장되지 않음)
+            const { getCachedGame } = await import('../gameCache.js');
+            let game = await getCachedGame(gameId);
+            
+            // 캐시에서 못 찾으면 DB에서 찾기 (게임 종료 후 저장된 경우)
+            if (!game) {
+                game = await db.getLiveGame(gameId);
+            }
+            
             if (!game || !game.isSinglePlayer || !game.stageId) {
                 console.error(`[handleSinglePlayerAction] CONFIRM_SINGLE_PLAYER_GAME_START - Invalid game:`, { gameId, hasGame: !!game, isSinglePlayer: game?.isSinglePlayer, stageId: game?.stageId });
                 return { error: 'Invalid single player game.' };
@@ -457,7 +470,12 @@ export const handleSinglePlayerAction = async (volatileState: VolatileState, act
         }
         case 'SINGLE_PLAYER_REFRESH_PLACEMENT': {
             const { gameId } = payload;
-            const game = await db.getLiveGame(gameId);
+            // 싱글플레이 게임은 메모리 캐시에서 먼저 찾기
+            const { getCachedGame } = await import('../gameCache.js');
+            let game = await getCachedGame(gameId);
+            if (!game) {
+                game = await db.getLiveGame(gameId);
+            }
             if (!game || !game.isSinglePlayer || !game.stageId) {
                 return { error: 'Invalid single player game.' };
             }
@@ -500,7 +518,10 @@ export const handleSinglePlayerAction = async (volatileState: VolatileState, act
             game.blackPatternStones = blackPattern;
             game.whitePatternStones = whitePattern;
 
-            await db.updateUser(user);
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[REFRESH_SINGLE_PLAYER_BOARD] Failed to save user ${user.id}:`, err);
+            });
             await db.saveGame(game);
 
             const { broadcastToGameParticipants } = await import('../socket.js');
@@ -532,8 +553,15 @@ export const handleSinglePlayerAction = async (volatileState: VolatileState, act
                 accumulatedAmount: initialAmount,
                 accumulatedCollection: 0,
             };
-            await db.updateUser(user);
-            broadcast({ type: 'USER_UPDATE', payload: { [user.id]: user } });
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[START_SINGLE_PLAYER_MISSION] Failed to save user ${user.id}:`, err);
+            });
+
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+            const { broadcastUserUpdate } = await import('../socket.js');
+            broadcastUserUpdate(user, ['singlePlayerMissions']);
+            
             return { clientResponse: { updatedUser: user } };
         }
         case 'CLAIM_SINGLE_PLAYER_MISSION_REWARD': {
@@ -625,8 +653,14 @@ export const handleSinglePlayerAction = async (volatileState: VolatileState, act
                 missionState.lastCollectionTime = now;
             }
         
-            await db.updateUser(user);
-            broadcast({ type: 'USER_UPDATE', payload: { [user.id]: user } });
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[COLLECT_SINGLE_PLAYER_MISSION] Failed to save user ${user.id}:`, err);
+            });
+
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+            const { broadcastUserUpdate } = await import('../socket.js');
+            broadcastUserUpdate(user, ['singlePlayerMissions']);
             
             // 깊은 복사로 updatedUser 생성하여 React가 변경을 확실히 감지하도록 함
             const updatedUser = JSON.parse(JSON.stringify(user));
@@ -656,6 +690,7 @@ export const handleSinglePlayerAction = async (volatileState: VolatileState, act
             }
             
             const clearedStages = user.clearedSinglePlayerStages || [];
+            const clearedStagesSet = new Set(clearedStages); // Set으로 변환하여 O(1) 조회
             const rewards: Array<{ missionId: string; missionName: string; rewardType: 'gold' | 'diamonds'; rewardAmount: number }> = [];
             let totalGold = 0;
             let totalDiamonds = 0;
@@ -665,9 +700,8 @@ export const handleSinglePlayerAction = async (volatileState: VolatileState, act
                 const missionState = user.singlePlayerMissions[missionInfo.id];
                 if (!missionState || !missionState.isStarted) continue;
                 
-                // 미션 언락 확인
-                const isUnlocked = clearedStages.includes(missionInfo.unlockStageId);
-                if (!isUnlocked) continue;
+                // 미션 언락 확인 (Set으로 빠른 조회)
+                if (!clearedStagesSet.has(missionInfo.unlockStageId)) continue;
                 
                 const currentLevel = missionState.level || 1;
                 if (!missionInfo.levels || !Array.isArray(missionInfo.levels) || missionInfo.levels.length < currentLevel) continue;
@@ -736,13 +770,18 @@ export const handleSinglePlayerAction = async (volatileState: VolatileState, act
                 return { error: '수령할 보상이 없습니다.' };
             }
             
-            await db.updateUser(user);
+            // 선택적 필드만 반환 (메시지 크기 최적화)
+            const { getSelectiveUserUpdate } = await import('../utils/userUpdateHelper.js');
+            const updatedUser = getSelectiveUserUpdate(user, 'CLAIM_SINGLE_PLAYER_MISSION_REWARD');
+            
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[CLAIM_ALL_TRAINING_QUEST_REWARDS] Failed to save user ${user.id}:`, err);
+            });
             
             // 최적화: 변경된 필드만 브로드캐스트
             const { broadcastUserUpdate } = await import('../socket.js');
             broadcastUserUpdate(user, ['gold', 'diamonds', 'singlePlayerMissions']);
-            
-            const updatedUser = JSON.parse(JSON.stringify(user));
             
             return {
                 clientResponse: {
@@ -887,8 +926,14 @@ export const handleSinglePlayerAction = async (volatileState: VolatileState, act
                 }
             }
         
-            await db.updateUser(user);
-            broadcast({ type: 'USER_UPDATE', payload: { [user.id]: user } });
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[UPGRADE_SINGLE_PLAYER_MISSION] Failed to save user ${user.id}:`, err);
+            });
+
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+            const { broadcastUserUpdate } = await import('../socket.js');
+            broadcastUserUpdate(user, ['singlePlayerMissions', 'gold', 'diamonds']);
             
             // 강화 완료 정보 반환
             return { 
@@ -914,7 +959,12 @@ export const handleSinglePlayerAction = async (volatileState: VolatileState, act
             if (!gameId) {
                 return { error: 'Game ID is required.' };
             }
-            const game = await db.getLiveGame(gameId);
+            // 싱글플레이 게임은 메모리 캐시에서 먼저 찾기
+            const { getCachedGame } = await import('../gameCache.js');
+            let game = await getCachedGame(gameId);
+            if (!game) {
+                game = await db.getLiveGame(gameId);
+            }
             if (!game || !game.isSinglePlayer) {
                 return { error: 'Invalid single player game.' };
             }
@@ -923,6 +973,9 @@ export const handleSinglePlayerAction = async (volatileState: VolatileState, act
             
             // 게임 상태가 변경되었을 수 있으므로 저장 및 브로드캐스트
             if (result !== null && result !== undefined && !result.error) {
+                // 게임 캐시 업데이트 (다음 미사일 아이템 사용 시 게임을 찾을 수 있도록)
+                const { updateGameCache } = await import('../gameCache.js');
+                updateGameCache(game);
                 await db.saveGame(game);
                 const { broadcastToGameParticipants } = await import('../socket.js');
                 broadcastToGameParticipants(game.id, { type: 'GAME_UPDATE', payload: { [game.id]: game } }, game);
@@ -938,7 +991,12 @@ export const handleSinglePlayerAction = async (volatileState: VolatileState, act
             if (!gameId) {
                 return { error: 'Game ID is required.' };
             }
-            const game = await db.getLiveGame(gameId);
+            // 싱글플레이 게임은 메모리 캐시에서 먼저 찾기
+            const { getCachedGame } = await import('../gameCache.js');
+            let game = await getCachedGame(gameId);
+            if (!game) {
+                game = await db.getLiveGame(gameId);
+            }
             if (!game || !game.isSinglePlayer) {
                 return { error: 'Invalid single player game.' };
             }

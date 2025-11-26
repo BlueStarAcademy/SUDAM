@@ -40,7 +40,7 @@ export function getSelectiveUserUpdate(
         'CHANGE_NICKNAME': ['nickname', 'diamonds'],
         'UPDATE_MBTI': ['mbti', 'isMbtiPublic', 'diamonds'],
         'MANNER_ACTION': ['mannerScore', 'mannerMasteryApplied', 'actionPoints'],
-        'RESET_STAT_POINTS': ['spentStatPoints', 'diamonds'],
+        'RESET_STAT_POINTS': ['spentStatPoints', 'gold', 'lastStatResetDate', 'statResetCountToday'],
         'CONFIRM_STAT_ALLOCATION': ['spentStatPoints'],
         'SAVE_PRESET': ['equipmentPresets'],
         'APPLY_PRESET': ['equipment', 'inventory'],

@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useAppContext } from '../hooks/useAppContext.js';
+import { useRanking } from '../hooks/useRanking.js';
 import { User } from '../types.js';
 import Avatar from './Avatar.js';
 import { AVATAR_POOL, BORDER_POOL } from '../constants';
@@ -36,44 +37,24 @@ const RankingRow = ({ user, rank, value, isCurrentUser, onViewUser }: { user: Us
 };
 
 const GameRankingBoard: React.FC<GameRankingBoardProps> = ({ isTopmost }) => {
-    const { allUsers, currentUserWithStatus, handlers } = useAppContext();
+    const { currentUserWithStatus, handlers } = useAppContext();
     const [activeTab, setActiveTab] = useState<'combat' | 'manner'>('combat');
 
+    const rankingType = activeTab === 'combat' ? 'combat' : 'manner';
+    const { rankings: rankingEntries, loading, error } = useRanking(rankingType);
+
     const rankings = useMemo(() => {
-        if (!allUsers || allUsers.length === 0) {
-            return [];
-        }
-        
-        if (activeTab === 'combat') {
-            const result = allUsers
-                .filter(user => user && user.id && user.inventory !== undefined)
-                .map(user => {
-                    try {
-                        const totalStats = calculateTotalStats(user);
-                        const sum = Object.values(totalStats).reduce((acc, value) => acc + value, 0);
-                        return { user, value: sum };
-                    } catch (error) {
-                        console.error('[GameRankingBoard] Error calculating stats for user:', user?.id, error);
-                        return { user, value: 0 };
-                    }
-                })
-                .filter(item => item.value >= 0) // 에러가 발생한 경우 제외
-                .sort((a, b) => b.value - a.value);
-            if (IS_DEV) {
-                console.debug('[GameRankingBoard] Combat rankings:', result.length, 'users');
-            }
-            return result;
-        } else {
-            const result = allUsers
-                .filter(user => user && user.id)
-                .map(user => ({ user, value: user.mannerScore || 0 }))
-                .sort((a, b) => b.value - a.value);
-            if (IS_DEV) {
-                console.debug('[GameRankingBoard] Manner rankings:', result.length, 'users');
-            }
-            return result;
-        }
-    }, [allUsers, activeTab]);
+        return rankingEntries.map(entry => ({
+            user: {
+                id: entry.id,
+                nickname: entry.nickname,
+                avatarId: entry.avatarId,
+                borderId: entry.borderId
+            } as any,
+            value: entry.score,
+            rank: entry.rank
+        }));
+    }, [rankingEntries]);
 
     // 페이지네이션: 초기 10명, 스크롤 시 10명씩 추가
     const [displayCount, setDisplayCount] = useState(10);
@@ -149,7 +130,7 @@ const GameRankingBoard: React.FC<GameRankingBoardProps> = ({ isTopmost }) => {
             <div className="flex-grow overflow-y-auto pr-1 text-xs flex flex-col gap-1 min-h-0 h-48">
                 {rankings.length === 0 ? (
                     <div className="flex items-center justify-center h-full text-gray-400 text-xs">
-                        {allUsers.length === 0 ? '데이터 로딩 중...' : '랭킹 데이터가 없습니다.'}
+                        {loading ? '데이터 로딩 중...' : error ? '랭킹을 불러오는데 실패했습니다.' : '랭킹 데이터가 없습니다.'}
                     </div>
                 ) : (
                     <>

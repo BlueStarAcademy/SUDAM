@@ -226,13 +226,18 @@ export const handleNegotiationAction = async (volatileState: VolatileState, acti
                 opponent.lastActionPointUpdate = now;
             }
 
-            await db.updateUser(challenger);
-            await db.updateUser(opponent);
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(challenger).catch(err => {
+                console.error(`[ACCEPT_NEGOTIATION] Failed to save challenger ${challenger.id}:`, err);
+            });
+            db.updateUser(opponent).catch(err => {
+                console.error(`[ACCEPT_NEGOTIATION] Failed to save opponent ${opponent.id}:`, err);
+            });
 
             // Broadcast updated action points immediately so clients reflect the deduction
-            const challengerBroadcast = JSON.parse(JSON.stringify(challenger));
-            const opponentBroadcast = JSON.parse(JSON.stringify(opponent));
-            broadcast({ type: 'USER_UPDATE', payload: { [challenger.id]: challengerBroadcast, [opponent.id]: opponentBroadcast } });
+            const { broadcastUserUpdate } = await import('../socket.js');
+            broadcastUserUpdate(challenger, ['actionPoints']);
+            broadcastUserUpdate(opponent, ['actionPoints']);
 
             // 수락 시에는 원래 negotiation.settings를 사용 (발신자가 보낸 설정)
             // settings 파라미터는 UPDATE_NEGOTIATION에서만 사용
@@ -367,16 +372,16 @@ export const handleNegotiationAction = async (volatileState: VolatileState, acti
             });
             if (draftNegId) delete volatileState.negotiations[draftNegId];
             
-            await db.updateUser(user);
-            
-            // 깊은 복사로 updatedUser 생성
-            const updatedUser = JSON.parse(JSON.stringify(user));
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[ACCEPT_NEGOTIATION] Failed to save user ${user.id}:`, err);
+            });
             
             // 게임 생성 후 게임 정보를 먼저 브로드캐스트 (게임 참가자에게만 전송)
-            const { broadcastToGameParticipants } = await import('../socket.js');
+            const { broadcastToGameParticipants, broadcastUserUpdate } = await import('../socket.js');
             broadcastToGameParticipants(game.id, { type: 'GAME_UPDATE', payload: { [game.id]: game } }, game);
             // 그 다음 사용자 업데이트 브로드캐스트 (actionPoints 변경 반영)
-            broadcast({ type: 'USER_UPDATE', payload: { [user.id]: updatedUser } });
+            broadcastUserUpdate(user, ['actionPoints']);
             // 사용자 상태 브로드캐스트
             broadcast({ type: 'USER_STATUS_UPDATE', payload: volatileState.userStatuses });
             broadcast({ type: 'NEGOTIATION_UPDATE', payload: { negotiations: volatileState.negotiations, userStatuses: volatileState.userStatuses } });

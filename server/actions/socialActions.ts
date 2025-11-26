@@ -46,7 +46,11 @@ export const handleSocialAction = async (volatileState: VolatileState, action: S
                         return { error: 'Unknown tournament type.' };
                 }
                 (user as any)[stateKey] = activeTournament;
-                await db.updateUser(user);
+                
+                // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+                db.updateUser(user).catch(err => {
+                    console.error(`[LEAVE_TOURNAMENT_VIEW] Failed to save user ${user.id}:`, err);
+                });
 
                 if (volatileState.activeTournaments) {
                     delete volatileState.activeTournaments[user.id];
@@ -130,7 +134,12 @@ export const handleSocialAction = async (volatileState: VolatileState, action: S
                 if (volatileState.userConsecutiveChatMessages[user.id].count >= 3 && !user.isAdmin) {
                     const banDurationMinutes = 3;
                     user.chatBanUntil = now + banDurationMinutes * 60 * 1000;
-                    await db.updateUser(user);
+                    
+                    // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+                    db.updateUser(user).catch(err => {
+                        console.error(`[SEND_CHAT_MESSAGE] Failed to save user ${user.id}:`, err);
+                    });
+                    
                     delete volatileState.userConsecutiveChatMessages[user.id];
 
                     const banMessage: ChatMessage = {
@@ -171,12 +180,15 @@ export const handleSocialAction = async (volatileState: VolatileState, action: S
 
             if (text && GREETINGS.some(g => text.toLowerCase().includes(g))) {
                 updateQuestProgress(user, 'chat_greeting');
-                await db.updateUser(user);
-                const selectiveUpdate = getSelectiveUserUpdate(user, '', { includeAll: true });
-                broadcast({
-                    type: 'USER_UPDATE',
-                    payload: { [user.id]: selectiveUpdate }
+                
+                // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+                db.updateUser(user).catch(err => {
+                    console.error(`[SEND_CHAT_MESSAGE] Failed to save user ${user.id}:`, err);
                 });
+
+                // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+                const { broadcastUserUpdate } = await import('../socket.js');
+                broadcastUserUpdate(user, ['quests']);
             }
 
             // 채팅 메시지를 모든 클라이언트에 브로드캐스트

@@ -22,16 +22,20 @@ export const handleUserAction = async (volatileState: types.VolatileState, actio
             const { avatarId } = payload;
             if (AVATAR_POOL.some(a => a.id === avatarId)) {
                 user.avatarId = avatarId;
-                await db.updateUser(user);
             } else {
                 return { error: 'Invalid avatar ID.' };
             }
             // 선택적 필드만 반환 (메시지 크기 최적화)
             const updatedUser = getSelectiveUserUpdate(user, 'UPDATE_AVATAR');
             
-            // WebSocket으로 사용자 업데이트 브로드캐스트 (전체 객체는 WebSocket에서만)
-            const fullUserForBroadcast = JSON.parse(JSON.stringify(user));
-            broadcast({ type: 'USER_UPDATE', payload: { [user.id]: fullUserForBroadcast } });
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[UserAction] Failed to save user ${user.id} after UPDATE_AVATAR:`, err);
+            });
+            
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+            const { broadcastUserUpdate } = await import('../socket.js');
+            broadcastUserUpdate(user, ['avatarId']);
             
             return { clientResponse: { updatedUser } };
         }
@@ -39,16 +43,20 @@ export const handleUserAction = async (volatileState: types.VolatileState, actio
             const { borderId } = payload;
             if (BORDER_POOL.some(b => b.id === borderId)) {
                 user.borderId = borderId;
-                await db.updateUser(user);
             } else {
                 return { error: 'Invalid border ID.' };
             }
             // 선택적 필드만 반환 (메시지 크기 최적화)
             const updatedUser = getSelectiveUserUpdate(user, 'UPDATE_BORDER');
             
-            // WebSocket으로 사용자 업데이트 브로드캐스트 (전체 객체는 WebSocket에서만)
-            const fullUserForBroadcast = JSON.parse(JSON.stringify(user));
-            broadcast({ type: 'USER_UPDATE', payload: { [user.id]: fullUserForBroadcast } });
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[UserAction] Failed to save user ${user.id} after UPDATE_BORDER:`, err);
+            });
+            
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+            const { broadcastUserUpdate } = await import('../socket.js');
+            broadcastUserUpdate(user, ['borderId']);
             
             return { clientResponse: { updatedUser } };
         }
@@ -69,13 +77,18 @@ export const handleUserAction = async (volatileState: types.VolatileState, actio
                 user.diamonds -= cost;
             }
             user.nickname = newNickname;
-            await db.updateUser(user);
+            
             // 선택적 필드만 반환 (메시지 크기 최적화)
             const updatedUser = getSelectiveUserUpdate(user, 'CHANGE_NICKNAME');
             
-            // WebSocket으로 사용자 업데이트 브로드캐스트 (전체 객체는 WebSocket에서만)
-            const fullUserForBroadcast = JSON.parse(JSON.stringify(user));
-            broadcast({ type: 'USER_UPDATE', payload: { [user.id]: fullUserForBroadcast } });
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[UserAction] Failed to save user ${user.id} after CHANGE_NICKNAME:`, err);
+            });
+            
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+            const { broadcastUserUpdate } = await import('../socket.js');
+            broadcastUserUpdate(user, ['nickname', 'diamonds']);
             
             return { clientResponse: { updatedUser } };
         }
@@ -95,14 +108,17 @@ export const handleUserAction = async (volatileState: types.VolatileState, actio
                 user.diamonds = (user.diamonds || 0) + 100;
             }
             
-            await db.updateUser(user);
-            
             // 선택적 필드만 반환 (메시지 크기 최적화)
             const updatedUser = getSelectiveUserUpdate(user, 'UPDATE_MBTI');
             
-            // WebSocket으로 사용자 업데이트 브로드캐스트 (전체 객체는 WebSocket에서만)
-            const fullUserForBroadcast = JSON.parse(JSON.stringify(user));
-            broadcast({ type: 'USER_UPDATE', payload: { [user.id]: fullUserForBroadcast } });
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[UserAction] Failed to save user ${user.id} after UPDATE_MBTI:`, err);
+            });
+            
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+            const { broadcastUserUpdate } = await import('../socket.js');
+            broadcastUserUpdate(user, ['mbti', 'isMbtiPublic', 'diamonds']);
             
             // 첫 설정 시 다이아 100개 획득 아이템 생성
             const mbtiRewardItem = wasFirstTime ? {
@@ -126,22 +142,53 @@ export const handleUserAction = async (volatileState: types.VolatileState, actio
             };
         }
         case 'RESET_STAT_POINTS': {
-            const cost = 500;
-            if (user.diamonds < cost && !user.isAdmin) return { error: `다이아가 부족합니다. (필요: ${cost})` };
+            const cost = 1000;
+            const maxDailyResets = 2;
+            const currentDay = new Date().toDateString();
+            const lastResetDate = user.lastStatResetDate;
+            const statResetCountToday = user.statResetCountToday || 0;
 
-            if (!user.isAdmin) {
-                user.diamonds -= cost;
+            // 골드 부족 확인
+            if (user.gold < cost && !user.isAdmin) {
+                return { error: `골드가 부족합니다. (필요: ${cost})` };
             }
+
+            // 일일 리셋 횟수 확인
+            if (lastResetDate === currentDay && statResetCountToday >= maxDailyResets && !user.isAdmin) {
+                return { error: `오늘 능력치 초기화는 최대 ${maxDailyResets}번까지 가능합니다.` };
+            }
+
+            // 골드 차감
+            if (!user.isAdmin) {
+                user.gold -= cost;
+            }
+
+            // 리셋 횟수 업데이트
+            if (lastResetDate !== currentDay) {
+                // 날짜가 바뀌었으면 카운트 리셋
+                user.lastStatResetDate = currentDay;
+                user.statResetCountToday = 1;
+            } else {
+                // 같은 날이면 카운트 증가
+                user.statResetCountToday = (user.statResetCountToday || 0) + 1;
+            }
+
+            // 능력치 포인트 초기화
             for (const key of Object.values(types.CoreStat)) {
                 user.spentStatPoints[key] = 0;
             }
-            await db.updateUser(user);
+            
             // 선택적 필드만 반환 (메시지 크기 최적화)
             const updatedUser = getSelectiveUserUpdate(user, 'RESET_STAT_POINTS');
             
-            // WebSocket으로 사용자 업데이트 브로드캐스트 (전체 객체는 WebSocket에서만)
-            const fullUserForBroadcast = JSON.parse(JSON.stringify(user));
-            broadcast({ type: 'USER_UPDATE', payload: { [user.id]: fullUserForBroadcast } });
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[UserAction] Failed to save user ${user.id} after RESET_STAT_POINTS:`, err);
+            });
+            
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+            const { broadcastUserUpdate } = await import('../socket.js');
+            broadcastUserUpdate(user, ['spentStatPoints', 'gold', 'lastStatResetDate', 'statResetCountToday']);
             
             return { clientResponse: { updatedUser } };
         }
@@ -180,13 +227,18 @@ export const handleUserAction = async (volatileState: types.VolatileState, actio
             }
 
             user.spentStatPoints = newStatPoints;
-            await db.updateUser(user);
+            
             // 선택적 필드만 반환 (메시지 크기 최적화)
             const updatedUser = getSelectiveUserUpdate(user, 'CONFIRM_STAT_ALLOCATION');
             
-            // WebSocket으로 사용자 업데이트 브로드캐스트 (전체 객체는 WebSocket에서만)
-            const fullUserForBroadcast = JSON.parse(JSON.stringify(user));
-            broadcast({ type: 'USER_UPDATE', payload: { [user.id]: fullUserForBroadcast } });
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[UserAction] Failed to save user ${user.id} after CONFIRM_STAT_ALLOCATION:`, err);
+            });
+            
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+            const { broadcastUserUpdate } = await import('../socket.js');
+            broadcastUserUpdate(user, ['spentStatPoints']);
             
             return { clientResponse: { updatedUser } };
         }
@@ -218,13 +270,18 @@ export const handleUserAction = async (volatileState: types.VolatileState, actio
                 user.equipmentPresets = [];
             }
             user.equipmentPresets[index] = preset;
-            await db.updateUser(user);
+            
             // 선택적 필드만 반환 (메시지 크기 최적화)
             const updatedUser = getSelectiveUserUpdate(user, 'SAVE_PRESET');
             
-            // WebSocket으로 사용자 업데이트 브로드캐스트 (전체 객체는 WebSocket에서만)
-            const fullUserForBroadcast = JSON.parse(JSON.stringify(user));
-            broadcast({ type: 'USER_UPDATE', payload: { [user.id]: fullUserForBroadcast } });
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[UserAction] Failed to save user ${user.id} after SAVE_PRESET:`, err);
+            });
+            
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+            const { broadcastUserUpdate } = await import('../socket.js');
+            broadcastUserUpdate(user, ['equipmentPresets']);
             
             return { clientResponse: { updatedUser } };
         }
@@ -275,13 +332,17 @@ export const handleUserAction = async (volatileState: types.VolatileState, actio
             const { validateAndFixEquipmentConsistency } = await import('./inventoryActions.js');
             validateAndFixEquipmentConsistency(user);
 
-            await db.updateUser(user);
             // 선택적 필드만 반환 (메시지 크기 최적화)
             const updatedUser = getSelectiveUserUpdate(user, 'APPLY_PRESET');
             
-            // WebSocket으로 사용자 업데이트 브로드캐스트 (전체 객체는 WebSocket에서만)
-            const fullUserForBroadcast = JSON.parse(JSON.stringify(user));
-            broadcast({ type: 'USER_UPDATE', payload: { [user.id]: fullUserForBroadcast } });
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[UserAction] Failed to save user ${user.id} after APPLY_PRESET:`, err);
+            });
+            
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+            const { broadcastUserUpdate } = await import('../socket.js');
+            broadcastUserUpdate(user, ['equipment', 'inventory']);
             
             return { clientResponse: { updatedUser } };
         }
@@ -395,11 +456,15 @@ export const handleUserAction = async (volatileState: types.VolatileState, actio
             };
             
             user.savedGameRecords.push(record);
-            await db.updateUser(user);
             
-            // WebSocket으로 사용자 업데이트 브로드캐스트
-            const fullUserForBroadcast = JSON.parse(JSON.stringify(user));
-            broadcast({ type: 'USER_UPDATE', payload: { [user.id]: fullUserForBroadcast } });
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[UserAction] Failed to save user ${user.id} after SAVE_GAME_RECORD:`, err);
+            });
+            
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+            const { broadcastUserUpdate } = await import('../socket.js');
+            broadcastUserUpdate(user, ['savedGameRecords']);
             
             return { clientResponse: { success: true, recordId: record.id } };
         }
@@ -416,11 +481,15 @@ export const handleUserAction = async (volatileState: types.VolatileState, actio
             }
             
             user.savedGameRecords.splice(recordIndex, 1);
-            await db.updateUser(user);
             
-            // WebSocket으로 사용자 업데이트 브로드캐스트
-            const fullUserForBroadcast = JSON.parse(JSON.stringify(user));
-            broadcast({ type: 'USER_UPDATE', payload: { [user.id]: fullUserForBroadcast } });
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[UserAction] Failed to save user ${user.id} after DELETE_GAME_RECORD:`, err);
+            });
+            
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+            const { broadcastUserUpdate } = await import('../socket.js');
+            broadcastUserUpdate(user, ['savedGameRecords']);
             
             return { clientResponse: { success: true } };
         }
@@ -459,11 +528,14 @@ export const handleUserAction = async (volatileState: types.VolatileState, actio
             await updateUserCredentialUsername(credentials.username, trimmedUsername);
             
             user.username = trimmedUsername;
-            await db.updateUser(user);
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[UserAction] Failed to save user ${user.id} after CHANGE_USERNAME:`, err);
+            });
             
-            // WebSocket으로 사용자 업데이트 브로드캐스트
-            const fullUserForBroadcast = JSON.parse(JSON.stringify(user));
-            broadcast({ type: 'USER_UPDATE', payload: { [user.id]: fullUserForBroadcast } });
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화된 함수 사용)
+            const { broadcastUserUpdate } = await import('../socket.js');
+            broadcastUserUpdate(user, ['username']);
             
             return { clientResponse: { success: true, message: '아이디가 변경되었습니다.' } };
         }

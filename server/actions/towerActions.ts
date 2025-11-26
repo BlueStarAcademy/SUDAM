@@ -453,10 +453,14 @@ export const handleTowerAction = async (volatileState: VolatileState, action: Se
             game.whitePatternStones = whitePattern;
 
             await db.saveGame(game);
-            await db.updateUser(user);
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[TOWER_BATTLE] Failed to save user ${user.id}:`, err);
+            });
+
             const { broadcastToGameParticipants, broadcastUserUpdate } = await import('../socket.js');
             broadcastToGameParticipants(game.id, { type: 'GAME_UPDATE', payload: { [game.id]: game } }, game);
-            broadcastUserUpdate(user);
+            broadcastUserUpdate(user, ['actionPoints', 'towerFloor']);
             
             return { clientResponse: { updatedUser: user } };
         }
@@ -516,10 +520,14 @@ export const handleTowerAction = async (volatileState: VolatileState, action: Se
             (game as any).blackTurnLimitBonus += 3;
 
             await db.saveGame(game);
-            await db.updateUser(user);
+            // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
+            db.updateUser(user).catch(err => {
+                console.error(`[TOWER_REWARD] Failed to save user ${user.id}:`, err);
+            });
+
             const { broadcastToGameParticipants, broadcastUserUpdate } = await import('../socket.js');
             broadcastToGameParticipants(game.id, { type: 'GAME_UPDATE', payload: { [game.id]: game } }, game);
-            broadcastUserUpdate(user);
+            broadcastUserUpdate(user, ['inventory', 'gold', 'diamonds', 'towerFloor']);
             
             return { clientResponse: { updatedUser: user, game } };
         }

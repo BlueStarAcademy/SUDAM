@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useAppContext } from '../hooks/useAppContext.js';
+import { useRanking } from '../hooks/useRanking.js';
 import { User } from '../types.js';
 import Avatar from './Avatar.js';
 import { AVATAR_POOL, BORDER_POOL, SPECIAL_GAME_MODES, PLAYFUL_GAME_MODES } from '../constants';
@@ -35,87 +36,24 @@ const RankingRow = ({ user, rank, value, isCurrentUser, onViewUser }: { user: Us
 };
 
 const BadukRankingBoard: React.FC<BadukRankingBoardProps> = ({ isTopmost }) => {
-    const { allUsers, currentUserWithStatus, handlers } = useAppContext();
+    const { currentUserWithStatus, handlers } = useAppContext();
     const [activeTab, setActiveTab] = useState<'strategic' | 'playful' | 'championship'>('strategic');
 
+    const rankingType = activeTab === 'championship' ? 'championship' : (activeTab === 'strategic' ? 'strategic' : 'playful');
+    const { rankings: rankingEntries, loading, error } = useRanking(rankingType);
+
     const rankings = useMemo(() => {
-        if (!allUsers || allUsers.length === 0) {
-            return [];
-        }
-        
-        if (activeTab === 'championship') {
-            // 챔피언십: 누적랭킹점수(cumulativeTournamentScore) 사용
-            const result = allUsers
-                .filter(user => user && user.id)
-                .map(user => ({
-                    user,
-                    value: user.cumulativeTournamentScore || 0
-                }))
-                .sort((a, b) => b.value - a.value)
-                .map((entry, index) => ({
-                    ...entry,
-                    rank: index + 1
-                }));
-            if (IS_DEV) {
-                console.debug('[BadukRankingBoard] Championship rankings (cumulative):', result.length, 'users');
-            }
-            return result;
-        } else {
-            const mode = activeTab === 'strategic' ? 'strategic' : 'playful';
-            const gameModes = mode === 'strategic' ? SPECIAL_GAME_MODES : PLAYFUL_GAME_MODES;
-            const scoreMode = mode === 'strategic' ? 'standard' : 'playful';
-            
-            // 10판 이상의 대국을 한 유저는 모두 표시 (점수가 없어도 포함)
-            const result = allUsers
-                .filter(user => {
-                    if (!user || !user.id) return false;
-                    // 총 게임 수 계산 (모든 종류의 전략바둑 또는 놀이바둑 경기의 누적 판수)
-                    let totalGames = 0;
-                    if (user.stats) {
-                        for (const gameMode of gameModes) {
-                            const gameStats = user.stats[gameMode.mode];
-                            if (gameStats) {
-                                totalGames += (gameStats.wins || 0) + (gameStats.losses || 0);
-                            }
-                        }
-                    }
-                    // 10판 이상이면 포함 (점수와 무관)
-                    return totalGames >= 10;
-                })
-                .map(user => {
-                    // dailyRankings가 있으면 우선 사용
-                    if (user.dailyRankings?.[mode]) {
-                        return {
-                            user,
-                            value: user.dailyRankings[mode].score,
-                            rank: user.dailyRankings[mode].rank
-                        };
-                    } else {
-                        // 없으면 cumulativeRankingScore 사용 (차이값 그대로 표시)
-                        return {
-                            user,
-                            value: user.cumulativeRankingScore?.[scoreMode] ?? 0
-                        };
-                    }
-                })
-                .sort((a, b) => {
-                    // rank가 있으면 rank 기준으로 정렬, 없으면 점수 기준으로 정렬
-                    if (a.rank !== undefined && b.rank !== undefined) {
-                        return a.rank - b.rank;
-                    }
-                    return b.value - a.value;
-                })
-                .map((entry, index) => ({
-                    ...entry,
-                    rank: entry.rank ?? (index + 1)
-                }));
-            
-            if (IS_DEV) {
-                console.debug('[BadukRankingBoard]', mode, 'rankings:', result.length, 'users');
-            }
-            return result;
-        }
-    }, [allUsers, activeTab]);
+        return rankingEntries.map(entry => ({
+            user: {
+                id: entry.id,
+                nickname: entry.nickname,
+                avatarId: entry.avatarId,
+                borderId: entry.borderId
+            } as any,
+            value: activeTab === 'championship' ? entry.score : entry.score, // championship은 누적 점수, strategic/playful은 랭킹 점수
+            rank: entry.rank
+        }));
+    }, [rankingEntries, activeTab]);
 
     // 페이지네이션: 초기 10명, 스크롤 시 10명씩 추가
     const [displayCount, setDisplayCount] = useState(10);
@@ -166,12 +104,8 @@ const BadukRankingBoard: React.FC<BadukRankingBoardProps> = ({ isTopmost }) => {
         if (activeTab === 'championship') {
             // 누적랭킹점수 사용
             const cumulativeScore = currentUserWithStatus.cumulativeTournamentScore || 0;
-            // 전체 유저 중에서 순위 계산
-            const allScores = allUsers
-                .filter(u => u && u.id)
-                .map(u => u.cumulativeTournamentScore || 0)
-                .sort((a, b) => b - a);
-            const rank = allScores.findIndex(score => score <= cumulativeScore) + 1;
+            // rankings에서 순위 찾기
+            const rank = rankings.findIndex(r => r.value <= cumulativeScore) + 1;
             return { user: currentUserWithStatus, value: cumulativeScore, rank: rank || 'N/A' };
         } else {
             const mode = activeTab === 'strategic' ? 'strategic' : 'playful';
@@ -194,14 +128,20 @@ const BadukRankingBoard: React.FC<BadukRankingBoardProps> = ({ isTopmost }) => {
                 return null;
             }
             
+            // cumulativeRankingScore는 이미 1200에서의 차이값 (기본점수 제외)
+            const score = currentUserWithStatus.cumulativeRankingScore?.[scoreMode] || 0;
             const dailyRanking = currentUserWithStatus.dailyRankings?.[mode];
-            if (dailyRanking) {
-                return { user: currentUserWithStatus, value: dailyRanking.score, rank: dailyRanking.rank };
+            
+            // rankings에서 순위 찾기
+            const rankInList = rankings.findIndex(r => r.user && r.user.id === currentUserWithStatus.id);
+            if (rankInList !== -1) {
+                return { user: currentUserWithStatus, value: score, rank: rankings[rankInList].rank };
             }
-            // cumulativeRankingScore는 차이값 그대로 표시
-            return { user: currentUserWithStatus, value: currentUserWithStatus.cumulativeRankingScore?.[scoreMode] || 0, rank: 'N/A' };
+            
+            // rankings에 없으면 rank만 'N/A'로 표시
+            return { user: currentUserWithStatus, value: score, rank: 'N/A' };
         }
-    }, [currentUserWithStatus, activeTab, rankings, allUsers]);
+    }, [currentUserWithStatus, activeTab, rankings]);
 
     return (
         <div className="bg-panel border border-color text-on-panel rounded-lg p-2 flex flex-col gap-2 h-full">
@@ -227,9 +167,17 @@ const BadukRankingBoard: React.FC<BadukRankingBoardProps> = ({ isTopmost }) => {
                 </button>
             </div>
             <div className="flex-grow overflow-y-auto pr-1 text-xs flex flex-col gap-1 min-h-0 h-48">
-                {rankings.length === 0 ? (
+                {loading ? (
                     <div className="flex items-center justify-center h-full text-gray-400 text-xs">
-                        {allUsers.length === 0 ? '데이터 로딩 중...' : '랭킹 데이터가 없습니다.'}
+                        데이터 로딩 중...
+                    </div>
+                ) : error ? (
+                    <div className="flex items-center justify-center h-full text-red-400 text-xs">
+                        랭킹을 불러오는데 실패했습니다.
+                    </div>
+                ) : rankings.length === 0 ? (
+                    <div className="flex items-center justify-center h-full text-gray-400 text-xs">
+                        랭킹 데이터가 없습니다.
                     </div>
                 ) : (
                     <>
@@ -239,8 +187,8 @@ const BadukRankingBoard: React.FC<BadukRankingBoardProps> = ({ isTopmost }) => {
                             </div>
                         )}
                         <div className="flex flex-col gap-1">
-                            {displayedRankings.filter(r => r && r.user && r.user.id).map((r, i) => (
-                                <RankingRow key={r.user.id} user={r.user} rank={i + 1} value={r.value} isCurrentUser={false} onViewUser={handlers.openViewingUser} />
+                            {displayedRankings.filter(r => r && r.user && r.user.id).map((r) => (
+                                <RankingRow key={r.user.id} user={r.user} rank={r.rank} value={r.value} isCurrentUser={false} onViewUser={handlers.openViewingUser} />
                             ))}
                             {displayCount < rankings.length && (
                                 <div ref={loadMoreRef} className="text-center text-gray-400 py-2 text-xs">
