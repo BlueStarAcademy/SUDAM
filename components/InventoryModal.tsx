@@ -1077,23 +1077,45 @@ const InventoryModal: React.FC<InventoryModalProps> = ({ currentUser: propCurren
                                             )}
                                         </div>
                                         <div className={`absolute bottom-2 left-0 right-0 flex ${isMobile ? 'flex-col gap-1.5' : 'justify-center gap-2'} px-4 flex-shrink-0`}>
-                                            {selectedItem.type === 'consumable' && (
-                                                <>
-                                                    <Button onClick={() => onAction({ type: 'USE_ITEM', payload: { itemId: selectedItem.id } })} colorScheme="blue" className={`w-full ${isMobile ? '!py-2' : '!py-1'}`} style={{ fontSize: `${isMobile ? Math.max(13, Math.round(14 * scaleFactor * mobileTextScale)) : Math.max(11, Math.round(12 * scaleFactor * mobileTextScale))}px` }}>
-                                                        사용
-                                                    </Button>
-                                                    {selectedItem.quantity && selectedItem.quantity > 1 && (
-                                                        <Button
-                                                            onClick={() => { setItemToUseBulk(selectedItem); setShowUseQuantityModal(true); }}
-                                                            colorScheme="purple"
-                                                            className={`w-full ${isMobile ? '!py-2' : '!py-1'}`}
-                                                            style={{ fontSize: `${isMobile ? Math.max(13, Math.round(14 * scaleFactor * mobileTextScale)) : Math.max(11, Math.round(12 * scaleFactor * mobileTextScale))}px` }}
-                                                        >
-                                                            일괄 사용
-                                                        </Button>
-                                                    )}
-                                                </>
-                                            )}
+                                            {selectedItem.type === 'consumable' && (() => {
+                                                const consumableItem = CONSUMABLE_ITEMS.find(ci => ci.name === selectedItem.name || ci.name === selectedItem.name.replace('꾸러미', ' 꾸러미') || ci.name === selectedItem.name.replace(' 꾸러미', '꾸러미'));
+                                                const isUsable = consumableItem?.usable !== false; // 기본값은 true
+                                                const isSellable = consumableItem?.sellable !== false; // 기본값은 true
+                                                
+                                                return (
+                                                    <>
+                                                        {isUsable && (
+                                                            <>
+                                                                <Button onClick={() => onAction({ type: 'USE_ITEM', payload: { itemId: selectedItem.id } })} colorScheme="blue" className={`w-full ${isMobile ? '!py-2' : '!py-1'}`} style={{ fontSize: `${isMobile ? Math.max(13, Math.round(14 * scaleFactor * mobileTextScale)) : Math.max(11, Math.round(12 * scaleFactor * mobileTextScale))}px` }}>
+                                                                    사용
+                                                                </Button>
+                                                                {selectedItem.quantity && selectedItem.quantity > 1 && (
+                                                                    <Button
+                                                                        onClick={() => { setItemToUseBulk(selectedItem); setShowUseQuantityModal(true); }}
+                                                                        colorScheme="purple"
+                                                                        className={`w-full ${isMobile ? '!py-2' : '!py-1'}`}
+                                                                        style={{ fontSize: `${isMobile ? Math.max(13, Math.round(14 * scaleFactor * mobileTextScale)) : Math.max(11, Math.round(12 * scaleFactor * mobileTextScale))}px` }}
+                                                                    >
+                                                                        일괄 사용
+                                                                    </Button>
+                                                                )}
+                                                            </>
+                                                        )}
+                                                        {isSellable && (
+                                                            <>
+                                                                <Button onClick={() => setItemToSell(selectedItem)} colorScheme="red" className={`w-full ${isMobile ? '!py-2' : '!py-1'}`} style={{ fontSize: `${isMobile ? Math.max(13, Math.round(14 * scaleFactor * mobileTextScale)) : Math.max(11, Math.round(12 * scaleFactor * mobileTextScale))}px` }}>
+                                                                    판매
+                                                                </Button>
+                                                                {selectedItem.quantity && selectedItem.quantity > 1 && (
+                                                                    <Button onClick={() => setItemToSellBulk(selectedItem)} colorScheme="orange" className={`w-full ${isMobile ? '!py-2' : '!py-1'}`} style={{ fontSize: `${isMobile ? Math.max(13, Math.round(14 * scaleFactor * mobileTextScale)) : Math.max(11, Math.round(12 * scaleFactor * mobileTextScale))}px` }}>
+                                                                        일괄 판매
+                                                                    </Button>
+                                                                )}
+                                                            </>
+                                                        )}
+                                                    </>
+                                                );
+                                            })()}
                                             {selectedItem.type === 'material' && (
                                                 <>
                                                     <Button onClick={() => setItemToSell(selectedItem)} colorScheme="red" className={`w-full ${isMobile ? '!py-2' : '!py-1'}`} style={{ fontSize: `${isMobile ? Math.max(13, Math.round(14 * scaleFactor * mobileTextScale)) : Math.max(11, Math.round(12 * scaleFactor * mobileTextScale))}px` }}>
@@ -1104,11 +1126,16 @@ const InventoryModal: React.FC<InventoryModalProps> = ({ currentUser: propCurren
                                                     </Button>
                                                 </>
                                             )}
-                                            {selectedItem.type !== 'material' && (
-                                                <Button onClick={() => setItemToSell(selectedItem)} colorScheme="red" className={`w-full ${isMobile ? '!py-2' : '!py-1'}`} style={{ fontSize: `${isMobile ? Math.max(13, Math.round(14 * scaleFactor * mobileTextScale)) : Math.max(11, Math.round(12 * scaleFactor * mobileTextScale))}px` }}>
-                                                    판매
-                                                </Button>
-                                            )}
+                                            {selectedItem.type !== 'material' && selectedItem.type !== 'consumable' && (() => {
+                                                const consumableItem = selectedItem.type === 'consumable' ? CONSUMABLE_ITEMS.find(ci => ci.name === selectedItem.name || ci.name === selectedItem.name.replace('꾸러미', ' 꾸러미') || ci.name === selectedItem.name.replace(' 꾸러미', '꾸러미')) : null;
+                                                const isSellable = consumableItem?.sellable !== false; // 기본값은 true
+                                                
+                                                return isSellable ? (
+                                                    <Button onClick={() => setItemToSell(selectedItem)} colorScheme="red" className={`w-full ${isMobile ? '!py-2' : '!py-1'}`} style={{ fontSize: `${isMobile ? Math.max(13, Math.round(14 * scaleFactor * mobileTextScale)) : Math.max(11, Math.round(12 * scaleFactor * mobileTextScale))}px` }}>
+                                                        판매
+                                                    </Button>
+                                                ) : null;
+                                            })()}
                                         </div>
                                     </>
                                 ) : (

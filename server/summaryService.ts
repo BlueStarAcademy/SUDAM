@@ -242,12 +242,19 @@ const processTowerGameSummary = async (game: LiveGameSession) => {
     if (isWinner) {
         // 클리어한 층 재도전 여부 확인
         const isCleared = floor <= userTowerFloor;
+        const userMonthlyTowerFloor = (user as any).monthlyTowerFloor ?? 0;
         
-        // towerFloor 업데이트 (endGame에서 이미 업데이트했을 수 있지만, 여기서도 확인하여 보장)
+        // towerFloor 업데이트 (현재 층이 사용자의 최고 층수보다 높으면 업데이트)
         if (floor > userTowerFloor) {
             user.towerFloor = floor;
             user.lastTowerClearTime = Date.now();
             console.log(`[Tower Summary] Updating towerFloor: ${userTowerFloor} -> ${floor}`);
+        }
+        
+        // monthlyTowerFloor 업데이트 (현재 층이 사용자의 월간 최고 층수보다 높으면 업데이트)
+        if (floor > userMonthlyTowerFloor) {
+            (user as any).monthlyTowerFloor = floor;
+            console.log(`[Tower Summary] Updating monthlyTowerFloor: ${userMonthlyTowerFloor} -> ${floor}`);
         }
         
         if (isCleared) {
@@ -278,7 +285,60 @@ const processTowerGameSummary = async (game: LiveGameSession) => {
                 }
             }
             
-            console.log(`[Tower Summary] Floor ${floor} - First clear reward: gold=${rewards.gold}, exp=${rewards.exp}, items=${rewards.items?.length || 0}`);
+            // 도전의 탑 아이템 획득 로직 (30% 확률)
+            const towerItemDropChance = Math.random();
+            if (towerItemDropChance < 0.3) {
+                // 도전의 탑 아이템 정의 (maxOwned 정보 포함)
+                const towerItems = [
+                    { name: '턴 추가', weight: 10, maxOwned: 3 },
+                    { name: '미사일', weight: 10, maxOwned: 2 },
+                    { name: '히든', weight: 5, maxOwned: 2 },
+                    { name: '스캔', weight: 30, maxOwned: 5 },
+                    { name: '배치변경', weight: 45, maxOwned: 5 },
+                ];
+                
+                // 현재 보유량 확인 및 최대 보유수량에 도달하지 않은 아이템만 필터링
+                const availableItems = towerItems.filter(towerItem => {
+                    const inventoryItem = user.inventory.find(inv => inv.name === towerItem.name && inv.type === 'consumable');
+                    const currentQuantity = inventoryItem?.quantity || 0;
+                    return currentQuantity < towerItem.maxOwned;
+                });
+                
+                // 사용 가능한 아이템이 있으면 획득
+                if (availableItems.length > 0) {
+                    // 가중치 기반 랜덤 선택
+                    const totalWeight = availableItems.reduce((sum, item) => sum + item.weight, 0);
+                    let random = Math.random() * totalWeight;
+                    
+                    let selectedItem = availableItems[0];
+                    for (const item of availableItems) {
+                        random -= item.weight;
+                        if (random <= 0) {
+                            selectedItem = item;
+                            break;
+                        }
+                    }
+                    
+                    // 선택된 아이템 생성
+                    const towerItemInstance = createConsumableItemInstance(selectedItem.name);
+                    if (towerItemInstance) {
+                        const { success, updatedInventory, finalItemsToAdd } = addItemsToInventory([...user.inventory], user.inventorySlots, [towerItemInstance]);
+                        
+                        if (success) {
+                            user.inventory = updatedInventory;
+                            if (!summary.items) summary.items = [];
+                            summary.items.push(...finalItemsToAdd);
+                            console.log(`[Tower Summary] Floor ${floor} - Tower item dropped: ${selectedItem.name}`);
+                        } else {
+                            console.error(`[Tower Summary] Insufficient inventory space for tower item ${selectedItem.name} on floor ${floor}`);
+                        }
+                    }
+                } else {
+                    console.log(`[Tower Summary] Floor ${floor} - Tower item drop chance hit, but all items at max owned`);
+                }
+            }
+            
+            console.log(`[Tower Summary] Floor ${floor} - First clear reward: gold=${rewards.gold}, exp=${rewards.exp}, items=${summary.items?.length || 0}`);
         }
     } else {
         // 실패 시 보상 없음
@@ -303,11 +363,49 @@ const processTowerGameSummary = async (game: LiveGameSession) => {
         user.strategyXp = currentXp;
     }
 
-    await db.updateUser(user);
+    // towerFloor 또는 monthlyTowerFloor가 업데이트되었거나, 보상이 지급된 경우 DB 저장
+    const towerFloorUpdated = isWinner && (floor > userTowerFloor || floor > ((user as any).monthlyTowerFloor ?? 0));
+    const hasRewards = summary.gold > 0 || summary.xp.change > 0 || (summary.items && summary.items.length > 0);
+    const levelUpOccurred = user.strategyLevel !== (freshUser.strategyLevel ?? 0);
     
-    // 사용자 업데이트를 클라이언트에 브로드캐스트
-    const { broadcast } = await import('./socket.js');
-    broadcast({ type: 'USER_UPDATE', payload: { [user.id]: user } });
+    // towerFloor 업데이트가 있으면 즉시 저장하고 브로드캐스트 (다음 층 도전 버튼 활성화를 위해)
+    if (towerFloorUpdated) {
+        await db.updateUser(user);
+        console.log(`[Tower Summary] User ${user.nickname} towerFloor updated immediately: ${userTowerFloor} -> ${user.towerFloor}, monthlyTowerFloor=${(user as any).monthlyTowerFloor}`);
+        
+        // towerFloor 업데이트를 즉시 브로드캐스트 (다음 층 도전 버튼 활성화)
+        const { broadcastUserUpdate } = await import('./socket.js');
+        broadcastUserUpdate(user, ['towerFloor', 'monthlyTowerFloor']);
+    }
+    
+    // 보상이 있으면 즉시 저장하고 브로드캐스트 (지연 방지)
+    if (hasRewards) {
+        if (!towerFloorUpdated) {
+            await db.updateUser(user);
+        }
+        console.log(`[Tower Summary] User ${user.nickname} rewards saved immediately: gold=${user.gold}, xp=${user.strategyXp}, level=${user.strategyLevel}`);
+        
+        // 사용자 업데이트를 즉시 브로드캐스트 (보상 지급 확인)
+        const { broadcastUserUpdate } = await import('./socket.js');
+        const fieldsToUpdate = ['gold', 'diamonds', 'strategyXp', 'strategyLevel', 'inventory'];
+        if (!towerFloorUpdated) {
+            fieldsToUpdate.push('towerFloor', 'monthlyTowerFloor');
+        }
+        broadcastUserUpdate(user, fieldsToUpdate);
+    }
+    
+    // 레벨업이 있으면 추가로 저장 (towerFloor나 보상이 없었던 경우)
+    if (levelUpOccurred && !towerFloorUpdated && !hasRewards) {
+        await db.updateUser(user);
+        console.log(`[Tower Summary] User ${user.nickname} level up saved: level=${user.strategyLevel}`);
+        
+        const { broadcastUserUpdate } = await import('./socket.js');
+        broadcastUserUpdate(user, ['strategyLevel', 'strategyXp']);
+    }
+    
+    if (!towerFloorUpdated && !hasRewards && !levelUpOccurred) {
+        console.log(`[Tower Summary] No changes to save for user ${user.nickname} (floor ${floor}, already cleared: ${floor <= userTowerFloor})`);
+    }
 };
 
 export const endGame = async (game: LiveGameSession, winner: Player, winReason: WinReason): Promise<void> => {
@@ -347,38 +445,7 @@ export const endGame = async (game: LiveGameSession, winner: Player, winReason: 
     game.isEarlyTermination = isEarlyTermination; // 조기 종료 플래그
     game.badMannerPlayerId = badMannerPlayerId ?? undefined; // 비매너 행동자 ID
 
-    // 도전의 탑 게임 처리
-    if (game.gameCategory === 'tower' && game.towerFloor && winner === Player.Black) {
-        // 사용자가 승리한 경우 (도전의 탑에서는 사용자가 항상 Black)
-        const user = await db.getUser(game.player1.id);
-        if (user) {
-            const currentFloor = game.towerFloor;
-            const userTowerFloor = user.towerFloor ?? 0;
-            const userMonthlyTowerFloor = user.monthlyTowerFloor ?? 0;
-            
-            // 현재 층이 사용자의 최고 층수보다 높거나 같으면 업데이트
-            if (currentFloor >= userTowerFloor) {
-                user.towerFloor = currentFloor;
-                user.lastTowerClearTime = now;
-            }
-            
-            // 현재 층이 사용자의 월간 최고 층수보다 높으면 업데이트
-            if (currentFloor > userMonthlyTowerFloor) {
-                user.monthlyTowerFloor = currentFloor;
-            }
-            
-            if (currentFloor >= userTowerFloor || currentFloor > userMonthlyTowerFloor) {
-                await db.updateUser(user);
-                
-                // 사용자 업데이트 브로드캐스트
-                const { broadcast } = await import('./socket.js');
-                broadcast({ type: 'USER_UPDATE', payload: { [user.id]: user } });
-                
-                console.log(`[Tower] User ${user.nickname} cleared floor ${currentFloor} (monthly: ${user.monthlyTowerFloor ?? 0})`);
-            }
-        }
-    }
-    
+    // 도전의 탑 게임 처리는 processTowerGameSummary에서만 수행 (중복 업데이트 방지)
     if (game.gameCategory === 'tower') {
         await processTowerGameSummary(game);
     } else if (game.isSinglePlayer) {
@@ -929,6 +996,35 @@ const processPlayerSummary = async (
     // 친선전(랭킹전 제외)에서는 골드 보상만 절반으로 감소 (아이템 획득 확률은 유지)
     if (!isNoContest && !game.isRankedGame && !isAiGame) {
         rewards.gold = Math.round(rewards.gold * 0.5);
+    }
+
+    // PVP 게임에서 변경권 획득 로직 (전략바둑, 놀이바둑 PVP 모드만)
+    if (!isNoContest && !isAiGame && !game.isSinglePlayer && game.gameCategory !== 'tower') {
+        const isStrategic = SPECIAL_GAME_MODES.some(m => m.mode === game.mode);
+        const isPlayful = PLAYFUL_GAME_MODES.some(m => m.mode === game.mode);
+        
+        if (isStrategic || isPlayful) {
+            // 승리: 30% 확률, 패배: 5% 확률
+            const dropChance = isWinner ? 0.3 : 0.05;
+            if (Math.random() < dropChance) {
+                // 획득 확정 시: 종류 변경권(45%), 수치 변경권(45%), 신화 변경권(10%)
+                const ticketRandom = Math.random();
+                let ticketName: string;
+                if (ticketRandom < 0.45) {
+                    ticketName = '옵션 종류 변경권';
+                } else if (ticketRandom < 0.9) {
+                    ticketName = '옵션 수치 변경권';
+                } else {
+                    ticketName = '신화 옵션 변경권';
+                }
+                
+                const ticketItem = createConsumableItemInstance(ticketName);
+                if (ticketItem) {
+                    rewards.items.push(ticketItem);
+                    console.log(`[PVP Reward] User ${updatedPlayer.nickname} acquired ${ticketName} from ${isWinner ? 'win' : 'loss'}`);
+                }
+            }
+        }
     }
 
     updatedPlayer.gold += rewards.gold;

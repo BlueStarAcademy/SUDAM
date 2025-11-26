@@ -53,6 +53,15 @@ const TOWER_ITEMS: TowerItem[] = [
         description: '도전의 탑 21~100층에서 사용 가능한 히든 아이템입니다. 상대에게 보이지 않는 돌을 배치할 수 있습니다.'
     },
     {
+        itemId: '스캔',
+        name: '스캔',
+        icon: '/images/button/scan.png',
+        price: { gold: 200 },
+        maxOwned: 5,
+        dailyPurchaseLimit: 5,
+        description: '도전의 탑에서 사용할 수 있는 스캔 아이템입니다. 상대방의 히든 돌을 찾아낼 수 있습니다.'
+    },
+    {
         itemId: '배치변경',
         name: '배치변경',
         icon: '/images/button/reflesh.png',

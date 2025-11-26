@@ -314,8 +314,6 @@ const GameSummaryModal: React.FC<GameSummaryModalProps> = ({ session, currentUse
 
     const avatarUrl = useMemo(() => AVATAR_POOL.find((a: AvatarInfo) => a.id === currentUser.avatarId)?.url, [currentUser.avatarId]);
     const borderUrl = useMemo(() => BORDER_POOL.find((b: BorderInfo) => b.id === currentUser.borderId)?.url, [currentUser.borderId]);
-    const rewardItem = mySummary?.items?.[0];
-    const rewardItemTemplate = rewardItem ? CONSUMABLE_ITEMS.find((item: { name: string; }) => item.name === rewardItem.name) : null;
     
     // 모바일 텍스트 크기 조정
     const mobileTextScale = isMobile ? 0.85 : 1;
@@ -603,29 +601,41 @@ const GameSummaryModal: React.FC<GameSummaryModalProps> = ({ session, currentUse
                                             {(mySummary.gold ?? 0).toLocaleString()}
                                         </p>
                                     </div>
-                                    {/* Box Reward - Square */}
-                                    <div className={`${isMobile ? 'w-16 h-16' : 'w-32 h-32'} ${rewardItem && rewardItemTemplate ? 'bg-gradient-to-br from-purple-600/30 to-purple-800/30 border-2 border-purple-500/50' : 'bg-gray-800/50 border-2 border-gray-700/50'} rounded-lg flex items-center justify-center ${isMobile ? 'p-1' : 'p-2'} shadow-lg`}>
-                                        {rewardItem && rewardItemTemplate ? (
-                                            <div className="flex flex-col items-center justify-center w-full h-full">
-                                                {rewardItemTemplate.image && (
-                                                    <img 
-                                                        src={rewardItemTemplate.image} 
-                                                        alt={rewardItem.name} 
-                                                        className={`${isMobile ? 'w-8 h-8' : 'w-16 h-16'} mb-0.5 object-contain`}
-                                                    />
-                                                )}
-                                                <p className={`font-semibold text-purple-300 text-center leading-tight`} style={{ fontSize: isMobile ? `${6 * mobileTextScale}px` : undefined }}>
-                                                    {rewardItem.name}
-                                                </p>
-                                            </div>
-                                        ) : (
-                                            <div className="flex items-center justify-center w-full h-full">
-                                                <p className={`text-gray-500 text-center`} style={{ fontSize: isMobile ? `${7 * mobileTextScale}px` : undefined }}>
-                                                    보상 없음
-                                                </p>
-                                            </div>
-                                        )}
-                                    </div>
+                                    {/* Items Reward - Multiple items support */}
+                                    {mySummary?.items && mySummary.items.length > 0 ? (
+                                        <div className={`flex flex-wrap gap-1 ${isMobile ? 'w-16' : 'w-32'} justify-center`}>
+                                            {mySummary.items.slice(0, 3).map((item: InventoryItem, idx: number) => {
+                                                const itemTemplate = CONSUMABLE_ITEMS.find((ci: { name: string; }) => ci.name === item.name);
+                                                return (
+                                                    <div key={idx} className={`${isMobile ? 'w-14 h-14' : 'w-28 h-28'} bg-gradient-to-br from-purple-600/30 to-purple-800/30 border-2 border-purple-500/50 rounded-lg flex flex-col items-center justify-center ${isMobile ? 'p-1' : 'p-2'} shadow-lg`}>
+                                                        {itemTemplate?.image && (
+                                                            <img 
+                                                                src={itemTemplate.image} 
+                                                                alt={item.name} 
+                                                                className={`${isMobile ? 'w-6 h-6' : 'w-12 h-12'} mb-0.5 object-contain`}
+                                                            />
+                                                        )}
+                                                        <p className={`font-semibold text-purple-300 text-center leading-tight`} style={{ fontSize: isMobile ? `${5 * mobileTextScale}px` : undefined }}>
+                                                            {item.name}
+                                                        </p>
+                                                    </div>
+                                                );
+                                            })}
+                                            {mySummary.items.length > 3 && (
+                                                <div className={`${isMobile ? 'w-14 h-14' : 'w-28 h-28'} bg-gray-800/50 border-2 border-gray-700/50 rounded-lg flex items-center justify-center ${isMobile ? 'p-1' : 'p-2'}`}>
+                                                    <p className={`text-gray-400 text-center`} style={{ fontSize: isMobile ? `${5 * mobileTextScale}px` : undefined }}>
+                                                        +{mySummary.items.length - 3}
+                                                    </p>
+                                                </div>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <div className={`${isMobile ? 'w-16 h-16' : 'w-32 h-32'} bg-gray-800/50 border-2 border-gray-700/50 rounded-lg flex items-center justify-center ${isMobile ? 'p-1' : 'p-2'} shadow-lg`}>
+                                            <p className={`text-gray-500 text-center`} style={{ fontSize: isMobile ? `${7 * mobileTextScale}px` : undefined }}>
+                                                보상 없음
+                                            </p>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>

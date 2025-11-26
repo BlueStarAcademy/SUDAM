@@ -71,10 +71,12 @@ ENV PORT=4000
 # Copy production dependencies
 COPY --from=deps /app/node_modules ./node_modules
 
-# Copy tsx from build stage (needed for running TypeScript server files)
+# Copy tsx and esbuild from build stage (needed for running TypeScript server files)
 # tsx is a devDependency but required at runtime for TypeScript execution
+# esbuild is a dependency of tsx, so it also needs to be copied
 # Copy from build stage where all dependencies are installed
 COPY --from=build /app/node_modules/tsx ./node_modules/tsx
+COPY --from=build /app/node_modules/esbuild ./node_modules/esbuild
 
 # Copy Prisma client and schema
 COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma

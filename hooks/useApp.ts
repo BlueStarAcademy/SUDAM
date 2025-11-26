@@ -260,6 +260,7 @@ export const useApp = () => {
     const [isStatAllocationModalOpen, setIsStatAllocationModalOpen] = useState(false);
     const [enhancementResult, setEnhancementResult] = useState<{ message: string; success: boolean } | null>(null);
     const [enhancementOutcome, setEnhancementOutcome] = useState<{ message: string; success: boolean; itemBefore: InventoryItem; itemAfter: InventoryItem; } | null>(null);
+    const [refinementResult, setRefinementResult] = useState<{ message: string; success: boolean; itemBefore: InventoryItem; itemAfter: InventoryItem; } | null>(null);
     const [enhancementAnimationTarget, setEnhancementAnimationTarget] = useState<{ itemId: string; stars: number } | null>(null);
     const [pastRankingsInfo, setPastRankingsInfo] = useState<{ user: UserWithStatus; mode: GameMode | 'strategic' | 'playful'; } | null>(null);
     const [enhancingItem, setEnhancingItem] = useState<InventoryItem | null>(null);
@@ -274,7 +275,7 @@ export const useApp = () => {
     const [isGameRecordListOpen, setIsGameRecordListOpen] = useState(false);
     const [viewingGameRecord, setViewingGameRecord] = useState<GameRecord | null>(null);
     const [blacksmithSelectedItemForEnhancement, setBlacksmithSelectedItemForEnhancement] = useState<InventoryItem | null>(null);
-    const [blacksmithActiveTab, setBlacksmithActiveTab] = useState<'enhance' | 'combine' | 'disassemble' | 'convert'>('enhance');
+    const [blacksmithActiveTab, setBlacksmithActiveTab] = useState<'enhance' | 'combine' | 'disassemble' | 'convert' | 'refine'>('enhance');
     const [combinationResult, setCombinationResult] = useState<{ item: InventoryItem; xpGained: number; isGreatSuccess: boolean; } | null>(null);
     const [isBlacksmithHelpOpen, setIsBlacksmithHelpOpen] = useState(false);
     const [isEnhancementResultModalOpen, setIsEnhancementResultModalOpen] = useState(false);
@@ -1342,6 +1343,20 @@ export const useApp = () => {
                      }
                  }
                  
+                 // 변경권 사용 시 대장간 제련 탭으로 이동
+                 if (action.type === 'USE_ITEM' && result.clientResponse?.openBlacksmithRefineTab) {
+                     setIsBlacksmithModalOpen(true);
+                     setBlacksmithActiveTab('refine');
+                     // 선택된 아이템이 있으면 해당 아이템 선택
+                     if (result.clientResponse?.selectedItemId && currentUser) {
+                         const selectedItem = currentUser.inventory.find(i => i.id === result.clientResponse.selectedItemId);
+                         if (selectedItem && selectedItem.type === 'equipment') {
+                             // BlacksmithModal에 전달할 수 있도록 상태 업데이트
+                             // 실제로는 BlacksmithModal이 열릴 때 인벤토리에서 선택하도록 함
+                         }
+                     }
+                 }
+                 
                  // trainingQuestLevelUp 응답 처리 (강화 완료 피드백용)
                  const trainingQuestLevelUp = result.clientResponse?.trainingQuestLevelUp;
                  if (trainingQuestLevelUp && action.type === 'LEVEL_UP_TRAINING_QUEST') {
@@ -1360,6 +1375,11 @@ export const useApp = () => {
                  }
                  const scoreChange = result.clientResponse?.tournamentScoreChange;
                  if (scoreChange) setTournamentScoreChange(scoreChange);
+                
+                 // 제련 결과 처리
+                 if (action.type === 'REFINE_EQUIPMENT' && result.clientResponse?.refinementResult) {
+                     setRefinementResult(result.clientResponse.refinementResult);
+                 }
                 
                  // 보상 수령 모달 처리 (즉시 표시를 위해 flushSync 사용)
                 if (result.rewardSummary) {
@@ -1652,22 +1672,12 @@ export const useApp = () => {
                     }
                     
                     // 즉시 라우팅 업데이트 (게임이 생성되었으므로)
-                    // 게임 데이터가 없어도 gameId가 있으면 라우팅
+                    // 게임 데이터가 있으면 즉시 라우팅, 없어도 gameId가 있으면 즉시 라우팅
                     const targetHash = `#/game/${effectiveGameId}`;
                     if (window.location.hash !== targetHash) {
                         console.log('[handleAction] Setting immediate route to new game:', targetHash, 'hasGame:', !!game);
-                        // 게임이 없으면 약간의 지연을 두고 라우팅 (WebSocket 업데이트 대기)
-                        if (!game) {
-                            setTimeout(() => {
-                                if (window.location.hash !== targetHash) {
-                                    console.log('[handleAction] Delayed route to new game:', targetHash);
-                                    window.location.hash = targetHash;
-                                }
-                            }, 300);
-                        } else {
-                            // 게임이 있으면 즉시 라우팅
-                            window.location.hash = targetHash;
-                        }
+                        // 즉시 라우팅 (지연 제거)
+                        window.location.hash = targetHash;
                     }
                     
                     // gameId를 반환하여 컴포넌트에서 사용할 수 있도록 함
@@ -1675,20 +1685,25 @@ export const useApp = () => {
                 } else if (action.type === 'START_TOWER_GAME') {
                     // START_TOWER_GAME의 경우 gameId를 다시 확인 (다른 경로에서 올 수 있음)
                     const towerGameId = (result as any).gameId || result.clientResponse?.gameId;
+                    const towerGame = (result as any).game || result.clientResponse?.game;
                     if (towerGameId) {
                         const targetHash = `#/game/${towerGameId}`;
-                        console.log('[handleAction] START_TOWER_GAME - gameId found in fallback, routing to:', targetHash, 'current hash:', window.location.hash);
-                        // 즉시 라우팅 시도
+                        console.log('[handleAction] START_TOWER_GAME - gameId found, routing to:', targetHash, 'hasGame:', !!towerGame);
+                        
+                        // 게임 객체가 있으면 즉시 상태에 추가
+                        if (towerGame) {
+                            setTowerGames(currentGames => {
+                                if (!currentGames[towerGameId]) {
+                                    return { ...currentGames, [towerGameId]: towerGame };
+                                }
+                                return currentGames;
+                            });
+                        }
+                        
+                        // 즉시 라우팅 (지연 제거)
                         if (window.location.hash !== targetHash) {
                             window.location.hash = targetHash;
                         }
-                        // 혹시 모를 경우를 대비해 지연 라우팅도 추가
-                        setTimeout(() => {
-                            if (window.location.hash !== targetHash) {
-                                console.log('[handleAction] START_TOWER_GAME - Delayed routing to:', targetHash);
-                                window.location.hash = targetHash;
-                            }
-                        }, 100);
                         return { gameId: towerGameId };
                     } else {
                         console.warn('[handleAction] START_TOWER_GAME - No gameId found in response:', {
@@ -3180,6 +3195,10 @@ export const useApp = () => {
         setViewingItem({ item, isOwnedByCurrentUser });
     }, []);
 
+    const clearRefinementResult = useCallback(() => {
+        setRefinementResult(null);
+    }, []);
+
     const clearEnhancementOutcome = useCallback(() => {
         if (enhancementOutcome?.success) {
             const enhancedItem = enhancementOutcome.itemAfter;
@@ -3350,6 +3369,7 @@ export const useApp = () => {
             enhancingItem,
             isEnhancementResultModalOpen,
             tournamentScoreChange,
+            refinementResult,
         },
         handlers: {
             handleAction,
@@ -3398,6 +3418,7 @@ export const useApp = () => {
             openEnhancingItem,
             openEnhancementFromDetail,
             clearEnhancementOutcome,
+            clearRefinementResult,
             clearEnhancementAnimation: () => setEnhancementAnimationTarget(null),
             openModerationModal,
             closeModerationModal,

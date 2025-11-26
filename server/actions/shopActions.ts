@@ -477,6 +477,124 @@ export const handleShopAction = async (volatileState: VolatileState, action: Ser
                 } 
             };
         }
+        case 'BUY_CONSUMABLE': {
+            const { itemId, quantity } = payload;
+            
+            if (!itemId || typeof quantity !== 'number' || quantity <= 0) {
+                return { error: '유효하지 않은 요청입니다.' };
+            }
+
+            // 변경권 아이템 정의
+            const consumableItems: Record<string, { name: string; price: number; dailyLimit: number }> = {
+                'option_type_change_ticket': { name: '옵션 종류 변경권', price: 500, dailyLimit: 10 },
+                'option_value_change_ticket': { name: '옵션 수치 변경권', price: 500, dailyLimit: 10 },
+            };
+
+            const itemInfo = consumableItems[itemId];
+            if (!itemInfo) {
+                return { error: '유효하지 않은 아이템입니다.' };
+            }
+
+            const now = Date.now();
+            const DAILY_LIMIT = itemInfo.dailyLimit;
+
+            // 일일 구매 제한 체크
+            if (!user.dailyShopPurchases) user.dailyShopPurchases = {};
+            const purchaseRecord = user.dailyShopPurchases[itemId];
+            
+            let purchasesToday = 0;
+            if (purchaseRecord && isSameDayKST(purchaseRecord.date, now)) {
+                purchasesToday = purchaseRecord.quantity;
+            }
+
+            if (!user.isAdmin) {
+                if (purchasesToday + quantity > DAILY_LIMIT) {
+                    return { error: `오늘 구매 한도를 초과했습니다. (남은 구매 가능: ${DAILY_LIMIT - purchasesToday}개)` };
+                }
+            }
+
+            const totalCost = itemInfo.price * quantity;
+            if (!user.isAdmin) {
+                if (user.gold < totalCost) {
+                    return { error: `골드가 부족합니다. (필요: ${totalCost} 골드)` };
+                }
+            }
+
+            // 아이템 생성
+            const template = CONSUMABLE_ITEMS.find(item => item.name === itemInfo.name);
+            if (!template) {
+                return { error: '아이템 템플릿을 찾을 수 없습니다.' };
+            }
+
+            const newItem: InventoryItem = {
+                ...template,
+                id: `item-${randomUUID()}`,
+                createdAt: Date.now(),
+                quantity: quantity,
+                isEquipped: false,
+                level: 1,
+                stars: 0,
+            };
+
+            if (!user.inventory) {
+                user.inventory = [];
+            }
+            if (!user.inventorySlots) {
+                user.inventorySlots = { equipment: 30, consumable: 30, material: 30 };
+            }
+
+            // 인벤토리에 추가
+            const { success, finalItemsToAdd, updatedInventory } = addItemsToInventory(user.inventory, user.inventorySlots, [newItem]);
+            if (!success || !updatedInventory) {
+                return { error: '인벤토리 공간이 부족합니다.' };
+            }
+
+            // 골드 차감 및 구매 기록 업데이트
+            if (!user.isAdmin) {
+                user.gold -= totalCost;
+                if (!user.dailyShopPurchases[itemId] || !isSameDayKST(purchaseRecord?.date || 0, now)) {
+                    user.dailyShopPurchases[itemId] = { quantity: 0, date: now };
+                }
+                user.dailyShopPurchases[itemId].quantity = purchasesToday + quantity;
+                user.dailyShopPurchases[itemId].date = now;
+            }
+
+            // 인벤토리를 깊은 복사하여 새로운 배열로 할당 (참조 문제 방지)
+            user.inventory = JSON.parse(JSON.stringify(updatedInventory));
+            
+            try {
+                // 데이터베이스에 저장
+                await db.updateUser(user);
+                
+                // 저장 후 DB에서 다시 읽어서 검증
+                const savedUser = await db.getUser(user.id);
+                if (!savedUser) {
+                    console.error(`[BUY_CONSUMABLE] User not found after save: ${user.id}`);
+                    return { error: '저장 후 사용자를 찾을 수 없습니다.' };
+                }
+                
+                // 저장된 사용자 데이터 사용 (DB에 실제로 저장된 것)
+                user = savedUser;
+            } catch (error: any) {
+                console.error(`[BUY_CONSUMABLE] Error updating user ${user.id}:`, error);
+                console.error(`[BUY_CONSUMABLE] Error stack:`, error.stack);
+                return { error: '데이터 저장 중 오류가 발생했습니다.' };
+            }
+
+            // 선택적 필드만 반환 (메시지 크기 최적화)
+            const updatedUser = getSelectiveUserUpdate(user, 'BUY_CONSUMABLE', { includeAll: true });
+
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (전체 객체는 WebSocket에서만)
+            const fullUserForBroadcast = JSON.parse(JSON.stringify(user));
+            broadcast({ type: 'USER_UPDATE', payload: { [user.id]: fullUserForBroadcast } });
+
+            return { 
+                clientResponse: { 
+                    obtainedItemsBulk: [{ ...newItem }], 
+                    updatedUser 
+                } 
+            };
+        }
         case 'BUY_TOWER_ITEM': {
             const { itemId, quantity } = payload;
             

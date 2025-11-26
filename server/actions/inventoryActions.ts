@@ -32,6 +32,7 @@ import {
     BLACKSMITH_ENHANCEMENT_XP_GAIN,
     BLACKSMITH_DISASSEMBLY_XP_GAIN,
     BLACKSMITH_DISASSEMBLY_JACKPOT_RATES,
+    calculateRefinementGoldCost,
 } from '../../constants/rules.js';
 import * as effectService from '../effectService.js';
 import { SHOP_ITEMS } from '../shop.js';
@@ -437,6 +438,22 @@ export const handleInventoryAction = async (volatileState: VolatileState, action
             const item = user.inventory[itemIndex];
             if (item.type !== 'consumable') return { error: '사용할 수 없는 아이템입니다.' };
 
+            // 변경권 사용 시 대장간 제련 탭으로 이동하도록 플래그 설정
+            const isRefinementTicket = item.name === '옵션 종류 변경권' || 
+                                      item.name === '옵션 수치 변경권' || 
+                                      item.name === '신화 옵션 변경권';
+            
+            if (isRefinementTicket) {
+                // 변경권은 실제로 소모하지 않고, 대장간 제련 탭으로 이동하도록 클라이언트에 알림
+                return { 
+                    clientResponse: { 
+                        openBlacksmithRefineTab: true,
+                        selectedItemId: item.id,
+                        updatedUser: getSelectiveUserUpdate(user, 'USE_ITEM')
+                    } 
+                };
+            }
+
             const availableQuantity = item.quantity || 1;
             const useQuantity = Math.min(quantity, availableQuantity);
             if (useQuantity <= 0) return { error: '사용할 수량이 없습니다.' };
@@ -777,10 +794,21 @@ export const handleInventoryAction = async (volatileState: VolatileState, action
             } else if (item.type === 'consumable') {
                 // 소비 아이템 판매 처리
                 const itemName = item.name || '';
+                
+                // 판매 가능 여부 확인
+                const consumableItem = CONSUMABLE_ITEMS.find(ci => ci.name === itemName || ci.name === itemName.replace('꾸러미', ' 꾸러미') || ci.name === itemName.replace(' 꾸러미', '꾸러미'));
+                if (consumableItem?.sellable === false) {
+                    return { error: '판매할 수 없는 아이템입니다.' };
+                }
+                
                 const pricePerUnit = CONSUMABLE_SELL_PRICES[itemName] ?? 
                     CONSUMABLE_SELL_PRICES[itemName.replace('골드꾸러미', '골드 꾸러미')] ?? 
                     CONSUMABLE_SELL_PRICES[itemName.replace('골드 꾸러미', '골드꾸러미')] ?? 
                     0;
+                
+                if (pricePerUnit === 0) {
+                    return { error: '판매할 수 없는 아이템입니다.' };
+                }
                 
                 const currentQuantity = item.quantity || 1;
                 
@@ -1055,6 +1083,242 @@ export const handleInventoryAction = async (volatileState: VolatileState, action
                         xpGained: xpGained
                     },
                     enhancementAnimationTarget: { itemId: item.id, stars: item.stars } 
+                } 
+            };
+        }
+        case 'REFINE_EQUIPMENT': {
+            const { itemId, optionType, optionIndex, refinementType } = payload as {
+                itemId: string;
+                optionType: 'main' | 'combatSub' | 'specialSub' | 'mythicSub';
+                optionIndex: number;
+                refinementType: 'type' | 'value' | 'mythic';
+            };
+            
+            const item = user.inventory.find(i => i.id === itemId);
+            if (!item || item.type !== 'equipment' || !item.options) {
+                return { error: '제련할 수 없는 아이템입니다.' };
+            }
+            
+            // 일반 등급 장비는 제련 불가
+            if (item.grade === ItemGrade.Normal) {
+                return { error: '일반 등급 장비는 제련할 수 없습니다.' };
+            }
+            
+            // 등급별 소모량
+            const getTicketCost = (grade: ItemGrade): number => {
+                switch (grade) {
+                    case ItemGrade.Uncommon: return 1;
+                    case ItemGrade.Rare: return 2;
+                    case ItemGrade.Epic: return 3;
+                    case ItemGrade.Legendary: return 4;
+                    case ItemGrade.Mythic: return 5;
+                    default: return 1;
+                }
+            };
+            
+            const requiredTickets = getTicketCost(item.grade);
+            const requiredGold = calculateRefinementGoldCost(item.grade);
+            
+            // 골드 부족 체크
+            if (user.gold < requiredGold) {
+                return { error: `골드가 부족합니다. (필요: ${requiredGold.toLocaleString()}, 보유: ${user.gold.toLocaleString()})` };
+            }
+            
+            // 필요한 변경권 확인
+            let ticketName: string;
+            if (refinementType === 'type') {
+                ticketName = '옵션 종류 변경권';
+            } else if (refinementType === 'value') {
+                ticketName = '옵션 수치 변경권';
+            } else if (refinementType === 'mythic') {
+                ticketName = '신화 옵션 변경권';
+            } else {
+                return { error: '유효하지 않은 제련 타입입니다.' };
+            }
+            
+            // 변경권 개수 확인 및 소모
+            const ticketItems = user.inventory.filter(i => i.name === ticketName && i.type === 'consumable');
+            const totalTickets = ticketItems.reduce((sum, i) => sum + (i.quantity || 0), 0);
+            
+            if (totalTickets < requiredTickets) {
+                return { error: `${ticketName}이(가) 부족합니다. (필요: ${requiredTickets}, 보유: ${totalTickets})` };
+            }
+            
+            // 변경권 소모
+            let remainingToRemove = requiredTickets;
+            for (let i = user.inventory.length - 1; i >= 0 && remainingToRemove > 0; i--) {
+                const invItem = user.inventory[i];
+                if (invItem.name === ticketName && invItem.type === 'consumable') {
+                    const itemQuantity = invItem.quantity || 1;
+                    if (itemQuantity <= remainingToRemove) {
+                        remainingToRemove -= itemQuantity;
+                        user.inventory.splice(i, 1);
+                    } else {
+                        invItem.quantity = itemQuantity - remainingToRemove;
+                        remainingToRemove = 0;
+                    }
+                }
+            }
+            
+            // 골드 차감
+            user.gold -= requiredGold;
+            
+            const originalItemState = JSON.parse(JSON.stringify(item));
+            
+            // 옵션 변경 로직
+            if (refinementType === 'type') {
+                // 옵션 종류 변경
+                if (optionType === 'main') {
+                    // 주옵션 변경
+                    const slot = item.slot!;
+                    const grade = item.grade;
+                    const slotDef = MAIN_STAT_DEFINITIONS[slot];
+                    const gradeDef = slotDef.options[grade];
+                    const availableStats = gradeDef.stats.filter(stat => stat !== item.options!.main.type);
+                    if (availableStats.length === 0) {
+                        return { error: '변경 가능한 주옵션이 없습니다.' };
+                    }
+                    const newStatType = availableStats[Math.floor(Math.random() * availableStats.length)];
+                    const newValue = gradeDef.value;
+                    item.options.main = {
+                        type: newStatType,
+                        value: newValue,
+                        baseValue: newValue,
+                        isPercentage: slotDef.isPercentage,
+                        display: `${newStatType} +${newValue}${slotDef.isPercentage ? '%' : ''}`
+                    };
+                } else if (optionType === 'combatSub') {
+                    // 부옵션 변경
+                    const slot = item.slot!;
+                    const grade = item.grade;
+                    const rules = GRADE_SUB_OPTION_RULES[grade];
+                    const combatTier = rules.combatTier;
+                    const pool = SUB_OPTION_POOLS[slot][combatTier];
+                    const usedTypes = new Set([item.options!.main.type, ...item.options!.combatSubs.map(s => s.type)]);
+                    const availableOptions = pool.filter(opt => !usedTypes.has(opt.type));
+                    if (availableOptions.length === 0) {
+                        return { error: '변경 가능한 부옵션이 없습니다.' };
+                    }
+                    const newSubDef = availableOptions[Math.floor(Math.random() * availableOptions.length)];
+                    const value = getRandomInt(newSubDef.range[0], newSubDef.range[1]);
+                    item.options.combatSubs[optionIndex] = {
+                        type: newSubDef.type,
+                        value,
+                        isPercentage: newSubDef.isPercentage,
+                        display: `${newSubDef.type} +${value}${newSubDef.isPercentage ? '%' : ''} [${newSubDef.range[0]}~${newSubDef.range[1]}]`,
+                        range: newSubDef.range,
+                        enhancements: 0,
+                    };
+                } else if (optionType === 'specialSub') {
+                    // 특수옵션 변경
+                    const allSpecialStats = Object.values(SpecialStat);
+                    const usedTypes = new Set(item.options!.specialSubs.map(s => s.type));
+                    const availableStats = allSpecialStats.filter(stat => !usedTypes.has(stat));
+                    if (availableStats.length === 0) {
+                        return { error: '변경 가능한 특수옵션이 없습니다.' };
+                    }
+                    const newStatType = availableStats[Math.floor(Math.random() * availableStats.length)];
+                    const subDef = SPECIAL_STATS_DATA[newStatType];
+                    const value = getRandomInt(subDef.range[0], subDef.range[1]);
+                    const rules = GRADE_SUB_OPTION_RULES[item.grade];
+                    item.options.specialSubs[optionIndex] = {
+                        type: newStatType,
+                        value,
+                        isPercentage: subDef.isPercentage,
+                        tier: rules.combatTier,
+                        display: `${subDef.name} +${value}${subDef.isPercentage ? '%' : ''} [${subDef.range[0]}~${subDef.range[1]}]`,
+                        range: subDef.range,
+                        enhancements: 0,
+                    };
+                }
+            } else if (refinementType === 'value') {
+                // 옵션 수치 변경
+                if (optionType === 'combatSub') {
+                    const subOption = item.options.combatSubs[optionIndex];
+                    if (!subOption || !subOption.range) {
+                        return { error: '수치를 변경할 수 없는 옵션입니다.' };
+                    }
+                    const newValue = getRandomInt(subOption.range[0], subOption.range[1]);
+                    subOption.value = newValue;
+                    subOption.display = `${subOption.type} +${newValue}${subOption.isPercentage ? '%' : ''} [${subOption.range[0]}~${subOption.range[1]}]`;
+                } else if (optionType === 'specialSub') {
+                    const subOption = item.options.specialSubs[optionIndex];
+                    if (!subOption || !subOption.range) {
+                        return { error: '수치를 변경할 수 없는 옵션입니다.' };
+                    }
+                    const newValue = getRandomInt(subOption.range[0], subOption.range[1]);
+                    subOption.value = newValue;
+                    const subDef = SPECIAL_STATS_DATA[subOption.type as SpecialStat];
+                    subOption.display = `${subDef.name} +${newValue}${subOption.isPercentage ? '%' : ''} [${subOption.range[0]}~${subOption.range[1]}]`;
+                } else {
+                    return { error: '수치 변경은 부옵션 또는 특수옵션에만 가능합니다.' };
+                }
+            } else if (refinementType === 'mythic') {
+                // 신화 옵션 변경
+                if (optionType !== 'mythicSub') {
+                    return { error: '신화 옵션 변경은 신화 옵션에만 가능합니다.' };
+                }
+                if (item.grade !== ItemGrade.Mythic) {
+                    return { error: '신화 옵션 변경은 신화 등급 장비에만 가능합니다.' };
+                }
+                const allMythicStats = Object.values(MythicStat);
+                const usedTypes = new Set(item.options!.mythicSubs.map(s => s.type));
+                const availableStats = allMythicStats.filter(stat => stat !== item.options!.mythicSubs[optionIndex].type);
+                if (availableStats.length === 0) {
+                    return { error: '변경 가능한 신화 옵션이 없습니다.' };
+                }
+                const newStatType = availableStats[Math.floor(Math.random() * availableStats.length)];
+                const subDef = MYTHIC_STATS_DATA[newStatType];
+                const value = subDef.value([10, 50]);
+                item.options.mythicSubs[optionIndex] = {
+                    type: newStatType,
+                    value: value,
+                    isPercentage: false,
+                    display: subDef.name,
+                    enhancements: 0,
+                };
+            }
+            
+            // 인벤토리를 깊은 복사하여 새로운 배열로 할당 (참조 문제 방지)
+            user.inventory = JSON.parse(JSON.stringify(user.inventory));
+            
+            try {
+                // 데이터베이스에 저장
+                await db.updateUser(user);
+                
+                // 저장 후 DB에서 다시 읽어서 검증
+                const savedUser = await db.getUser(user.id);
+                if (!savedUser) {
+                    console.error(`[REFINE_EQUIPMENT] User not found after save: ${user.id}`);
+                    return { error: '저장 후 사용자를 찾을 수 없습니다.' };
+                }
+                
+                // 저장된 사용자 데이터 사용 (DB에 실제로 저장된 것)
+                user = savedUser;
+            } catch (error: any) {
+                console.error(`[REFINE_EQUIPMENT] Error updating user ${user.id}:`, error);
+                console.error(`[REFINE_EQUIPMENT] Error stack:`, error.stack);
+                return { error: '데이터 저장 중 오류가 발생했습니다.' };
+            }
+            
+            const itemBeforeRefinement = JSON.parse(JSON.stringify(originalItemState));
+            
+            // 선택적 필드만 반환 (메시지 크기 최적화)
+            const updatedUser = getSelectiveUserUpdate(user, 'REFINE_EQUIPMENT');
+            
+            // WebSocket으로 사용자 업데이트 브로드캐스트 (전체 객체는 WebSocket에서만)
+            const fullUserForBroadcast = JSON.parse(JSON.stringify(user));
+            broadcast({ type: 'USER_UPDATE', payload: { [user.id]: fullUserForBroadcast } });
+            
+            return { 
+                clientResponse: { 
+                    refinementResult: {
+                        message: '제련이 완료되었습니다.',
+                        success: true,
+                        itemBefore: itemBeforeRefinement,
+                        itemAfter: JSON.parse(JSON.stringify(item))
+                    },
+                    updatedUser
                 } 
             };
         }

@@ -200,3 +200,18 @@ export const BLACKSMITH_XP_REQUIRED_FOR_LEVEL_UP = (level: number): number => {
 
     return 2000 + level * 350;
 };
+
+// --- Equipment Refinement Costs ---
+// 골드 비용: 옵션 1개당 비용
+export const REFINEMENT_GOLD_COSTS: Record<ItemGrade, number> = {
+    [ItemGrade.Normal]: 0,        // 일반: 제련 불가
+    [ItemGrade.Uncommon]: 100,    // 고급: 100골드
+    [ItemGrade.Rare]: 200,         // 희귀: 200골드
+    [ItemGrade.Epic]: 350,         // 에픽: 350골드
+    [ItemGrade.Legendary]: 500,    // 전설: 500골드
+    [ItemGrade.Mythic]: 1000,      // 신화/D.신화: 1000골드
+};
+
+export const calculateRefinementGoldCost = (grade: ItemGrade): number => {
+    return REFINEMENT_GOLD_COSTS[grade] || 0;
+};

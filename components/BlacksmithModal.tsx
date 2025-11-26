@@ -4,6 +4,7 @@ import EnhancementView from './blacksmith/EnhancementView.js';
 import CombinationView from './blacksmith/CombinationView.js';
 import DisassemblyView from './blacksmith/DisassemblyView.js';
 import ConversionView from './blacksmith/ConversionView.js';
+import RefinementView from './blacksmith/RefinementView.js';
 import InventoryGrid from './blacksmith/InventoryGrid.js';
 import DisassemblyResultModal from './DisassemblyResultModal.js'; // New import
 import { useAppContext } from '../hooks/useAppContext.js';
@@ -19,8 +20,8 @@ interface BlacksmithModalProps {
     onClose: () => void;
     isTopmost: boolean;
     selectedItemForEnhancement: InventoryItem | null;
-    activeTab: 'enhance' | 'combine' | 'disassemble' | 'convert';
-    onSetActiveTab: (tab: 'enhance' | 'combine' | 'disassemble' | 'convert') => void;
+    activeTab: 'enhance' | 'combine' | 'disassemble' | 'convert' | 'refine';
+    onSetActiveTab: (tab: 'enhance' | 'combine' | 'disassemble' | 'convert' | 'refine') => void;
     enhancementOutcome: EnhancementResult | null;
 }
 
@@ -202,6 +203,7 @@ const BlacksmithModal: React.FC<BlacksmithModalProps> = ({ onClose, isTopmost, s
         { id: 'combine', label: '장비 합성' },
         { id: 'disassemble', label: '장비 분해' },
         { id: 'convert', label: '재료 변환' },
+        { id: 'refine', label: '장비 제련' },
     ];
 
     const handleActionWrapper = useCallback(async (action: ServerAction): Promise<void> => {
@@ -235,13 +237,20 @@ const BlacksmithModal: React.FC<BlacksmithModalProps> = ({ onClose, isTopmost, s
                 />
             );
             case 'convert': return <ConversionView onAction={handleActionWrapper} />;
+            case 'refine': return <RefinementView 
+                selectedItem={selectedItem} 
+                currentUser={currentUserWithStatus} 
+                onAction={handlers.handleAction}
+                refinementResult={modals.refinementResult || null}
+                onResultConfirm={handlers.clearRefinementResult}
+            />;
             default: return null;
         }
     };
 
     const filteredInventory = useMemo(() => {
         let filtered: InventoryItem[] = [];
-        if (activeTab === 'enhance' || activeTab === 'combine' || activeTab === 'disassemble') {
+        if (activeTab === 'enhance' || activeTab === 'combine' || activeTab === 'disassemble' || activeTab === 'refine') {
             filtered = inventory.filter(item => item.type === 'equipment');
         } else if (activeTab === 'convert') {
             filtered = inventory.filter(item => item.type === 'material');
@@ -274,7 +283,7 @@ const BlacksmithModal: React.FC<BlacksmithModalProps> = ({ onClose, isTopmost, s
 
     const inventorySlotsToDisplay = (() => {
         const slots = inventorySlots || {};
-        if (activeTab === 'enhance' || activeTab === 'combine' || activeTab === 'disassemble') {
+        if (activeTab === 'enhance' || activeTab === 'combine' || activeTab === 'disassemble' || activeTab === 'refine') {
             return slots.equipment || 30;
         } else if (activeTab === 'convert') {
             return slots.material || 30;
@@ -283,7 +292,7 @@ const BlacksmithModal: React.FC<BlacksmithModalProps> = ({ onClose, isTopmost, s
     })();
 
     const bagHeaderText = useMemo(() => {
-        if (activeTab === 'enhance' || activeTab === 'combine' || activeTab === 'disassemble') {
+        if (activeTab === 'enhance' || activeTab === 'combine' || activeTab === 'disassemble' || activeTab === 'refine') {
             return '장비';
         } else if (activeTab === 'convert') {
             return '재료';
@@ -418,7 +427,7 @@ const BlacksmithModal: React.FC<BlacksmithModalProps> = ({ onClose, isTopmost, s
                             {tabs.map(tab => (
                                 <button
                                     key={tab.id}
-                                    onClick={() => onSetActiveTab(tab.id as 'enhance' | 'combine' | 'disassemble' | 'convert')}
+                                    onClick={() => onSetActiveTab(tab.id as 'enhance' | 'combine' | 'disassemble' | 'convert' | 'refine')}
                                     className={`${isMobile ? 'px-2 py-1 text-[10px] flex-1' : 'px-4 py-2 text-sm'} font-semibold ${
                                         activeTab === tab.id
                                             ? 'border-b-2 border-accent text-accent'

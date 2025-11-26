@@ -73,7 +73,7 @@ export const EQUIPMENT_POOL: (Omit<InventoryItem, 'id' | 'createdAt' | 'isEquipp
     { name: '천룡 바둑돌', slot: 'stones', image: 'images/equipments/Stone6.png', grade: ItemGrade.Mythic, stars: 0, type: 'equipment', description: '밤하늘의 은하수를 담아놓은 듯한 신화 속 바둑돌입니다.' },
 ];
 
-export const CONSUMABLE_ITEMS: (Omit<InventoryItem, 'id'|'createdAt'|'isEquipped'|'level'|'stars'|'options'|'enhancementFails' | 'slot'> & {slot: null})[] = [
+export const CONSUMABLE_ITEMS: (Omit<InventoryItem, 'id'|'createdAt'|'isEquipped'|'level'|'stars'|'options'|'enhancementFails' | 'slot'> & {slot: null, usable?: boolean, sellable?: boolean})[] = [
     { name: '장비 상자 I', description: '일반~희귀 등급 장비 획득', type: 'consumable', slot: null, image: '/images/Box/EquipmentBox1.png', grade: ItemGrade.Normal },
     { name: '장비 상자 II', description: '일반~에픽 등급 장비 획득', type: 'consumable', slot: null, image: '/images/Box/EquipmentBox2.png', grade: ItemGrade.Uncommon },
     { name: '장비 상자 III', description: '고급~전설 등급 장비 획득', type: 'consumable', slot: null, image: '/images/Box/EquipmentBox3.png', grade: ItemGrade.Rare },
@@ -97,10 +97,14 @@ export const CONSUMABLE_ITEMS: (Omit<InventoryItem, 'id'|'createdAt'|'isEquipped
     { name: '컨디션회복제(소)', description: '컨디션을 1~10 회복합니다.', type: 'consumable', slot: null, image: '/images/use/con1.png', grade: ItemGrade.Normal },
     { name: '컨디션회복제(중)', description: '컨디션을 10~20 회복합니다.', type: 'consumable', slot: null, image: '/images/use/con2.png', grade: ItemGrade.Uncommon },
     { name: '컨디션회복제(대)', description: '컨디션을 20~30 회복합니다.', type: 'consumable', slot: null, image: '/images/use/con3.png', grade: ItemGrade.Rare },
-    { name: '턴 추가', description: '도전의 탑에서 사용할 수 있는 턴 추가 아이템입니다.', type: 'consumable', slot: null, image: '/images/button/addturn.png', grade: ItemGrade.Normal },
-    { name: '미사일', description: '도전의 탑에서 사용할 수 있는 미사일 아이템입니다.', type: 'consumable', slot: null, image: '/images/button/missile.png', grade: ItemGrade.Normal },
-    { name: '히든', description: '도전의 탑에서 사용할 수 있는 히든 아이템입니다.', type: 'consumable', slot: null, image: '/images/button/hidden.png', grade: ItemGrade.Normal },
-    { name: '배치변경', description: '도전의 탑에서 사용할 수 있는 배치변경 아이템입니다.', type: 'consumable', slot: null, image: '/images/button/reflesh.png', grade: ItemGrade.Normal },
+    { name: '턴 추가', description: '도전의 탑에서 사용할 수 있는 턴 추가 아이템입니다.', type: 'consumable', slot: null, image: '/images/button/addturn.png', grade: ItemGrade.Normal, usable: true, sellable: true },
+    { name: '미사일', description: '도전의 탑에서 사용할 수 있는 미사일 아이템입니다.', type: 'consumable', slot: null, image: '/images/button/missile.png', grade: ItemGrade.Normal, usable: true, sellable: true },
+    { name: '히든', description: '도전의 탑에서 사용할 수 있는 히든 아이템입니다.', type: 'consumable', slot: null, image: '/images/button/hidden.png', grade: ItemGrade.Normal, usable: true, sellable: true },
+    { name: '스캔', description: '도전의 탑에서 사용할 수 있는 스캔 아이템입니다.', type: 'consumable', slot: null, image: '/images/button/scan.png', grade: ItemGrade.Normal, usable: true, sellable: true },
+    { name: '배치변경', description: '도전의 탑에서 사용할 수 있는 배치변경 아이템입니다.', type: 'consumable', slot: null, image: '/images/button/reflesh.png', grade: ItemGrade.Normal, usable: true, sellable: true },
+    { name: '옵션 종류 변경권', description: '장비의 주옵션, 부옵션, 특수옵션 중 하나를 다른 종류의 옵션으로 변경할 수 있는 아이템입니다.', type: 'consumable', slot: null, image: '/images/use/change1.png', grade: ItemGrade.Normal, usable: true, sellable: true },
+    { name: '옵션 수치 변경권', description: '장비의 부옵션 또는 특수옵션 중 하나의 수치를 변경할 수 있는 아이템입니다.', type: 'consumable', slot: null, image: '/images/use/change2.png', grade: ItemGrade.Normal, usable: true, sellable: true },
+    { name: '신화 옵션 변경권', description: '신화 또는 D.신화 장비의 신화 옵션을 다른 신화 옵션으로 변경할 수 있는 아이템입니다.', type: 'consumable', slot: null, image: '/images/use/change3.png', grade: ItemGrade.Normal, usable: true, sellable: true },
 ];
 
 export const MATERIAL_ITEMS: Record<string, Omit<InventoryItem, 'id'|'createdAt'|'isEquipped'|'level'|'stars'|'options'|'enhancementFails'>> = {
@@ -251,6 +255,15 @@ export const MATERIAL_SELL_PRICES: Record<string, number> = {
 export const CONSUMABLE_SELL_PRICES: Record<string, number> = {
     '골드 꾸러미1': 0,
     '골드꾸러미1': 0, // 이름 변형 대응
+    // 도전의 탑 아이템 판매 가격 (구매 가격의 20%)
+    '턴 추가': 60, // 300 * 0.2
+    '미사일': 60, // 300 * 0.2
+    '히든': 100, // 500 * 0.2
+    '스캔': 40, // 200 * 0.2
+    '배치변경': 20, // 100 * 0.2
+    '옵션 종류 변경권': 100, // 500 * 0.2
+    '옵션 수치 변경권': 100, // 500 * 0.2
+    '신화 옵션 변경권': 0, // 판매 불가
 };
 
 export const BASE_SLOTS_PER_CATEGORY = 30;
