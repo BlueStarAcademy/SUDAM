@@ -917,7 +917,10 @@ export async function updateBotLeagueScores(user: types.User, forceUpdate: boole
         
         // 강제 업데이트가 아니고, 오늘 이미 업데이트했으면 스킵
         // 단, 점수가 0이면 강제로 업데이트 (배포 사이트에서 봇 점수가 0으로 남아있는 경우 대비)
-        if (!forceUpdate && lastUpdateDay >= todayStart && currentScore > 0) {
+        const isTodayAlreadyUpdated = !forceUpdate && lastUpdateDay >= todayStart && currentScore > 0;
+        
+        if (isTodayAlreadyUpdated) {
+            // 오늘 이미 업데이트했으면 스킵
             continue;
         }
         
@@ -927,8 +930,8 @@ export async function updateBotLeagueScores(user: types.User, forceUpdate: boole
             forceUpdate = true;
         }
         
-        // 매일 0시에 실행될 때는 오늘 날짜의 점수만 추가해야 함
-        // lastUpdateDay가 어제 날짜이고 todayStart가 오늘 날짜이면, 오늘 날짜만 계산
+        // 매일 0시에 실행될 때는 마지막 업데이트 다음 날부터 오늘까지 모든 날짜의 점수를 추가해야 함
+        // 누락된 날짜의 점수를 모두 보완
         let startDay: number;
         let daysDiff: number;
         
@@ -937,12 +940,16 @@ export async function updateBotLeagueScores(user: types.User, forceUpdate: boole
             startDay = competitorsUpdateDay;
             daysDiff = Math.floor((todayStart - startDay) / (1000 * 60 * 60 * 24));
         } else if (lastUpdate > 0) {
-            // 마지막 업데이트가 어제 날짜이면 오늘 날짜만 추가
-            // 마지막 업데이트가 오늘 이전이면, 마지막 업데이트 다음 날부터 오늘까지 계산
+            // 마지막 업데이트가 있으면, 마지막 업데이트 다음 날부터 오늘까지 모든 날짜 계산
             if (lastUpdateDay < todayStart) {
-                // 어제 또는 그 이전에 업데이트했으면, 오늘 날짜만 추가
-                startDay = todayStart;
-                daysDiff = 0; // 오늘 날짜만
+                // 마지막 업데이트 다음 날부터 오늘까지 모든 날짜 계산 (누락된 날짜 보완)
+                startDay = lastUpdateDay + (24 * 60 * 60 * 1000); // 마지막 업데이트 다음 날
+                daysDiff = Math.floor((todayStart - startDay) / (1000 * 60 * 60 * 24));
+                // daysDiff가 음수이면 오늘 날짜만 추가
+                if (daysDiff < 0) {
+                    startDay = todayStart;
+                    daysDiff = 0;
+                }
             } else {
                 // 오늘 이미 업데이트했으면 스킵 (위에서 이미 체크했지만 안전장치)
                 continue;
@@ -958,6 +965,7 @@ export async function updateBotLeagueScores(user: types.User, forceUpdate: boole
         }
         
         // forceUpdate인 경우 현재 점수를 무시하고 처음부터 계산
+        // forceUpdate가 아니면 현재 점수에 누락된 날짜의 점수만 추가
         const baseScore = forceUpdate ? 0 : currentScore;
         let totalGain = 0;
         let yesterdayScore = baseScore;
@@ -967,14 +975,15 @@ export async function updateBotLeagueScores(user: types.User, forceUpdate: boole
             const targetDate = new Date(startDay + (dayOffset * 24 * 60 * 60 * 1000));
             const dailyGain = getBotScoreForDate(botId, targetDate);
             totalGain += dailyGain;
-            
-            // 어제 점수 계산 (오늘 전날까지의 점수)
-            if (dayOffset === daysDiff && daysDiff > 0) {
-                yesterdayScore = baseScore + (totalGain - dailyGain);
-            } else if (daysDiff === 0) {
-                // 오늘 날짜만 추가하는 경우, 어제 점수는 현재 점수
-                yesterdayScore = baseScore;
-            }
+        }
+        
+        // 어제 점수 계산 (오늘 전날까지의 점수)
+        if (daysDiff > 0) {
+            // 여러 날짜를 추가하는 경우, 어제 점수는 오늘 전날까지의 점수
+            yesterdayScore = baseScore + totalGain - getBotScoreForDate(botId, new Date(todayStart));
+        } else if (daysDiff === 0) {
+            // 오늘 날짜만 추가하는 경우, 어제 점수는 현재 점수
+            yesterdayScore = baseScore;
         }
         
         const newScore = baseScore + totalGain;

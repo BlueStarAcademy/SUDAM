@@ -24,6 +24,7 @@ const TrainingQuestPanel: React.FC<TrainingQuestPanelProps> = ({ currentUser }) 
         totalGold: number;
         totalDiamonds: number;
     } | null>(null);
+    const [isClaimingAll, setIsClaimingAll] = useState(false);
 
     // 실시간 타이머 업데이트 (1초마다)
     useEffect(() => {
@@ -238,6 +239,9 @@ const TrainingQuestPanel: React.FC<TrainingQuestPanelProps> = ({ currentUser }) 
     
     // 일괄 수령 핸들러
     const handleClaimAllRewards = async () => {
+        if (isClaimingAll) return; // 중복 클릭 방지
+        
+        setIsClaimingAll(true);
         try {
             const result = await handlers.handleAction({
                 type: 'CLAIM_ALL_TRAINING_QUEST_REWARDS'
@@ -257,6 +261,8 @@ const TrainingQuestPanel: React.FC<TrainingQuestPanelProps> = ({ currentUser }) 
             }
         } catch (error) {
             console.error('[TrainingQuestPanel] Claim all rewards error:', error);
+        } finally {
+            setIsClaimingAll(false);
         }
     };
 
@@ -270,8 +276,9 @@ const TrainingQuestPanel: React.FC<TrainingQuestPanelProps> = ({ currentUser }) 
                             onClick={handleClaimAllRewards}
                             colorScheme="green"
                             className="!text-[10px] !py-0.5 !px-1.5 sm:!text-xs sm:!py-1 sm:!px-2 whitespace-nowrap"
+                            disabled={isClaimingAll}
                         >
-                            일괄 수령 ({claimableQuestsCount})
+                            {isClaimingAll ? '수령 중...' : `일괄 수령 (${claimableQuestsCount})`}
                         </Button>
                     )}
                 </div>

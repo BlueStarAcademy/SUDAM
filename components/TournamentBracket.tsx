@@ -2573,16 +2573,13 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = (props) => {
                         setInitialMatchPlayers({ p1: null, p2: null });
                         initialMatchPlayersSetRef.current = false;
                         
-                        // 다음 경기 시작: START_TOURNAMENT_ROUND 액션 호출
-                        // bracket_ready 상태로 변경되면 자동으로 경기 시작하는 로직이 별도 useEffect에서 처리됨
+                        // 다음 경기 시작: 바로 START_TOURNAMENT_MATCH 액션 호출 (더 빠른 반응)
                         try {
-                            if (typeof onStartNextRound === 'function') {
-                                console.log('[TournamentBracket] onStartNextRound 호출');
-                                onStartNextRound();
-                                // 전국바둑대회/월드챔피언십의 경우 다음 라운드 트리거 업데이트
-                                if (tournamentTypeRef === 'national' || tournamentTypeRef === 'world') {
-                                    setNextRoundTrigger(prev => prev + 1);
-                                }
+                            console.log('[TournamentBracket] START_TOURNAMENT_MATCH 직접 호출');
+                            onAction({ type: 'START_TOURNAMENT_MATCH', payload: { type: tournamentTypeRef } });
+                            // 전국바둑대회/월드챔피언십의 경우 다음 라운드 트리거 업데이트
+                            if (tournamentTypeRef === 'national' || tournamentTypeRef === 'world') {
+                                setNextRoundTrigger(prev => prev + 1);
                             }
                         } catch (error) {
                             console.error('[TournamentBracket] 자동 다음경기 오류:', error);
@@ -2614,6 +2611,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = (props) => {
     }, [tournament?.status, tournament?.type, tournament?.currentRoundRobinRound, safeRounds, onStartNextRound, onAction, currentUser?.id]);
     
     // nextRoundStartTime 체크하여 자동으로 다음 경기 시작 (시뮬레이션 경기 완료 후)
+    // 이 로직은 서버에서 nextRoundStartTime을 설정한 경우에만 사용 (카운트다운과 중복 방지)
     useEffect(() => {
         if (!tournament || !tournament.nextRoundStartTime) {
             if (nextRoundStartTimeCheckRef.current) {
@@ -2623,13 +2621,14 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = (props) => {
             return;
         }
         
-        // bracket_ready, round_in_progress, round_complete 상태에서 nextRoundStartTime이 설정되어 있으면 체크 시작
-        // (시뮬레이션 경기장에서는 round_in_progress나 round_complete 상태에서도 자동 시작이 필요)
-        const shouldCheckNextRound = tournament.nextRoundStartTime && (
-            tournament.status === 'bracket_ready' || 
-            tournament.status === 'round_in_progress' || 
-            tournament.status === 'round_complete'
-        );
+        // 카운트다운이 이미 진행 중이면 이 로직은 스킵 (중복 방지)
+        if (autoNextTimerRef.current) {
+            return;
+        }
+        
+        // bracket_ready 상태에서만 nextRoundStartTime 체크 (서버에서 설정한 경우)
+        const shouldCheckNextRound = tournament.nextRoundStartTime && 
+            tournament.status === 'bracket_ready';
         
         if (shouldCheckNextRound) {
             const checkNextRound = () => {
@@ -2657,8 +2656,8 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = (props) => {
             // 즉시 한 번 체크
             checkNextRound();
             
-            // 100ms마다 체크
-            nextRoundStartTimeCheckRef.current = setInterval(checkNextRound, 100);
+            // 50ms마다 체크 (더 빠른 반응)
+            nextRoundStartTimeCheckRef.current = setInterval(checkNextRound, 50);
         } else {
             if (nextRoundStartTimeCheckRef.current) {
                 clearInterval(nextRoundStartTimeCheckRef.current);

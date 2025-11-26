@@ -1,9 +1,8 @@
 
-import React, { useState, useMemo } from 'react';
-import { UserWithStatus, InventoryItem, ServerAction, ItemOption, CoreStat, SpecialStat, MythicStat } from '../../types.js';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { UserWithStatus, InventoryItem, ServerAction, ItemOption, CoreStat, SpecialStat, MythicStat, ItemGrade } from '../../types.js';
 import Button from '../Button.js';
-import { ItemGrade } from '../../types/enums.js';
-import { MAIN_STAT_DEFINITIONS, SUB_OPTION_POOLS, SPECIAL_STATS_DATA, MYTHIC_STATS_DATA, GRADE_SUB_OPTION_RULES } from '../../constants';
+import { MAIN_STAT_DEFINITIONS, SUB_OPTION_POOLS, SPECIAL_STATS_DATA, MYTHIC_STATS_DATA, GRADE_SUB_OPTION_RULES, GRADE_LEVEL_REQUIREMENTS, CONSUMABLE_ITEMS } from '../../constants';
 import { useAppContext } from '../../hooks/useAppContext.js';
 import { calculateRefinementGoldCost } from '../../constants/rules.js';
 
@@ -16,6 +15,153 @@ const useIsMobile = () => {
         return () => window.removeEventListener('resize', handleResize);
     }, []);
     return isMobile;
+};
+
+const gradeStyles: Record<ItemGrade, { name: string; color: string; background: string; }> = {
+    normal: { name: '일반', color: 'text-gray-300', background: '/images/equipments/normalbgi.png' },
+    uncommon: { name: '고급', color: 'text-green-400', background: '/images/equipments/uncommonbgi.png' },
+    rare: { name: '희귀', color: 'text-blue-400', background: '/images/equipments/rarebgi.png' },
+    epic: { name: '에픽', color: 'text-purple-400', background: '/images/equipments/epicbgi.png' },
+    legendary: { name: '전설', color: 'text-red-500', background: '/images/equipments/legendarybgi.png' },
+    mythic: { name: '신화', color: 'text-orange-400', background: '/images/equipments/mythicbgi.png' },
+};
+
+const renderStarDisplay = (stars: number) => {
+    if (stars === 0) return null;
+
+    let starImage = '';
+    let numberColor = '';
+
+    if (stars >= 10) {
+        starImage = '/images/equipments/Star4.png';
+        numberColor = "prism-text-effect";
+    } else if (stars >= 7) {
+        starImage = '/images/equipments/Star3.png';
+        numberColor = "text-purple-400";
+    } else if (stars >= 4) {
+        starImage = '/images/equipments/Star2.png';
+        numberColor = "text-amber-400";
+    } else if (stars >= 1) {
+        starImage = '/images/equipments/Star1.png';
+        numberColor = "text-white";
+    }
+
+    return (
+        <div className="absolute top-0.5 left-0.5 flex items-center gap-0.5 bg-black/40 rounded-br-md px-1 py-0.5 z-10" style={{ textShadow: '1px 1px 2px black' }}>
+            <img 
+                src={starImage} 
+                alt="star" 
+                className="w-3 h-3"
+            />
+            <span className={`font-bold text-xs leading-none ${numberColor}`}>
+                {stars}
+            </span>
+        </div>
+    );
+};
+
+const ItemDisplay: React.FC<{ 
+    item: InventoryItem; 
+    selectedOption: { type: 'main' | 'combatSub' | 'specialSub' | 'mythicSub'; index: number } | null;
+    onOptionClick: (type: 'main' | 'combatSub' | 'specialSub' | 'mythicSub', index: number) => void;
+}> = ({ item, selectedOption, onOptionClick }) => {
+    const { currentUserWithStatus } = useAppContext();
+    const styles = gradeStyles[item.grade];
+
+    const requiredLevel = GRADE_LEVEL_REQUIREMENTS[item.grade];
+    const userLevelSum = (currentUserWithStatus?.strategyLevel || 0) + (currentUserWithStatus?.playfulLevel || 0);
+    const canEquip = userLevelSum >= requiredLevel;
+
+    if (!item.options) return null;
+
+    const { main, combatSubs, specialSubs, mythicSubs } = item.options;
+
+    return (
+        <div className="flex flex-col w-full h-full p-1">
+            {/* Top section: Image and Name/Main Option */}
+            <div className="flex mb-2">
+                <div className="relative w-16 h-16 rounded-lg flex-shrink-0 mr-2">
+                    <img src={styles.background} alt={item.grade} className="absolute inset-0 w-full h-full object-cover rounded-lg" />
+                    {item.image && <img src={item.image} alt={item.name} className="absolute object-contain p-1" style={{ width: '80%', height: '80%', left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }} />}
+                    {renderStarDisplay(item.stars)}
+                    {item.isDivineMythic && (
+                        <div 
+                            className="absolute bottom-0 left-0 flex items-center justify-center bg-black/60 rounded-tr-md z-10" 
+                            style={{ 
+                                textShadow: '1px 1px 2px black',
+                                padding: '2px 4px',
+                                fontSize: '8px',
+                                fontWeight: 'bold',
+                                color: '#FFD700'
+                            }}
+                        >
+                            D
+                        </div>
+                    )}
+                </div>
+                <div className="flex-grow pt-1 min-w-0">
+                    <h3 className={`text-sm font-bold whitespace-nowrap overflow-hidden text-ellipsis ${styles.color}`} title={item.name}>{item.name}</h3>
+                    <p className={`text-xs ${canEquip ? 'text-gray-500' : 'text-red-500'}`}>(착용레벨: {requiredLevel})</p>
+                </div>
+            </div>
+            {/* Bottom section: Clickable options */}
+            <div className="w-full text-xs text-left space-y-0.5 bg-black/30 p-1.5 rounded-lg flex-grow overflow-y-auto">
+                {/* Main Option */}
+                <button
+                    onClick={() => onOptionClick('main', 0)}
+                    className={`w-full text-left p-1 rounded transition-all ${
+                        selectedOption?.type === 'main' 
+                            ? 'bg-blue-600/70 text-white font-semibold' 
+                            : 'hover:bg-gray-700/50 text-yellow-300'
+                    }`}
+                >
+                    주: {main.display}
+                </button>
+                {/* Combat Subs */}
+                {combatSubs.map((sub, idx) => (
+                    <button
+                        key={`c-${idx}`}
+                        onClick={() => onOptionClick('combatSub', idx)}
+                        className={`w-full text-left p-1 rounded transition-all ${
+                            selectedOption?.type === 'combatSub' && selectedOption.index === idx
+                                ? 'bg-blue-600/70 text-white font-semibold' 
+                                : 'hover:bg-gray-700/50 text-blue-300'
+                        }`}
+                    >
+                        부{idx + 1}: {sub.display}
+                    </button>
+                ))}
+                {/* Special Subs */}
+                {specialSubs.map((sub, idx) => (
+                    <button
+                        key={`s-${idx}`}
+                        onClick={() => onOptionClick('specialSub', idx)}
+                        className={`w-full text-left p-1 rounded transition-all ${
+                            selectedOption?.type === 'specialSub' && selectedOption.index === idx
+                                ? 'bg-blue-600/70 text-white font-semibold' 
+                                : 'hover:bg-gray-700/50 text-green-300'
+                        }`}
+                    >
+                        특{idx + 1}: {sub.display}
+                    </button>
+                ))}
+                {/* Mythic Subs */}
+                {mythicSubs.map((sub, idx) => (
+                    <button
+                        key={`m-${idx}`}
+                        onClick={() => onOptionClick('mythicSub', idx)}
+                        className={`w-full text-left p-1 rounded transition-all ${
+                            selectedOption?.type === 'mythicSub' && selectedOption.index === idx
+                                ? 'bg-blue-600/70 text-white font-semibold' 
+                                : 'hover:bg-gray-700/50 text-red-400'
+                        }`}
+                    >
+                        신{idx + 1}: {sub.display}
+                    </button>
+                ))}
+            </div>
+        </div>
+    );
 };
 
 interface RefinementViewProps {
@@ -34,6 +180,8 @@ const RefinementView: React.FC<RefinementViewProps> = ({ selectedItem, currentUs
     const [refinementType, setRefinementType] = useState<RefinementType | null>(null);
     const [isRefining, setIsRefining] = useState(false);
     const [refinementProgress, setRefinementProgress] = useState(0);
+    const refinementIntervalRef = useRef<number | null>(null);
+    const refinementTimeoutRef = useRef<number | null>(null);
 
     // 등급별 소모량
     const getTicketCost = (grade: ItemGrade): number => {
@@ -84,14 +232,11 @@ const RefinementView: React.FC<RefinementViewProps> = ({ selectedItem, currentUs
         const grade = selectedItem.grade;
         
         if (refinementType === 'type') {
-            // 옵션 종류 변경: 장비의 종류에 맞는 다른 옵션 중 하나로 변경
             if (selectedOption.type === 'main') {
-                // 주옵션 변경: 같은 슬롯의 다른 주옵션
                 const slotDef = MAIN_STAT_DEFINITIONS[slot];
                 const gradeDef = slotDef.options[grade];
                 return gradeDef.stats.filter(stat => stat !== selectedOptionData.type);
             } else if (selectedOption.type === 'combatSub') {
-                // 부옵션 변경: 같은 슬롯의 다른 부옵션
                 const rules = GRADE_SUB_OPTION_RULES[grade];
                 const combatTier = rules.combatTier;
                 const pool = SUB_OPTION_POOLS[slot][combatTier];
@@ -99,19 +244,15 @@ const RefinementView: React.FC<RefinementViewProps> = ({ selectedItem, currentUs
                 usedTypes.add(selectedItem.options!.main.type);
                 return pool.filter(opt => !usedTypes.has(opt.type)).map(opt => opt.type);
             } else if (selectedOption.type === 'specialSub') {
-                // 특수옵션 변경: 다른 특수옵션
                 const allSpecialStats = Object.values(SpecialStat);
                 const usedTypes = new Set(selectedItem.options!.specialSubs.map(s => s.type));
                 return allSpecialStats.filter(stat => !usedTypes.has(stat));
             }
         } else if (refinementType === 'value') {
-            // 옵션 수치 변경: 같은 옵션의 다른 수치 범위
             if (selectedOption.type === 'combatSub' || selectedOption.type === 'specialSub') {
-                // 범위 내 랜덤 값 반환 (실제로는 서버에서 처리)
                 return ['랜덤 수치'];
             }
         } else if (refinementType === 'mythic') {
-            // 신화 옵션 변경: 다른 신화 옵션
             if (selectedOption.type === 'mythicSub') {
                 const allMythicStats = Object.values(MythicStat);
                 const usedTypes = new Set(selectedItem.options!.mythicSubs.map(s => s.type));
@@ -144,7 +285,6 @@ const RefinementView: React.FC<RefinementViewProps> = ({ selectedItem, currentUs
     const canRefine = useMemo(() => {
         if (!selectedItem || !selectedOption || !refinementType || !canRefineAtAll) return false;
         
-        // 골드 부족 체크
         if (currentUser.gold < requiredGold) return false;
         
         if (refinementType === 'type') {
@@ -158,28 +298,48 @@ const RefinementView: React.FC<RefinementViewProps> = ({ selectedItem, currentUs
         return false;
     }, [selectedItem, selectedOption, refinementType, ticketCounts, requiredTickets, availableOptions, canRefineAtAll, currentUser.gold, requiredGold]);
 
+    // 변경권 아이템 정보
+    const ticketItemInfo = useMemo(() => {
+        if (!refinementType) return null;
+        let ticketName = '';
+        if (refinementType === 'type') ticketName = '옵션 종류 변경권';
+        else if (refinementType === 'value') ticketName = '옵션 수치 변경권';
+        else if (refinementType === 'mythic') ticketName = '신화 옵션 변경권';
+        
+        return CONSUMABLE_ITEMS.find(item => item.name === ticketName);
+    }, [refinementType]);
+
+    const clearRefinementTimers = () => {
+        if (refinementIntervalRef.current) {
+            clearInterval(refinementIntervalRef.current);
+            refinementIntervalRef.current = null;
+        }
+        if (refinementTimeoutRef.current) {
+            clearTimeout(refinementTimeoutRef.current);
+            refinementTimeoutRef.current = null;
+        }
+    };
+
     const handleRefine = async () => {
         if (!canRefine || !selectedItem || !selectedOption) return;
         
         setIsRefining(true);
         setRefinementProgress(0);
         
-        // 진행 바 애니메이션 (2초)
-        const interval = setInterval(() => {
+        refinementIntervalRef.current = window.setInterval(() => {
             setRefinementProgress(prev => {
                 if (prev >= 100) {
-                    clearInterval(interval);
+                    clearRefinementTimers();
                     return 100;
                 }
                 return prev + 2;
             });
         }, 40);
         
-        setTimeout(async () => {
-            clearInterval(interval);
+        refinementTimeoutRef.current = window.setTimeout(async () => {
+            clearRefinementTimers();
             setRefinementProgress(100);
             
-            // 서버 액션 호출
             await onAction({
                 type: 'REFINE_EQUIPMENT',
                 payload: {
@@ -197,9 +357,22 @@ const RefinementView: React.FC<RefinementViewProps> = ({ selectedItem, currentUs
         }, 2000);
     };
 
+    useEffect(() => {
+        return () => {
+            clearRefinementTimers();
+        };
+    }, []);
+
+    useEffect(() => {
+        if (!isRefining) {
+            setRefinementProgress(0);
+            clearRefinementTimers();
+        }
+    }, [isRefining]);
+
     if (!selectedItem) {
         return (
-            <div className="flex items-center justify-center h-full text-gray-400">
+            <div className="flex items-center justify-center h-full text-gray-400 text-sm">
                 장비를 선택해주세요.
             </div>
         );
@@ -207,7 +380,7 @@ const RefinementView: React.FC<RefinementViewProps> = ({ selectedItem, currentUs
 
     if (!selectedItem.options) {
         return (
-            <div className="flex items-center justify-center h-full text-gray-400">
+            <div className="flex items-center justify-center h-full text-gray-400 text-sm">
                 옵션이 없는 장비입니다.
             </div>
         );
@@ -215,167 +388,160 @@ const RefinementView: React.FC<RefinementViewProps> = ({ selectedItem, currentUs
 
     if (!canRefineAtAll) {
         return (
-            <div className="flex items-center justify-center h-full text-gray-400">
+            <div className="flex items-center justify-center h-full text-gray-400 text-sm">
                 일반 등급 장비는 제련할 수 없습니다.
             </div>
         );
     }
 
-    const { main, combatSubs, specialSubs, mythicSubs } = selectedItem.options;
-
     return (
-        <div className="flex flex-col h-full gap-4">
-            {/* 좌측: 선택된 장비 및 옵션 */}
-            <div className="flex-1 grid grid-cols-2 gap-4">
-                <div className="flex flex-col gap-2">
-                    <h3 className="text-lg font-bold">선택된 장비</h3>
-                    <div className="bg-gray-800 p-4 rounded-lg">
-                        <div className="font-bold mb-2">{selectedItem.name}</div>
-                        <div className="space-y-1 text-sm">
-                            <div>주옵션: {main.display}</div>
-                            {combatSubs.map((sub, idx) => (
-                                <div key={idx}>부옵션 {idx + 1}: {sub.display}</div>
-                            ))}
-                            {specialSubs.map((sub, idx) => (
-                                <div key={idx}>특수옵션 {idx + 1}: {sub.display}</div>
-                            ))}
-                            {mythicSubs.map((sub, idx) => (
-                                <div key={idx}>신화옵션 {idx + 1}: {sub.display}</div>
-                            ))}
-                        </div>
-                    </div>
-                    
-                    <h3 className="text-lg font-bold mt-4">옵션 선택</h3>
-                    <div className="bg-gray-800 p-4 rounded-lg space-y-2">
-                        <button
-                            onClick={() => setSelectedOption({ type: 'main', index: 0 })}
-                            className={`w-full p-2 rounded text-left ${selectedOption?.type === 'main' ? 'bg-blue-600' : 'bg-gray-700'}`}
-                        >
-                            주옵션: {main.display}
-                        </button>
-                        {combatSubs.map((sub, idx) => (
-                            <button
-                                key={idx}
-                                onClick={() => setSelectedOption({ type: 'combatSub', index: idx })}
-                                className={`w-full p-2 rounded text-left ${selectedOption?.type === 'combatSub' && selectedOption.index === idx ? 'bg-blue-600' : 'bg-gray-700'}`}
-                            >
-                                부옵션 {idx + 1}: {sub.display}
-                            </button>
-                        ))}
-                        {specialSubs.map((sub, idx) => (
-                            <button
-                                key={idx}
-                                onClick={() => setSelectedOption({ type: 'specialSub', index: idx })}
-                                className={`w-full p-2 rounded text-left ${selectedOption?.type === 'specialSub' && selectedOption.index === idx ? 'bg-blue-600' : 'bg-gray-700'}`}
-                            >
-                                특수옵션 {idx + 1}: {sub.display}
-                            </button>
-                        ))}
-                        {mythicSubs.map((sub, idx) => (
-                            <button
-                                key={idx}
-                                onClick={() => setSelectedOption({ type: 'mythicSub', index: idx })}
-                                className={`w-full p-2 rounded text-left ${selectedOption?.type === 'mythicSub' && selectedOption.index === idx ? 'bg-blue-600' : 'bg-gray-700'}`}
-                            >
-                                신화옵션 {idx + 1}: {sub.display}
-                            </button>
-                        ))}
+        <div className="flex flex-col h-full gap-2 p-2">
+            {/* 좌우 분할 레이아웃 */}
+            <div className="flex-1 grid grid-cols-2 gap-3 min-h-0">
+                {/* 좌측: 선택된 장비 표시 */}
+                <div className="flex flex-col bg-gray-800/50 rounded-lg p-2 min-h-0">
+                    <h3 className="text-xs font-bold mb-1 text-gray-300">선택된 장비</h3>
+                    <div className="flex-1 min-h-0">
+                        <ItemDisplay 
+                            item={selectedItem} 
+                            selectedOption={selectedOption}
+                            onOptionClick={(type, index) => {
+                                setSelectedOption({ type, index });
+                                setRefinementType(null);
+                            }}
+                        />
                     </div>
                 </div>
 
-                {/* 우측: 변경 결과 및 재료 */}
-                <div className="flex flex-col gap-2">
-                    <h3 className="text-lg font-bold">제련 정보</h3>
-                    {selectedOption && (
-                        <div className="bg-gray-800 p-4 rounded-lg space-y-4">
-                            <div>
-                                <div className="font-bold mb-2">선택된 옵션</div>
-                                <div>{selectedOptionData?.display || 'N/A'}</div>
+                {/* 우측: 제련 정보 */}
+                <div className="flex flex-col bg-gray-800/50 rounded-lg p-2 min-h-0 overflow-y-auto">
+                    <h3 className="text-xs font-bold mb-2 text-gray-300">제련 정보</h3>
+                    
+                    {selectedOption ? (
+                        <div className="flex flex-col gap-2 text-xs">
+                            {/* 선택된 옵션 표시 */}
+                            <div className="bg-gray-900/50 p-1.5 rounded">
+                                <div className="text-gray-400 text-xs mb-0.5">선택된 옵션</div>
+                                <div className="text-yellow-300 font-semibold">{selectedOptionData?.display || 'N/A'}</div>
                             </div>
                             
-                            <div>
-                                <div className="font-bold mb-2">제련 타입 선택</div>
-                                <div className="space-y-2">
-                                    {(selectedOption.type === 'main' || selectedOption.type === 'combatSub' || selectedOption.type === 'specialSub') && (
-                                        <>
-                                            <button
-                                                onClick={() => setRefinementType('type')}
-                                                className={`w-full p-2 rounded ${refinementType === 'type' ? 'bg-green-600' : 'bg-gray-700'}`}
-                                            >
-                                                종류 변경
-                                            </button>
-                                            {(selectedOption.type === 'combatSub' || selectedOption.type === 'specialSub') && (
-                                                <button
-                                                    onClick={() => setRefinementType('value')}
-                                                    className={`w-full p-2 rounded ${refinementType === 'value' ? 'bg-green-600' : 'bg-gray-700'}`}
-                                                >
-                                                    수치 변경
-                                                </button>
-                                            )}
-                                        </>
-                                    )}
-                                    {selectedOption.type === 'mythicSub' && (
+                            {/* 제련 타입 선택 버튼 (가로 배치) */}
+                            <div className="flex gap-2">
+                                {(selectedOption.type === 'main' || selectedOption.type === 'combatSub' || selectedOption.type === 'specialSub') && (
+                                    <>
                                         <button
-                                            onClick={() => setRefinementType('mythic')}
-                                            className={`w-full p-2 rounded ${refinementType === 'mythic' ? 'bg-green-600' : 'bg-gray-700'}`}
+                                            onClick={() => setRefinementType('type')}
+                                            className={`flex-1 py-1.5 px-2 rounded text-xs font-semibold transition-all ${
+                                                refinementType === 'type' 
+                                                    ? 'bg-green-600 text-white' 
+                                                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                                            }`}
                                         >
-                                            신화 옵션 변경
+                                            종류변경
                                         </button>
-                                    )}
-                                </div>
+                                        {(selectedOption.type === 'combatSub' || selectedOption.type === 'specialSub') && (
+                                            <button
+                                                onClick={() => setRefinementType('value')}
+                                                className={`flex-1 py-1.5 px-2 rounded text-xs font-semibold transition-all ${
+                                                    refinementType === 'value' 
+                                                        ? 'bg-green-600 text-white' 
+                                                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                                                }`}
+                                            >
+                                                수치변경
+                                            </button>
+                                        )}
+                                    </>
+                                )}
+                                {selectedOption.type === 'mythicSub' && (
+                                    <button
+                                        onClick={() => setRefinementType('mythic')}
+                                        className={`flex-1 py-1.5 px-2 rounded text-xs font-semibold transition-all ${
+                                            refinementType === 'mythic' 
+                                                ? 'bg-green-600 text-white' 
+                                                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                                        }`}
+                                    >
+                                        신화 옵션 변경
+                                    </button>
+                                )}
                             </div>
 
                             {refinementType && (
                                 <>
-                                    <div>
-                                        <div className="font-bold mb-2">변경 가능한 옵션</div>
-                                        <div className="bg-gray-900 p-2 rounded text-sm">
+                                    {/* 변경 가능한 옵션/수치 표시 */}
+                                    <div className="bg-gray-900/50 p-1.5 rounded">
+                                        <div className="text-gray-400 text-xs mb-1">변경 가능한 옵션</div>
+                                        <div className="text-xs space-y-0.5 max-h-24 overflow-y-auto">
                                             {availableOptions.length > 0 ? (
-                                                <div>랜덤 선택: {availableOptions.length}개 옵션 중 1개</div>
+                                                availableOptions.map((opt, idx) => (
+                                                    <div key={idx} className="text-green-300">
+                                                        {typeof opt === 'string' ? opt : `옵션 ${idx + 1}`}
+                                                    </div>
+                                                ))
                                             ) : (
                                                 <div className="text-red-400">변경 가능한 옵션이 없습니다.</div>
                                             )}
                                         </div>
                                     </div>
 
-                                    <div>
-                                        <div className="font-bold mb-2">필요한 재료</div>
-                                        <div className="space-y-1 text-sm">
-                                            {refinementType === 'type' && (
-                                                <div>옵션 종류 변경권 x{requiredTickets} (보유: {ticketCounts.type})</div>
+                                    {/* 필요 재료 (이미지로 표시) */}
+                                    <div className="bg-gray-900/50 p-1.5 rounded">
+                                        <div className="text-gray-400 text-xs mb-1">필요 재료</div>
+                                        <div className="flex flex-wrap gap-2 items-center">
+                                            {/* 변경권 */}
+                                            {ticketItemInfo && (
+                                                <div className="flex items-center gap-1 bg-gray-800/50 p-1 rounded">
+                                                    <img 
+                                                        src={ticketItemInfo.image} 
+                                                        alt={ticketItemInfo.name}
+                                                        className="w-6 h-6 object-contain"
+                                                    />
+                                                    <span className={`text-xs ${ticketCounts[refinementType === 'type' ? 'type' : refinementType === 'value' ? 'value' : 'mythic'] >= requiredTickets ? 'text-white' : 'text-red-400'}`}>
+                                                        x{requiredTickets}
+                                                    </span>
+                                                </div>
                                             )}
-                                            {refinementType === 'value' && (
-                                                <div>옵션 수치 변경권 x{requiredTickets} (보유: {ticketCounts.value})</div>
-                                            )}
-                                            {refinementType === 'mythic' && (
-                                                <div>신화 옵션 변경권 x{requiredTickets} (보유: {ticketCounts.mythic})</div>
-                                            )}
-                                            <div className={`mt-2 ${currentUser.gold < requiredGold ? 'text-red-400' : 'text-yellow-300'}`}>
-                                                골드: {requiredGold.toLocaleString()} (보유: {currentUser.gold.toLocaleString()})
+                                            {/* 골드 */}
+                                            <div className="flex items-center gap-1 bg-gray-800/50 p-1 rounded">
+                                                <img 
+                                                    src="/images/icon/Gold.png" 
+                                                    alt="골드"
+                                                    className="w-6 h-6 object-contain"
+                                                />
+                                                <span className={`text-xs ${currentUser.gold >= requiredGold ? 'text-white' : 'text-red-400'}`}>
+                                                    {requiredGold.toLocaleString()}
+                                                </span>
                                             </div>
                                         </div>
                                     </div>
 
+                                    {/* 제련하기 버튼 */}
+                                    <Button
+                                        onClick={handleRefine}
+                                        disabled={!canRefine || isRefining}
+                                        className="w-full !py-1.5 !text-xs"
+                                    >
+                                        제련하기
+                                    </Button>
+
+                                    {/* 진행 바 애니메이션 (버튼 밑) */}
                                     {isRefining && (
-                                        <div className="mt-4">
-                                            <div className="w-full bg-gray-700 rounded-full h-4">
+                                        <div className="w-full">
+                                            <div className="w-full bg-gray-700 rounded-full h-2">
                                                 <div
-                                                    className="bg-blue-600 h-4 rounded-full transition-all duration-100"
+                                                    className="bg-blue-600 h-2 rounded-full transition-all duration-100"
                                                     style={{ width: `${refinementProgress}%` }}
                                                 />
                                             </div>
                                         </div>
                                     )}
-
-                                    <Button
-                                        onClick={handleRefine}
-                                        disabled={!canRefine || isRefining}
-                                        className="w-full mt-4"
-                                    >
-                                        제련하기
-                                    </Button>
                                 </>
                             )}
+                        </div>
+                    ) : (
+                        <div className="text-gray-500 text-xs text-center py-4">
+                            좌측에서 옵션을 선택해주세요.
                         </div>
                     )}
                 </div>
@@ -428,4 +594,3 @@ const RefinementView: React.FC<RefinementViewProps> = ({ selectedItem, currentUs
 };
 
 export default RefinementView;
-

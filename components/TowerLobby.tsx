@@ -519,10 +519,12 @@ const TowerLobby: React.FC = () => {
                                     >
                                         {isLocked && (
                                             <div className="absolute inset-0 flex items-center justify-center bg-gray-900/80 rounded-lg z-10 backdrop-blur-sm">
-                                                <div className="flex flex-col items-center gap-1.5">
-                                                    <span className="text-3xl">🔒</span>
-                                                    <span className="text-xs text-amber-300 font-semibold">잠금</span>
-                                                    <span className="text-[10px] text-amber-400/80">아래층을 먼저 클리어하세요</span>
+                                                <div className="flex items-center gap-2 px-2">
+                                                    <span className="text-2xl">🔒</span>
+                                                    <div className="flex flex-col gap-0.5">
+                                                        <span className="text-xs text-amber-300 font-semibold whitespace-nowrap">잠금</span>
+                                                        <span className="text-[10px] text-amber-400/80 whitespace-nowrap">아래층을 먼저 클리어하세요</span>
+                                                    </div>
                                                 </div>
                                             </div>
                                         )}
@@ -621,21 +623,11 @@ const TowerLobby: React.FC = () => {
 											onClick={async () => {
                                                 if (canChallenge && !isLocked) {
 													try {
-														const res = await handlers.handleAction({
+														// useApp.ts에서 라우팅을 처리하므로 여기서는 액션만 호출
+														await handlers.handleAction({
                                                             type: 'START_TOWER_GAME',
                                                             payload: { floor }
                                                         });
-														const gameId = (res as any)?.gameId || (res as any)?.clientResponse?.gameId;
-														console.log('[TowerLobby] START_TOWER_GAME response:', { res, gameId });
-														if (gameId) {
-															// useApp.ts에서 라우팅을 처리하지만, 혹시 모를 경우를 대비해 여기서도 처리
-															setTimeout(() => {
-																if (window.location.hash !== `#/game/${gameId}`) {
-																	console.log('[TowerLobby] Routing to game:', gameId);
-																	window.location.hash = `#/game/${gameId}`;
-																}
-															}, 100);
-														}
 													} catch (error) {
 														console.error('[TowerLobby] Failed to start tower game:', error);
 													}
@@ -872,10 +864,12 @@ const TowerLobby: React.FC = () => {
                                     {/* 자물쇠 오버레이 */}
                                     {isLocked && (
                                         <div className="absolute inset-0 flex items-center justify-center bg-gray-900/80 rounded-lg z-10 backdrop-blur-sm">
-                                            <div className="flex flex-col items-center gap-1.5">
-                                                <span className="text-3xl sm:text-4xl">🔒</span>
-                                                <span className="text-xs sm:text-sm text-amber-300 font-semibold">잠금</span>
-                                                <span className="text-[10px] sm:text-xs text-amber-400/80">아래층을 먼저 클리어하세요</span>
+                                            <div className="flex items-center gap-2 px-2">
+                                                <span className="text-2xl sm:text-3xl">🔒</span>
+                                                <div className="flex flex-col gap-0.5">
+                                                    <span className="text-xs sm:text-sm text-amber-300 font-semibold whitespace-nowrap">잠금</span>
+                                                    <span className="text-[10px] sm:text-xs text-amber-400/80 whitespace-nowrap">아래층을 먼저 클리어하세요</span>
+                                                </div>
                                             </div>
                                         </div>
                                     )}
@@ -998,15 +992,7 @@ const TowerLobby: React.FC = () => {
                                                     });
 													const gameId = (res as any)?.gameId || (res as any)?.clientResponse?.gameId;
 													console.log('[TowerLobby] START_TOWER_GAME response:', { res, gameId });
-													if (gameId) {
-														// useApp.ts에서 라우팅을 처리하지만, 혹시 모를 경우를 대비해 여기서도 처리
-														setTimeout(() => {
-															if (window.location.hash !== `#/game/${gameId}`) {
-																console.log('[TowerLobby] Routing to game:', gameId);
-																window.location.hash = `#/game/${gameId}`;
-															}
-														}, 100);
-													}
+													// useApp.ts에서 라우팅을 처리하므로 여기서는 액션만 호출
 												} catch (error) {
 													console.error('[TowerLobby] Failed to start tower game:', error);
 												}

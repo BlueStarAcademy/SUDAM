@@ -293,9 +293,10 @@ export const processMatchCompletion = (state: TournamentState, user: User, compl
                 if (nextRoundObj) {
                     const nextUserMatch = nextRoundObj.matches.find(m => m.isUserMatch && !m.isFinished);
                     if (nextUserMatch) {
-                        // 2~5회차는 5초 후 자동 시작
+                        // 2~5회차는 bracket_ready 상태로 설정 (클라이언트에서 카운트다운 처리)
                         state.status = 'bracket_ready';
-                        state.nextRoundStartTime = Date.now() + 5000;
+                        // nextRoundStartTime은 클라이언트 카운트다운이 처리하므로 설정하지 않음
+                        state.nextRoundStartTime = undefined;
                     } else {
                         state.status = 'complete';
                     }
@@ -360,10 +361,11 @@ export const processMatchCompletion = (state: TournamentState, user: User, compl
                 .find(({ match }) => !match.isFinished && match.isUserMatch);
             
             if (nextUserMatch) {
-                // 다음 경기가 있으면 5초 후 자동 시작 (bracket_ready 상태로 설정)
+                // 다음 경기가 있으면 bracket_ready 상태로 설정 (클라이언트에서 카운트다운 처리)
                 state.status = 'bracket_ready';
-                state.nextRoundStartTime = Date.now() + 5000;
-                // currentSimulatingMatch는 아직 설정하지 않음 (5초 후 자동 시작 시 설정됨)
+                // nextRoundStartTime은 클라이언트 카운트다운이 처리하므로 설정하지 않음
+                state.nextRoundStartTime = undefined;
+                // currentSimulatingMatch는 아직 설정하지 않음 (경기 시작 시 설정됨)
             } else {
                 state.status = 'complete';
             }
@@ -996,15 +998,8 @@ export const startNextRound = (state: TournamentState, user: User) => {
             return count + r.matches.filter(m => m.isUserMatch && m.isFinished).length;
         }, 0);
         
-        const isFirstMatch = finishedUserMatches === 0;
-        
-        // 첫 경기는 수동 시작 (nextRoundStartTime 설정하지 않음)
-        // 두 번째 경기부터는 자동 시작 (5초 후)
-        if (!isFirstMatch) {
-            state.nextRoundStartTime = Date.now() + 5000;
-        } else {
-            state.nextRoundStartTime = undefined;
-        }
+        // 클라이언트에서 카운트다운이 처리하므로 nextRoundStartTime 설정하지 않음
+        state.nextRoundStartTime = undefined;
         
         // 컨디션은 처음 세팅된 값을 유지 (변경하지 않음)
         // 능력치는 originalStats로 리셋

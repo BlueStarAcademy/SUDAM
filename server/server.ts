@@ -556,6 +556,7 @@ const startServer = async () => {
                     );
                     
                     // 봇 점수가 모두 0이면 강제 업데이트
+                    // 1시간마다 실행되므로, 어제 날짜의 lastUpdate가 있으면 오늘 날짜 점수만 추가
                     const updatedUser = await updateBotLeagueScores(user, hasZeroBotScores);
                     if (JSON.stringify(user.weeklyCompetitorsBotScores || {}) !== JSON.stringify(updatedUser.weeklyCompetitorsBotScores || {})) {
                         await db.updateUser(updatedUser);
@@ -1952,6 +1953,47 @@ const startServer = async () => {
             res.status(200).json({ success: true, message: `봇 점수 복구 완료. ${updatedCount}명의 유저, ${totalBotsUpdated}개의 봇 업데이트됨.` });
         } catch (error: any) {
             console.error('[Admin] 봇 점수 복구 오류:', error);
+            console.error('[Admin] 오류 스택:', error.stack);
+            res.status(500).json({ error: error.message });
+        }
+    });
+    
+    // 긴급 봇 점수 업데이트 엔드포인트 (누락된 날짜 보완)
+    // 주의: 인증 없이 실행되므로 보안에 주의하세요
+    app.post('/api/admin/update-bot-scores-now', async (req, res) => {
+        try {
+            console.log('[Admin] ========== 봇 점수 즉시 업데이트 시작 (누락된 날짜 보완) ==========');
+            const { updateBotLeagueScores } = await import('./scheduledTasks.js');
+            const { listUsers } = await import('./prisma/userService.js');
+            const allUsers = await listUsers({ includeEquipment: false, includeInventory: false });
+            let updatedCount = 0;
+            let totalBotsUpdated = 0;
+            
+            for (const user of allUsers) {
+                if (!user.weeklyCompetitors || user.weeklyCompetitors.length === 0) {
+                    continue;
+                }
+                
+                const userBeforeUpdate = JSON.stringify(user.weeklyCompetitorsBotScores || {});
+                // 누락된 날짜 자동 보완 (마지막 업데이트 다음 날부터 오늘까지)
+                const updatedUser = await updateBotLeagueScores(user, false);
+                const userAfterUpdate = JSON.stringify(updatedUser.weeklyCompetitorsBotScores || {});
+                
+                if (userBeforeUpdate !== userAfterUpdate) {
+                    await db.updateUser(updatedUser);
+                    updatedCount++;
+                    
+                    // 업데이트된 봇 수 계산
+                    const botCount = (user.weeklyCompetitors || []).filter(c => c.id.startsWith('bot-')).length;
+                    totalBotsUpdated += botCount;
+                }
+            }
+            
+            console.log(`[Admin] ========== 봇 점수 즉시 업데이트 완료 ==========`);
+            console.log(`[Admin] 업데이트된 유저: ${updatedCount}명, 총 봇 수: ${totalBotsUpdated}개`);
+            res.status(200).json({ success: true, message: `봇 점수 업데이트 완료. ${updatedCount}명의 유저, ${totalBotsUpdated}개의 봇 업데이트됨.` });
+        } catch (error: any) {
+            console.error('[Admin] 봇 점수 업데이트 오류:', error);
             console.error('[Admin] 오류 스택:', error.stack);
             res.status(500).json({ error: error.message });
         }

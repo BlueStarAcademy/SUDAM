@@ -147,10 +147,10 @@ const TowerSummaryModal: React.FC<TowerSummaryModalProps> = ({ session, currentU
         return stageFloor === nextFloor;
     }) : null;
     
-    // 다음 층으로 갈 수 있는지 확인: 승리했고 다음 층이 있으며 현재 층을 클리어한 경우
-    // 도전의 탑에서는 session.winner가 설정되어 있으면 다음 층으로 갈 수 있음
-    const userTowerFloor = (currentUser as any).towerFloor ?? 0;
-    const canTryNext = isWinner && !!nextStage && userTowerFloor >= currentFloor;
+    // 다음 층으로 갈 수 있는지 확인: 승리했고 다음 층이 있으면 다음 층으로 갈 수 있음
+    // 현재 층을 방금 클리어했다면 userTowerFloor가 아직 업데이트되지 않았을 수 있으므로
+    // isWinner만 확인하면 됨
+    const canTryNext = isWinner && !!nextStage;
     
     const retryActionPointCost = currentStage?.actionPointCost ?? 0;
     const nextFloorActionPointCost = nextStage?.actionPointCost ?? 0;
@@ -245,18 +245,8 @@ const TowerSummaryModal: React.FC<TowerSummaryModalProps> = ({ session, currentU
         setIsProcessing(true);
         try {
             // onAction이 완료될 때까지 기다림 (gameId 반환 가능)
-            // handleAction에서 이미 라우팅을 업데이트하므로 여기서는 모달만 닫으면 됨
-            const result = await onAction({ type: 'START_TOWER_GAME', payload: { floor: currentFloor } });
-            const gameId = (result as any)?.gameId;
-            
-            if (gameId) {
-                // gameId를 받았으면 handleAction에서 이미 라우팅이 업데이트되었으므로
-                // WebSocket 업데이트를 기다리면서 모달 닫기
-                await new Promise(resolve => setTimeout(resolve, 200));
-            } else {
-                // gameId가 없으면 WebSocket 업데이트를 기다림
-                await new Promise(resolve => setTimeout(resolve, 500));
-            }
+            // handleAction에서 이미 라우팅을 업데이트하므로 즉시 모달 닫기 (지연 제거)
+            await onAction({ type: 'START_TOWER_GAME', payload: { floor: currentFloor } });
             onClose();
         } catch (error) {
             console.error('[TowerSummaryModal] Failed to retry floor:', error);
@@ -269,18 +259,8 @@ const TowerSummaryModal: React.FC<TowerSummaryModalProps> = ({ session, currentU
         setIsProcessing(true);
         try {
             // onAction이 완료될 때까지 기다림 (gameId 반환 가능)
-            // handleAction에서 이미 라우팅을 업데이트하므로 여기서는 모달만 닫으면 됨
-            const result = await onAction({ type: 'START_TOWER_GAME', payload: { floor: nextFloor } });
-            const gameId = (result as any)?.gameId;
-            
-            if (gameId) {
-                // gameId를 받았으면 handleAction에서 이미 라우팅이 업데이트되었으므로
-                // WebSocket 업데이트를 기다리면서 모달 닫기
-                await new Promise(resolve => setTimeout(resolve, 200));
-            } else {
-                // gameId가 없으면 WebSocket 업데이트를 기다림
-                await new Promise(resolve => setTimeout(resolve, 500));
-            }
+            // handleAction에서 이미 라우팅을 업데이트하므로 즉시 모달 닫기 (지연 제거)
+            await onAction({ type: 'START_TOWER_GAME', payload: { floor: nextFloor } });
             onClose();
         } catch (error) {
             console.error('[TowerSummaryModal] Failed to start next floor:', error);
@@ -335,7 +315,7 @@ const TowerSummaryModal: React.FC<TowerSummaryModalProps> = ({ session, currentU
                 {/* Title */}
                 {(analysisResult || (isEnded && session.winner !== null)) && (
                     <h1 className={`${isMobile ? 'text-base' : 'text-2xl'} font-black text-center mb-1 sm:mb-2 tracking-widest flex-shrink-0 ${isWinner ? 'text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 via-amber-300 to-yellow-400' : 'text-red-400'}`} style={{ fontSize: isMobile ? `${14 * mobileTextScale}px` : undefined }}>
-                        {isWinner ? 'FLOOR CLEAR' : 'FLOOR FAILED'}
+                        {isWinner ? '도전 성공' : '도전 실패'}
                     </h1>
                 )}
                 {isScoring && !analysisResult && (
@@ -469,7 +449,7 @@ const TowerSummaryModal: React.FC<TowerSummaryModalProps> = ({ session, currentU
                                                 </div>
                                             )}
                                             {/* Item Rewards */}
-                                            {summary.items && summary.items.length > 0 && summary.items.slice(0, 2).map((item, idx) => {
+                                            {summary.items && summary.items.length > 0 && summary.items.map((item, idx) => {
                                                 // 이미지 경로 찾기: item.image가 없으면 CONSUMABLE_ITEMS나 MATERIAL_ITEMS에서 찾기
                                                 // 이름 불일치 처리: '골드꾸러미1' <-> '골드 꾸러미1'
                                                 const nameWithSpace = item.name?.includes('골드꾸러미') 
@@ -508,6 +488,7 @@ const TowerSummaryModal: React.FC<TowerSummaryModalProps> = ({ session, currentU
                                                         )}
                                                         <p className="font-semibold text-purple-300 text-center leading-tight" style={{ fontSize: isMobile ? `${8 * mobileTextScale}px` : '10px' }}>
                                                             {item.name}
+                                                            {item.quantity && item.quantity > 1 ? ` x${item.quantity}` : ''}
                                                         </p>
                                                     </div>
                                                 );
@@ -519,11 +500,6 @@ const TowerSummaryModal: React.FC<TowerSummaryModalProps> = ({ session, currentU
                                                 보상이 없습니다.
                                             </p>
                                         </div>
-                                    )}
-                                    {summary.items && summary.items.length > 2 && (
-                                        <p className="text-center text-gray-400" style={{ fontSize: isMobile ? `${9 * mobileTextScale}px` : '11px' }}>
-                                            외 {summary.items.length - 2}개 아이템
-                                        </p>
                                     )}
                                 </>
                             ) : (
