@@ -284,7 +284,26 @@ async function syncEquipmentAndInventory(user: User): Promise<void> {
           continue;
         }
         
-        // inventory 조회는 스킵하고 바로 upsert (성능 최적화)
+        // inventoryId가 실제로 존재하는지 확인 (외래 키 제약 조건 위반 방지)
+        const inventoryExists = await prisma.userInventory.findUnique({
+          where: { id: itemId },
+          select: { id: true }
+        });
+        
+        // inventoryId가 존재하지 않으면 장비 슬롯을 비움
+        if (!inventoryExists) {
+          console.warn(`[userService] Inventory item ${itemId} not found for user ${user.id}, slot ${slot}. Clearing equipment slot.`);
+          await prisma.userEquipment.deleteMany({
+            where: {
+              userId: user.id,
+              slot: slot
+            }
+          });
+          existingSlots.delete(slot);
+          continue;
+        }
+        
+        // inventoryId가 존재하면 upsert
         await prisma.userEquipment.upsert({
           where: {
             userId_slot: {
