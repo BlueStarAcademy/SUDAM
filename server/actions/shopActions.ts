@@ -488,6 +488,7 @@ export const handleShopAction = async (volatileState: VolatileState, action: Ser
             const consumableItems: Record<string, { name: string; price: number; dailyLimit: number }> = {
                 'option_type_change_ticket': { name: '옵션 종류 변경권', price: 500, dailyLimit: 10 },
                 'option_value_change_ticket': { name: '옵션 수치 변경권', price: 500, dailyLimit: 10 },
+                'mythic_option_change_ticket': { name: '신화 옵션 종류 변경권', price: 500, dailyLimit: 10 },
             };
 
             const itemInfo = consumableItems[itemId];

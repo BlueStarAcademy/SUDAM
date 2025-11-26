@@ -461,24 +461,32 @@ const RefinementView: React.FC<RefinementViewProps> = ({ selectedItem, currentUs
                                     <>
                                         <button
                                             onClick={() => setRefinementType('type')}
-                                            className={`flex-1 py-1.5 px-2 rounded text-xs font-semibold transition-all ${
+                                            className={`group relative flex-1 py-2 px-3 rounded-lg text-xs font-bold transition-all duration-300 overflow-hidden ${
                                                 refinementType === 'type' 
-                                                    ? 'bg-green-600 text-white' 
-                                                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                                                    ? 'bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 text-white shadow-[0_0_20px_rgba(168,85,247,0.6)] scale-105' 
+                                                    : 'bg-gradient-to-r from-gray-700 to-gray-800 text-gray-300 hover:from-gray-600 hover:to-gray-700 hover:shadow-lg'
                                             }`}
                                         >
-                                            종류변경
+                                            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 transform -skew-x-12 translate-x-[-200%] group-hover:translate-x-[200%]"></div>
+                                            <span className="relative z-10 flex items-center justify-center gap-1">
+                                                <span className="text-sm">🔄</span>
+                                                종류변경
+                                            </span>
                                         </button>
                                         {(selectedOption.type === 'combatSub' || selectedOption.type === 'specialSub') && (
                                             <button
                                                 onClick={() => setRefinementType('value')}
-                                                className={`flex-1 py-1.5 px-2 rounded text-xs font-semibold transition-all ${
+                                                className={`group relative flex-1 py-2 px-3 rounded-lg text-xs font-bold transition-all duration-300 overflow-hidden ${
                                                     refinementType === 'value' 
-                                                        ? 'bg-green-600 text-white' 
-                                                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                                                        ? 'bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 text-white shadow-[0_0_20px_rgba(20,184,166,0.6)] scale-105' 
+                                                        : 'bg-gradient-to-r from-gray-700 to-gray-800 text-gray-300 hover:from-gray-600 hover:to-gray-700 hover:shadow-lg'
                                                 }`}
                                             >
-                                                수치변경
+                                                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 transform -skew-x-12 translate-x-[-200%] group-hover:translate-x-[200%]"></div>
+                                                <span className="relative z-10 flex items-center justify-center gap-1">
+                                                    <span className="text-sm">📊</span>
+                                                    수치변경
+                                                </span>
                                             </button>
                                         )}
                                     </>
@@ -486,13 +494,17 @@ const RefinementView: React.FC<RefinementViewProps> = ({ selectedItem, currentUs
                                 {selectedOption.type === 'mythicSub' && (
                                     <button
                                         onClick={() => setRefinementType('mythic')}
-                                        className={`flex-1 py-1.5 px-2 rounded text-xs font-semibold transition-all ${
+                                        className={`group relative flex-1 py-2 px-3 rounded-lg text-xs font-bold transition-all duration-300 overflow-hidden ${
                                             refinementType === 'mythic' 
-                                                ? 'bg-green-600 text-white' 
-                                                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                                                ? 'bg-gradient-to-r from-orange-500 via-red-500 to-pink-500 text-white shadow-[0_0_20px_rgba(249,115,22,0.6)] scale-105' 
+                                                : 'bg-gradient-to-r from-gray-700 to-gray-800 text-gray-300 hover:from-gray-600 hover:to-gray-700 hover:shadow-lg'
                                         }`}
                                     >
-                                        신화 옵션 변경
+                                        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 transform -skew-x-12 translate-x-[-200%] group-hover:translate-x-[200%]"></div>
+                                        <span className="relative z-10 flex items-center justify-center gap-1">
+                                            <span className="text-sm">✨</span>
+                                            신화 옵션 변경
+                                        </span>
                                     </button>
                                 )}
                             </div>
@@ -554,13 +566,21 @@ const RefinementView: React.FC<RefinementViewProps> = ({ selectedItem, currentUs
                                     </div>
 
                                     {/* 제련하기 버튼 */}
-                                    <Button
+                                    <button
                                         onClick={handleRefine}
                                         disabled={!canRefine || isRefining}
-                                        className="w-full !py-1.5 !text-xs"
+                                        className={`group relative w-full py-2.5 px-4 rounded-lg text-xs font-bold transition-all duration-300 overflow-hidden ${
+                                            canRefine && !isRefining
+                                                ? 'bg-gradient-to-r from-amber-500 via-orange-500 to-red-500 text-white shadow-[0_0_25px_rgba(251,146,60,0.7)] hover:shadow-[0_0_35px_rgba(251,146,60,0.9)] hover:scale-105'
+                                                : 'bg-gray-700 text-gray-400 cursor-not-allowed opacity-50'
+                                        }`}
                                     >
-                                        제련하기
-                                    </Button>
+                                        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 transform -skew-x-12 translate-x-[-200%] group-hover:translate-x-[200%]"></div>
+                                        <span className="relative z-10 flex items-center justify-center gap-2">
+                                            <span className="text-base">⚒️</span>
+                                            <span>제련하기</span>
+                                        </span>
+                                    </button>
 
                                     {/* 진행 바 애니메이션 (버튼 밑) */}
                                     {isRefining && (

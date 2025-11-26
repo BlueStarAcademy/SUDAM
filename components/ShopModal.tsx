@@ -146,32 +146,32 @@ const ShopItemCard: React.FC<{
     };
 
     return (
-        <div className="group relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#1f2239]/95 via-[#0f172a]/95 to-[#060b12]/95 p-4 border border-indigo-400/35 shadow-[0_22px_55px_-30px_rgba(99,102,241,0.65)] flex flex-col items-center text-center transition-transform duration-300 hover:-translate-y-1 hover:shadow-[0_30px_70px_-32px_rgba(129,140,248,0.65)] min-h-[230px]">
+        <div className="group relative overflow-hidden rounded-xl bg-gradient-to-br from-[#1f2239]/95 via-[#0f172a]/95 to-[#060b12]/95 p-3 border border-indigo-400/35 shadow-[0_22px_55px_-30px_rgba(99,102,241,0.65)] flex flex-col items-center text-center transition-transform duration-300 hover:-translate-y-1 hover:shadow-[0_30px_70px_-32px_rgba(129,140,248,0.65)]">
             <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-indigo-300/80 to-transparent pointer-events-none" />
             <div className="absolute inset-0 opacity-0 group-hover:opacity-20 transition-opacity duration-500 bg-[radial-gradient(circle_at_top,rgba(79,70,229,0.35),transparent_65%)] pointer-events-none" />
-            <div className="w-20 h-20 bg-gradient-to-br from-[#312e81]/35 via-[#1e1b4b]/20 to-transparent rounded-xl mb-3 flex items-center justify-center shadow-[0_0_25px_-8px_rgba(129,140,248,0.65)]">
-                <img src={image} alt={name} className="w-full h-full object-contain p-2 drop-shadow-[0_6px_12px_rgba(30,64,175,0.4)]" />
+            <div className="w-16 h-16 bg-gradient-to-br from-[#312e81]/35 via-[#1e1b4b]/20 to-transparent rounded-lg mb-2 flex items-center justify-center shadow-[0_0_25px_-8px_rgba(129,140,248,0.65)]">
+                <img src={image} alt={name} className="w-full h-full object-contain p-1.5 drop-shadow-[0_6px_12px_rgba(30,64,175,0.4)]" />
             </div>
-            <h3 className="text-lg font-semibold tracking-wide text-white drop-shadow-[0_2px_12px_rgba(99,102,241,0.55)]">
+            <h3 className="text-sm font-semibold tracking-wide text-white drop-shadow-[0_2px_12px_rgba(99,102,241,0.55)] line-clamp-1">
                 {name}
             </h3>
-            <p className="text-xs text-slate-200/80 mt-2 leading-relaxed line-clamp-2">
+            <p className="text-[10px] text-slate-200/80 mt-1 leading-relaxed line-clamp-2">
                 {refinedDescription}
             </p>
-            <div className="flex flex-col items-stretch justify-center gap-2 mt-3 w-full">
+            <div className="flex flex-col items-stretch justify-center gap-1.5 mt-2 w-full">
                 <Button
                     onClick={handleBuyClick}
                     disabled={remaining === 0}
                     colorScheme="none"
-                    className={`w-full justify-center rounded-xl border ${isGold ? 'border-amber-400/50 bg-gradient-to-r from-amber-400/90 via-amber-300/90 to-amber-500/90 text-slate-900 shadow-[0_12px_32px_-18px_rgba(251,191,36,0.85)] hover:from-amber-300 hover:to-amber-500' : 'border-sky-400/50 bg-gradient-to-r from-sky-400/90 via-blue-500/90 to-indigo-500/90 text-white shadow-[0_12px_32px_-18px_rgba(56,189,248,0.85)] hover:from-sky-300 hover:to-indigo-500'} ${remaining === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    className={`w-full justify-center rounded-lg border py-1.5 ${isGold ? 'border-amber-400/50 bg-gradient-to-r from-amber-400/90 via-amber-300/90 to-amber-500/90 text-slate-900 shadow-[0_12px_32px_-18px_rgba(251,191,36,0.85)] hover:from-amber-300 hover:to-amber-500' : 'border-sky-400/50 bg-gradient-to-r from-sky-400/90 via-blue-500/90 to-indigo-500/90 text-white shadow-[0_12px_32px_-18px_rgba(56,189,248,0.85)] hover:from-sky-300 hover:to-indigo-500'} ${remaining === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
                     <div className="flex flex-col items-center justify-center gap-0.5">
-                        <div className="flex items-center justify-center gap-2 text-sm sm:text-base font-semibold tracking-wide">
+                        <div className="flex items-center justify-center gap-1.5 text-xs font-semibold tracking-wide">
                             {PriceIcon}
                             <span>{priceAmount.toLocaleString()}</span>
                         </div>
                         {limit > 0 && (
-                            <span className={`text-[10px] ${isGold ? 'text-slate-700/90' : 'text-white/70'} tracking-wide`}>
+                            <span className={`text-[9px] ${isGold ? 'text-slate-700/90' : 'text-white/70'} tracking-wide`}>
                                 {limitText} 한도 {remaining}/{limit}
                             </span>
                         )}
@@ -214,7 +214,7 @@ const ShopModal: React.FC<ShopModalProps> = ({ currentUser: propCurrentUser, onC
         if (itemId.startsWith('condition_potion_')) {
             const potionType = itemId.replace('condition_potion_', '') as 'small' | 'medium' | 'large';
             onAction({ type: 'BUY_CONDITION_POTION', payload: { potionType, quantity } });
-        } else if (itemId === 'option_type_change_ticket' || itemId === 'option_value_change_ticket') {
+        } else if (itemId === 'option_type_change_ticket' || itemId === 'option_value_change_ticket' || itemId === 'mythic_option_change_ticket') {
             // 변경권 구매
             onAction({ type: 'BUY_CONSUMABLE', payload: { itemId, quantity } });
         } else {
@@ -251,19 +251,19 @@ const ShopModal: React.FC<ShopModalProps> = ({ currentUser: propCurrentUser, onC
         switch (activeTab) {
             case 'equipment':
                 return (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-4 gap-3">
                         {equipmentItems.map(item => <ShopItemCard key={item.itemId} item={item} onBuy={handleInitiatePurchase} currentUser={currentUser} />)}
                     </div>
                 );
             case 'materials':
                  return (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-4 gap-3">
                         {materialItems.map(item => <ShopItemCard key={item.itemId} item={item} onBuy={handleInitiatePurchase} currentUser={currentUser} />)}
                     </div>
                 );
             case 'misc':
                  return (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-4 gap-3">
                         <ActionPointCard currentUser={currentUser} onBuy={handleBuyActionPoints} />
                     </div>
                 );
@@ -275,9 +275,10 @@ const ShopModal: React.FC<ShopModalProps> = ({ currentUser: propCurrentUser, onC
                     { itemId: 'condition_potion_large', name: "컨디션회복제(대)", description: "컨디션 20~30회복", price: { gold: 200 }, image: "/images/use/con3.png", dailyLimit: 3, type: 'consumable' as const },
                     { itemId: 'option_type_change_ticket', name: "옵션 종류 변경권", description: "장비의 주옵션, 부옵션, 특수옵션 중 하나를 다른 종류로 변경", price: { gold: 500 }, image: "/images/use/change1.png", dailyLimit: 10, type: 'consumable' as const },
                     { itemId: 'option_value_change_ticket', name: "옵션 수치 변경권", description: "장비의 부옵션 또는 특수옵션 중 하나의 수치를 변경", price: { gold: 500 }, image: "/images/use/change2.png", dailyLimit: 10, type: 'consumable' as const },
+                    { itemId: 'mythic_option_change_ticket', name: "신화 옵션 종류 변경권", description: "신화 또는 D.신화 장비의 신화 옵션을 다른 신화 옵션으로 변경", price: { gold: 500 }, image: "/images/use/change3.png", dailyLimit: 10, type: 'consumable' as const },
                 ];
                 return (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-4 gap-3">
                         {consumableItems.map(item => <ShopItemCard key={item.itemId} item={item} onBuy={handleInitiatePurchase} currentUser={currentUser} />)}
                     </div>
                 );
