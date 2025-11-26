@@ -781,8 +781,32 @@ export const handleGuildAction = async (volatileState: VolatileState, action: Se
         case 'GET_GUILD_INFO': {
             try {
                 if (!user.guildId) return { error: "가입한 길드가 없습니다." };
+                
+                // Prisma에서도 길드 존재 여부 확인
+                const dbGuild = await guildRepo.getGuildById(user.guildId);
                 const guild = guilds[user.guildId];
-                if (!guild) return { error: "길드를 찾을 수 없습니다." };
+                
+                // KV store와 Prisma 모두에서 길드를 찾을 수 없으면 사용자의 guildId 제거
+                if (!guild && !dbGuild) {
+                    console.log(`[GET_GUILD_INFO] Guild ${user.guildId} not found, removing guildId from user ${user.id}`);
+                    user.guildId = undefined;
+                    await db.updateUser(user);
+                    
+                    // Prisma에서도 GuildMember 제거 (혹시 남아있을 수 있음)
+                    const existingGuildMember = await guildRepo.getGuildMemberByUserId(user.id);
+                    if (existingGuildMember) {
+                        console.log(`[GET_GUILD_INFO] Removing GuildMember for user ${user.id}`);
+                        await guildRepo.removeGuildMember(existingGuildMember.guildId, user.id);
+                    }
+                    
+                    return { error: "가입한 길드가 없습니다." };
+                }
+                
+                // KV store에 길드가 없지만 Prisma에는 있으면 기본 길드 객체 생성
+                if (!guild && dbGuild) {
+                    console.log(`[GET_GUILD_INFO] Guild ${user.guildId} exists in DB but not in KV store`);
+                    return { error: "길드 정보를 불러올 수 없습니다. 잠시 후 다시 시도해주세요." };
+                }
                 
                 // members 배열이 없으면 빈 배열로 초기화
                 if (!guild.members) {
