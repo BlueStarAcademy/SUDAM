@@ -79,6 +79,9 @@ RUN mkdir -p ./node_modules/.bin
 COPY --from=build /app/node_modules/tsx ./node_modules/tsx
 # Copy esbuild (required by tsx)
 COPY --from=build /app/node_modules/esbuild ./node_modules/esbuild
+# Copy esbuild platform-specific binaries (required by esbuild at runtime)
+RUN mkdir -p ./node_modules/@esbuild
+COPY --from=build /app/node_modules/@esbuild ./node_modules/@esbuild
 # Copy get-tsconfig (required by tsx)
 COPY --from=build /app/node_modules/get-tsconfig ./node_modules/get-tsconfig
 # Copy resolve-pkg-maps (required by get-tsconfig)
