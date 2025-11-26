@@ -131,7 +131,11 @@ export const handleGuildAction = async (volatileState: VolatileState, action: Se
             }
             
             if (!user.isAdmin) {
-                if (user.diamonds < GUILD_CREATION_COST) return { error: '다이아가 부족합니다.' };
+                // 다이아몬드 타입 변환 (BigInt일 수 있음)
+                const userDiamonds = typeof user.diamonds === 'bigint' ? Number(user.diamonds) : (user.diamonds || 0);
+                if (userDiamonds < GUILD_CREATION_COST) {
+                    return { error: `다이아가 부족합니다. (필요: ${GUILD_CREATION_COST}개, 보유: ${userDiamonds}개)` };
+                }
                 currencyService.spendDiamonds(user, GUILD_CREATION_COST, '길드 창설');
             }
             
