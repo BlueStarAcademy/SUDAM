@@ -6,7 +6,7 @@ import type { InventoryItem } from '../types/index.js';
 import { GUILD_BOSS_1_IMG, GUILD_BOSS_2_IMG, GUILD_BOSS_3_IMG, GUILD_BOSS_4_IMG, GUILD_BOSS_5_IMG, BOSS_SKILL_ICON_MAP } from '../assets.js';
 
 
-export const GUILD_CREATION_COST = 500; // Diamonds
+export const GUILD_CREATION_COST = 100; // Diamonds
 export const GUILD_NAME_CHANGE_COST = 200; // Diamonds
 export const GUILD_NAME_CHANGE_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 export const GUILD_LEAVE_COOLDOWN_MS = 3 * 60 * 60 * 1000; // 3 hours
