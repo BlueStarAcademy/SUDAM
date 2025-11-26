@@ -39,31 +39,78 @@ export async function buildRankingCache(): Promise<RankingCache> {
     console.log('[RankingCache] Building ranking cache...');
     const startTime = Date.now();
     
-    // inventory/equipment 없이 사용자 목록 가져오기 (더 빠름)
-    const allUsers = await db.getAllUsers({ includeEquipment: false, includeInventory: false });
-    
-    // 병렬로 여러 랭킹 계산
-    const [strategicRankings, playfulRankings, championshipRankings, mannerRankings, combatRankings] = await Promise.all([
-        Promise.resolve(calculateRanking(allUsers, SPECIAL_GAME_MODES, 'strategic', 'standard')),
-        Promise.resolve(calculateRanking(allUsers, PLAYFUL_GAME_MODES, 'playful', 'playful')),
-        Promise.resolve(calculateChampionshipRankings(allUsers)),
-        Promise.resolve(calculateMannerRankings(allUsers)),
-        Promise.resolve(calculateCombatRankings(allUsers)) // 전투력 랭킹은 inventory 필요
-    ]);
-    
-    rankingCache = {
-        strategic: strategicRankings,
-        playful: playfulRankings,
-        championship: championshipRankings,
-        combat: combatRankings,
-        manner: mannerRankings,
-        timestamp: now
-    };
-    
-    const elapsed = Date.now() - startTime;
-    console.log(`[RankingCache] Ranking cache built in ${elapsed}ms (${allUsers.length} users)`);
-    
-    return rankingCache;
+    try {
+        // inventory/equipment 없이 사용자 목록 가져오기 (더 빠름)
+        const allUsers = await db.getAllUsers({ includeEquipment: false, includeInventory: false });
+        
+        if (!allUsers || allUsers.length === 0) {
+            console.warn('[RankingCache] No users found, returning empty cache');
+            return {
+                strategic: [],
+                playful: [],
+                championship: [],
+                combat: [],
+                manner: [],
+                timestamp: now
+            };
+        }
+        
+        // 병렬로 여러 랭킹 계산 (combat은 별도 처리)
+        // 각 계산에 개별 에러 핸들링 추가 (하나 실패해도 다른 것들은 성공)
+        const [strategicRankings, playfulRankings, championshipRankings, mannerRankings, combatRankings] = await Promise.all([
+            Promise.resolve(calculateRanking(allUsers, SPECIAL_GAME_MODES, 'strategic', 'standard')).catch((err) => {
+                console.error('[RankingCache] Error calculating strategic rankings:', err);
+                return [];
+            }),
+            Promise.resolve(calculateRanking(allUsers, PLAYFUL_GAME_MODES, 'playful', 'playful')).catch((err) => {
+                console.error('[RankingCache] Error calculating playful rankings:', err);
+                return [];
+            }),
+            Promise.resolve(calculateChampionshipRankings(allUsers)).catch((err) => {
+                console.error('[RankingCache] Error calculating championship rankings:', err);
+                return [];
+            }),
+            Promise.resolve(calculateMannerRankings(allUsers)).catch((err) => {
+                console.error('[RankingCache] Error calculating manner rankings:', err);
+                return [];
+            }),
+            calculateCombatRankings(allUsers).catch((error) => {
+                // combat ranking 실패 시 빈 배열 반환 (서버 크래시 방지)
+                console.error('[RankingCache] Error calculating combat rankings:', error);
+                return [];
+            })
+        ]);
+        
+        rankingCache = {
+            strategic: strategicRankings || [],
+            playful: playfulRankings || [],
+            championship: championshipRankings || [],
+            combat: combatRankings || [],
+            manner: mannerRankings || [],
+            timestamp: now
+        };
+        
+        const elapsed = Date.now() - startTime;
+        console.log(`[RankingCache] Ranking cache built in ${elapsed}ms (${allUsers.length} users)`);
+        
+        return rankingCache;
+    } catch (error) {
+        console.error('[RankingCache] Error building ranking cache:', error);
+        // 에러 발생 시 기존 캐시 반환 또는 빈 캐시 반환
+        if (rankingCache) {
+            console.warn('[RankingCache] Returning stale cache due to error');
+            return rankingCache;
+        }
+        // 캐시가 없으면 빈 캐시 반환
+        return {
+            strategic: [],
+            playful: [],
+            championship: [],
+            combat: [],
+            manner: [],
+            timestamp: now
+        };
+    }
 }
 
 // 챔피언십 랭킹 계산 (별도 함수로 분리)
@@ -135,38 +182,65 @@ function calculateMannerRankings(allUsers: any[]): RankingEntry[] {
 async function calculateCombatRankings(allUsers: any[]): Promise<RankingEntry[]> {
     const rankings: RankingEntry[] = [];
     const { calculateTotalStats } = await import('./statService.js');
-    const { getUser } = await import('./db.js');
+    const { getAllUsers } = await import('./db.js');
     const allGameModes = [...SPECIAL_GAME_MODES, ...PLAYFUL_GAME_MODES];
     
-    // inventory가 필요한 사용자만 별도로 로드
-    for (const user of allUsers) {
-        if (!user || !user.id) continue;
+    try {
+        // 최적화: 상위 500명만 계산 (전체 사용자 계산 시 메모리 부족 가능)
+        // Railway 환경에서는 메모리가 제한적이므로 상위 사용자만 처리
+        const maxUsersToProcess = 500;
+        const usersToProcess = allUsers.slice(0, maxUsersToProcess);
         
-        try {
-            // inventory를 포함한 전체 사용자 데이터 가져오기
-            const fullUser = await getUser(user.id, { includeEquipment: true, includeInventory: true });
-            if (!fullUser) continue;
+        // 배치로 처리하여 메모리 사용량 제한 (한 번에 50명씩)
+        const batchSize = 50;
+        const { getUser } = await import('./db.js');
+        
+        // inventory가 필요한 사용자 계산 (배치 처리)
+        for (let i = 0; i < usersToProcess.length; i += batchSize) {
+            const batch = usersToProcess.slice(i, i + batchSize);
             
-            // calculateTotalStats로 6가지 능력치 합계 계산 (장비 보너스 포함)
-            const totalStats = calculateTotalStats(fullUser);
-            const sum = Object.values(totalStats).reduce((acc: number, value: number) => acc + value, 0);
+            // 배치 단위로 병렬 처리 (50명씩)
+            await Promise.all(batch.map(async (user) => {
+                if (!user || !user.id) return;
+                
+                try {
+                    // inventory를 포함한 사용자 데이터 가져오기
+                    const fullUser = await getUser(user.id, { includeEquipment: true, includeInventory: true });
+                    if (!fullUser) return;
+                    
+                    // calculateTotalStats로 6가지 능력치 합계 계산 (장비 보너스 포함)
+                    const totalStats = calculateTotalStats(fullUser);
+                    const sum = Object.values(totalStats).reduce((acc: number, value: number) => acc + value, 0);
+                    
+                    rankings.push({
+                        id: fullUser.id,
+                        nickname: fullUser.nickname || fullUser.username,
+                        avatarId: fullUser.avatarId,
+                        borderId: fullUser.borderId,
+                        rank: 0,
+                        score: sum,
+                        totalGames: calculateTotalGames(fullUser, allGameModes),
+                        wins: 0,
+                        losses: 0,
+                        league: fullUser.league
+                    });
+                } catch (error) {
+                    console.error(`[RankingCache] Error calculating combat ranking for user ${user.id}:`, error);
+                    // 에러 발생해도 계속 진행
+                }
+            }));
             
-            rankings.push({
-                id: fullUser.id,
-                nickname: fullUser.nickname || fullUser.username,
-                avatarId: fullUser.avatarId,
-                borderId: fullUser.borderId,
-                rank: 0,
-                score: sum,
-                totalGames: calculateTotalGames(fullUser, allGameModes),
-                wins: 0,
-                losses: 0,
-                league: fullUser.league
-            });
-        } catch (error) {
-            console.error(`[RankingCache] Error calculating combat ranking for user ${user.id}:`, error);
-            continue;
+            // 배치 처리 사이에 짧은 대기 (메모리 압력 완화)
+            if (i + batchSize < usersToProcess.length) {
+                await new Promise(resolve => setTimeout(resolve, 10));
+            }
         }
+        
+        console.log(`[RankingCache] Processed ${rankings.length} users for combat rankings (limited to ${maxUsersToProcess})`);
+    } catch (error) {
+        console.error('[RankingCache] Error loading users with inventory for combat rankings:', error);
+        // 에러 발생 시 빈 배열 반환 (서버 크래시 방지)
+        return [];
     }
     
     // 정렬 후 rank 설정

@@ -912,8 +912,29 @@ const startServer = async () => {
             const limitNum = limit ? parseInt(limit as string, 10) : undefined;
             const offsetNum = offset ? parseInt(offset as string, 10) : 0;
 
+            // 타임아웃 설정 (30초)
+            const timeoutPromise = new Promise((_, reject) => {
+                setTimeout(() => reject(new Error('Ranking cache build timeout')), 30000);
+            });
+
             const { buildRankingCache } = await import('./rankingCache.js');
-            const cache = await buildRankingCache();
+            let cache: any;
+            try {
+                cache = await Promise.race([
+                    buildRankingCache(),
+                    timeoutPromise
+                ]) as any;
+            } catch (timeoutError: any) {
+                console.error('[API/Ranking] Cache build timeout or error:', timeoutError?.message || timeoutError);
+                // 타임아웃 시 빈 응답 반환 (502 에러 방지)
+                return res.status(200).json({
+                    type,
+                    rankings: [],
+                    total: 0,
+                    cached: false,
+                    error: 'Ranking cache build timeout'
+                });
+            }
 
             let rankings: any[] = [];
             switch (type) {
@@ -944,12 +965,20 @@ const startServer = async () => {
             res.json({
                 type,
                 rankings,
-                total: cache[type as keyof typeof cache].length,
+                total: Array.isArray(cache[type as keyof typeof cache]) ? cache[type as keyof typeof cache].length : 0,
                 cached: Date.now() - cache.timestamp < 60000 // 1분 이내면 캐시된 데이터
             });
-        } catch (error) {
+        } catch (error: any) {
             console.error('[API/Ranking] Error:', error);
-            res.status(500).json({ error: 'Failed to fetch rankings' });
+            console.error('[API/Ranking] Error stack:', error?.stack);
+            // 에러 발생 시 빈 배열 반환 (502 에러 방지)
+            res.status(200).json({
+                type: req.params.type,
+                rankings: [],
+                total: 0,
+                cached: false,
+                error: 'Failed to fetch rankings'
+            });
         }
     });
 
