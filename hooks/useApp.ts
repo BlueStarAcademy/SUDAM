@@ -229,6 +229,9 @@ export const useApp = () => {
     const liveGameSignaturesRef = useRef<Record<string, string>>({});
     const singlePlayerGameSignaturesRef = useRef<Record<string, string>>({});
     const towerGameSignaturesRef = useRef<Record<string, string>>({});
+    // WebSocket GAME_UPDATE 메시지 쓰로틀링 (같은 게임에 대해 최대 100ms당 1회만 처리)
+    const lastGameUpdateTimeRef = useRef<Record<string, number>>({});
+    const GAME_UPDATE_THROTTLE_MS = 100; // 100ms 쓰로틀링
     const [negotiations, setNegotiations] = useState<Record<string, Negotiation>>({});
     const [waitingRoomChats, setWaitingRoomChats] = useState<Record<string, ChatMessage[]>>({});
     const [gameChats, setGameChats] = useState<Record<string, ChatMessage[]>>({});
@@ -578,21 +581,30 @@ export const useApp = () => {
         if ((action as any).type === 'SINGLE_PLAYER_CLIENT_MISSILE_ANIMATION_COMPLETE') {
             const payload = (action as any).payload;
             const { gameId } = payload;
-            console.log(`[handleAction] SINGLE_PLAYER_CLIENT_MISSILE_ANIMATION_COMPLETE - processing client-side:`, { gameId });
+            // 성능 최적화: 불필요한 로깅 제거 (프로덕션)
+            if (process.env.NODE_ENV === 'development') {
+                console.log(`[handleAction] SINGLE_PLAYER_CLIENT_MISSILE_ANIMATION_COMPLETE - processing client-side:`, { gameId });
+            }
             
             setSinglePlayerGames((currentGames) => {
                 const game = currentGames[gameId];
                 if (!game) {
-                    console.debug(`[handleAction] SINGLE_PLAYER_CLIENT_MISSILE_ANIMATION_COMPLETE - Game not found in state:`, gameId);
+                    // 성능 최적화: 불필요한 로깅 제거 (프로덕션)
+                    if (process.env.NODE_ENV === 'development') {
+                        console.debug(`[handleAction] SINGLE_PLAYER_CLIENT_MISSILE_ANIMATION_COMPLETE - Game not found in state:`, gameId);
+                    }
                     return currentGames;
                 }
                 
                 // 게임이 이미 종료되었는지 확인
                 if (game.gameStatus === 'ended' || game.gameStatus === 'no_contest' || game.gameStatus === 'scoring') {
-                    console.log(`[handleAction] SINGLE_PLAYER_CLIENT_MISSILE_ANIMATION_COMPLETE - Game already ended, ignoring:`, {
-                        gameId,
-                        gameStatus: game.gameStatus
-                    });
+                    // 성능 최적화: 불필요한 로깅 제거 (프로덕션)
+                    if (process.env.NODE_ENV === 'development') {
+                        console.log(`[handleAction] SINGLE_PLAYER_CLIENT_MISSILE_ANIMATION_COMPLETE - Game already ended, ignoring:`, {
+                            gameId,
+                            gameStatus: game.gameStatus
+                        });
+                    }
                     return currentGames;
                 }
                 
@@ -600,7 +612,10 @@ export const useApp = () => {
                 if (!game.animation || (game.animation.type !== 'missile' && game.animation.type !== 'hidden_missile')) {
                     // 게임 상태가 여전히 missile_animating이면 정리
                     if (game.gameStatus === 'missile_animating') {
-                        console.log(`[handleAction] SINGLE_PLAYER_CLIENT_MISSILE_ANIMATION_COMPLETE - Cleaning up stuck missile_animating state:`, gameId);
+                        // 성능 최적화: 불필요한 로깅 제거 (프로덕션)
+                        if (process.env.NODE_ENV === 'development') {
+                            console.log(`[handleAction] SINGLE_PLAYER_CLIENT_MISSILE_ANIMATION_COMPLETE - Cleaning up stuck missile_animating state:`, gameId);
+                        }
                         return {
                             ...currentGames,
                             [gameId]: {
@@ -793,7 +808,10 @@ export const useApp = () => {
             const actionTypeName = isTower ? 'TOWER_CLIENT_MOVE' : 'SINGLE_PLAYER_CLIENT_MOVE';
             const payload = (action as any).payload;
             const { gameId, x, y, newBoardState, capturedStones, newKoInfo } = payload;
-            console.log(`[handleAction] ${actionTypeName} - processing client-side:`, { gameId, x, y });
+            // 성능 최적화: 불필요한 로깅 제거 (프로덕션)
+            if (process.env.NODE_ENV === 'development') {
+                console.log(`[handleAction] ${actionTypeName} - processing client-side:`, { gameId, x, y });
+            }
             
             // 타워 게임과 싱글플레이 게임을 각각의 상태로 관리
             const updateGameState = isTower ? setTowerGames : setSinglePlayerGames;
@@ -1904,7 +1922,10 @@ export const useApp = () => {
                     ([, u]) => u && typeof u.nickname === 'string' && u.nickname.trim().length > 0
                 );
 
-                console.log('[WebSocket] Processing initial state - total users:', userEntries.length, 'filtered:', filteredEntries.length);
+                // 성능 최적화: 불필요한 로깅 제거 (프로덕션)
+                if (process.env.NODE_ENV === 'development') {
+                    console.log('[WebSocket] Processing initial state - total users:', userEntries.length, 'filtered:', filteredEntries.length);
+                }
 
                 const normalizedFiltered = filteredEntries.map(([id, u]) => [
                     id,
@@ -2389,6 +2410,15 @@ export const useApp = () => {
                         }
                         case 'GAME_UPDATE': {
                             Object.entries(message.payload || {}).forEach(([gameId, game]: [string, any]) => {
+                                // 성능 최적화: GAME_UPDATE 메시지 쓰로틀링 (같은 게임에 대해 최대 100ms당 1회만 처리)
+                                const now = Date.now();
+                                const lastUpdateTime = lastGameUpdateTimeRef.current[gameId] || 0;
+                                if (now - lastUpdateTime < GAME_UPDATE_THROTTLE_MS) {
+                                    // 쓰로틀링: 이전 업데이트로부터 100ms가 지나지 않았으면 무시
+                                    return;
+                                }
+                                lastGameUpdateTimeRef.current[gameId] = now;
+                                
                                 const gameCategory = game.gameCategory || (game.isSinglePlayer ? 'singleplayer' : 'normal');
                                 
                                 // 성능 최적화: 불필요한 로깅 제거 (프로덕션)
@@ -2400,31 +2430,32 @@ export const useApp = () => {
                                     setSinglePlayerGames(currentGames => {
                                         // 성능 최적화: 게임 상태가 변경되지 않았으면 early return
                                         const existingGame = currentGames[gameId];
+                                        
+                                        // 중요한 필드만 비교하여 빠른 early return (stableStringify 호출 전에)
                                         if (existingGame) {
-                                            // 중요한 필드만 비교하여 빠른 early return
                                             const keyFieldsChanged = 
                                                 existingGame.gameStatus !== game.gameStatus ||
                                                 existingGame.currentPlayer !== game.currentPlayer ||
                                                 existingGame.serverRevision !== game.serverRevision ||
                                                 (game.animation && existingGame.animation?.type !== game.animation?.type);
                                             
+                                            // 중요한 필드가 변경되지 않았을 때만 서명 비교 (비용이 큰 작업)
                                             if (!keyFieldsChanged) {
-                                                // 서명 비교는 마지막에 (비용이 큰 작업)
-                                                const signature = stableStringify(game);
                                                 const previousSignature = singlePlayerGameSignaturesRef.current[gameId];
+                                                // 서명이 이미 저장되어 있고, 중요한 필드가 변경되지 않았으면 서명 비교 생략 가능
+                                                // 하지만 안전을 위해 서명 비교 수행 (중요 필드 외의 변경 감지)
+                                                const signature = stableStringify(game);
                                                 if (previousSignature === signature) {
-                                                    return currentGames;
+                                                    return currentGames; // 완전히 동일한 상태
                                                 }
                                                 singlePlayerGameSignaturesRef.current[gameId] = signature;
                                             } else {
-                                                // 중요한 필드가 변경되었으므로 서명 업데이트
-                                                const signature = stableStringify(game);
-                                                singlePlayerGameSignaturesRef.current[gameId] = signature;
+                                                // 중요한 필드가 변경되었으므로 서명 업데이트 (한 번만 호출)
+                                                singlePlayerGameSignaturesRef.current[gameId] = stableStringify(game);
                                             }
                                         } else {
-                                            // 새 게임이므로 서명 저장
-                                            const signature = stableStringify(game);
-                                            singlePlayerGameSignaturesRef.current[gameId] = signature;
+                                            // 새 게임이므로 서명 저장 (한 번만 호출)
+                                            singlePlayerGameSignaturesRef.current[gameId] = stableStringify(game);
                                         }
                                         const updatedGames = { ...currentGames };
                                         
@@ -2485,7 +2516,10 @@ export const useApp = () => {
                                                     ? game.totalTurns
                                                     : (existingGame.totalTurns !== undefined && existingGame.totalTurns !== null ? existingGame.totalTurns : game.totalTurns);
                                                 
-                                                console.log(`[WebSocket][SinglePlayer] Scoring state: preserving state - boardState (serverValid=${serverBoardStateValid}, existingValid=${existingBoardStateValid}, hasStones=${existingBoardStateHasStones}, size=${finalBoardState?.length || 0}), moveHistory (serverValid=${serverMoveHistoryValid}, existingValid=${existingMoveHistoryValid}, length=${finalMoveHistory?.length || 0}), totalTurns=${finalTotalTurns}`);
+                                                // 성능 최적화: 불필요한 로깅 제거 (프로덕션)
+                                                if (process.env.NODE_ENV === 'development') {
+                                                    console.log(`[WebSocket][SinglePlayer] Scoring state: preserving state - boardState (serverValid=${serverBoardStateValid}, existingValid=${existingBoardStateValid}, hasStones=${existingBoardStateHasStones}, size=${finalBoardState?.length || 0}), moveHistory (serverValid=${serverMoveHistoryValid}, existingValid=${existingMoveHistoryValid}, length=${finalMoveHistory?.length || 0}), totalTurns=${finalTotalTurns}`);
+                                                }
                                                 
                                                 const preservedGame = {
                                                     ...game,
@@ -2596,8 +2630,11 @@ export const useApp = () => {
                                                         }
                                                         
                                                         if (totalTurns !== undefined && totalTurns >= autoScoringTurns) {
-                                                        const gameTypeLabel = game.isSinglePlayer ? 'SinglePlayer' : 'AiGame';
-                                                        console.log(`[WebSocket][${gameTypeLabel}] Auto-scoring triggered from GAME_UPDATE at ${totalTurns} turns (stageId: ${game.stageId || 'N/A'}) - IMMEDIATELY FREEZING GAME`);
+                                                        // 성능 최적화: 불필요한 로깅 제거 (프로덕션)
+                                                        if (process.env.NODE_ENV === 'development') {
+                                                            const gameTypeLabel = game.isSinglePlayer ? 'SinglePlayer' : 'AiGame';
+                                                            console.log(`[WebSocket][${gameTypeLabel}] Auto-scoring triggered from GAME_UPDATE at ${totalTurns} turns (stageId: ${game.stageId || 'N/A'}) - IMMEDIATELY FREEZING GAME`);
+                                                        }
                                                         
                                                         // 즉시 게임 상태를 scoring으로 변경하여 게임 초기화 방지
                                                         const preservedBoardState = game.boardState && game.boardState.length > 0
@@ -2637,9 +2674,15 @@ export const useApp = () => {
                                                             }
                                                         } as any;
                                                         
-                                                        console.log(`[WebSocket][SinglePlayer] Sending auto-scoring action to server: totalTurns=${preservedTotalTurns}, moveHistoryLength=${preservedMoveHistory?.length || 0}`);
+                                                        // 성능 최적화: 불필요한 로깅 제거 (프로덕션)
+                                                        if (process.env.NODE_ENV === 'development') {
+                                                            console.log(`[WebSocket][SinglePlayer] Sending auto-scoring action to server: totalTurns=${preservedTotalTurns}, moveHistoryLength=${preservedMoveHistory?.length || 0}`);
+                                                        }
                                                         handleAction(autoScoringAction).then(result => {
-                                                            console.log(`[WebSocket][SinglePlayer] Auto-scoring action sent successfully:`, result);
+                                                            // 성능 최적화: 불필요한 로깅 제거 (프로덕션)
+                                                            if (process.env.NODE_ENV === 'development') {
+                                                                console.log(`[WebSocket][SinglePlayer] Auto-scoring action sent successfully:`, result);
+                                                            }
                                                         }).catch(err => {
                                                             console.error(`[WebSocket][SinglePlayer] Failed to trigger auto-scoring on server:`, err);
                                                         });
@@ -2695,7 +2738,10 @@ export const useApp = () => {
                                             if ((isPlayer1 || isPlayer2) && isActiveForGame) {
                                                 const targetHash = `#/game/${gameId}`;
                                                 if (window.location.hash !== targetHash) {
-                                                    console.log('[WebSocket] Routing to single player game:', gameId);
+                                                    // 성능 최적화: 불필요한 로깅 제거 (프로덕션)
+                                                    if (process.env.NODE_ENV === 'development') {
+                                                        console.log('[WebSocket] Routing to single player game:', gameId);
+                                                    }
                                                     setTimeout(() => {
                                                         if (window.location.hash !== targetHash) {
                                                             window.location.hash = targetHash;
@@ -2721,23 +2767,49 @@ export const useApp = () => {
                                             // 클라이언트가 더 많은 수를 두었거나, 같은 수를 두었지만 클라이언트의 serverRevision이 더 크면 무시
                                             if (localMoveHistoryLength > serverMoveHistoryLength || 
                                                 (localMoveHistoryLength === serverMoveHistoryLength && localServerRevision >= serverRevision)) {
-                                                console.log('[WebSocket] Tower game - Ignoring server update (client state is newer):', {
-                                                    gameId,
-                                                    localMoveHistoryLength,
-                                                    serverMoveHistoryLength,
-                                                    localServerRevision,
-                                                    serverRevision
-                                                });
+                                                // 성능 최적화: 불필요한 로깅 제거 (프로덕션)
+                                                if (process.env.NODE_ENV === 'development') {
+                                                    console.log('[WebSocket] Tower game - Ignoring server update (client state is newer):', {
+                                                        gameId,
+                                                        localMoveHistoryLength,
+                                                        serverMoveHistoryLength,
+                                                        localServerRevision,
+                                                        serverRevision
+                                                    });
+                                                }
                                                 return currentGames;
                                             }
+                                            
+                                            // 중요한 필드만 비교하여 빠른 early return (stableStringify 호출 전에)
+                                            const keyFieldsChanged = 
+                                                existingGame.gameStatus !== game.gameStatus ||
+                                                existingGame.currentPlayer !== game.currentPlayer ||
+                                                existingGame.serverRevision !== game.serverRevision ||
+                                                (game.animation && existingGame.animation?.type !== game.animation?.type);
+                                            
+                                            // 중요한 필드가 변경되지 않았을 때만 서명 비교
+                                            if (!keyFieldsChanged) {
+                                                const previousSignature = towerGameSignaturesRef.current[gameId];
+                                                if (previousSignature) {
+                                                    // 서명 비교는 비용이 큰 작업이므로 필요한 경우에만 수행
+                                                    const signature = stableStringify(game);
+                                                    if (previousSignature === signature) {
+                                                        return currentGames; // 완전히 동일한 상태
+                                                    }
+                                                    towerGameSignaturesRef.current[gameId] = signature;
+                                                } else {
+                                                    towerGameSignaturesRef.current[gameId] = stableStringify(game);
+                                                }
+                                            } else {
+                                                // 중요한 필드가 변경되었으므로 서명 업데이트
+                                                towerGameSignaturesRef.current[gameId] = stableStringify(game);
+                                            }
+                                        } else {
+                                            // 새 게임이므로 서명 저장
+                                            towerGameSignaturesRef.current[gameId] = stableStringify(game);
                                         }
                                         
-                                        const signature = stableStringify(game);
-                                        const previousSignature = towerGameSignaturesRef.current[gameId];
-                                        if (previousSignature === signature) {
-                                            return currentGames;
-                                        }
-                                        towerGameSignaturesRef.current[gameId] = signature;
+                                        // 서명 비교는 이미 위에서 수행했으므로 여기서는 바로 업데이트
                                         const updatedGames = { ...currentGames };
                                         updatedGames[gameId] = game;
 
@@ -2752,7 +2824,10 @@ export const useApp = () => {
                                             if ((isPlayer1 || isPlayer2) && isActiveForGame) {
                                                 const targetHash = `#/game/${gameId}`;
                                                 if (window.location.hash !== targetHash) {
-                                                    console.log('[WebSocket] Routing to tower game:', gameId);
+                                                    // 성능 최적화: 불필요한 로깅 제거 (프로덕션)
+                                                    if (process.env.NODE_ENV === 'development') {
+                                                        console.log('[WebSocket] Routing to tower game:', gameId);
+                                                    }
                                                     setTimeout(() => {
                                                         if (window.location.hash !== targetHash) {
                                                             window.location.hash = targetHash;
@@ -2785,7 +2860,10 @@ export const useApp = () => {
                                             if ((isPlayer1 || isPlayer2) && isActiveForGame) {
                                                 const targetHash = `#/game/${gameId}`;
                                                 if (window.location.hash !== targetHash) {
-                                                    console.log('[WebSocket] Routing to game:', gameId);
+                                                    // 성능 최적화: 불필요한 로깅 제거 (프로덕션)
+                                                    if (process.env.NODE_ENV === 'development') {
+                                                        console.log('[WebSocket] Routing to game:', gameId);
+                                                    }
                                                     setTimeout(() => {
                                                         if (window.location.hash !== targetHash) {
                                                             window.location.hash = targetHash;

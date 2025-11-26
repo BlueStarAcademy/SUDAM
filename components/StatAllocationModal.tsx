@@ -93,15 +93,20 @@ const StatAllocationModal: React.FC<StatAllocationModalProps> = ({ currentUser, 
             const existingSpentOnThisStat = existingSpentPoints[stat] || 0;
             const existingTotalSpent = Object.values(existingSpentPoints).reduce((sum, points) => sum + points, 0);
             
-            // 현재 사용 가능한 보너스 포인트 계산
-            const availablePoints = totalBonusPoints - existingTotalSpent;
+            // 현재 tempPoints에서 다른 능력치에 추가로 분배한 포인트 계산
+            const currentTotalSpent = Object.values(prev).reduce((sum, points) => sum + points, 0);
+            const additionalSpentInOtherStats = currentTotalSpent - existingTotalSpent - (prev[stat] - existingSpentOnThisStat);
+            
+            // 실제 사용 가능한 포인트 = 전체 사용 가능 포인트 - 기존 분배 포인트 - 다른 능력치에 추가로 분배한 포인트
+            const totalAvailablePoints = totalBonusPoints - existingTotalSpent;
+            const actuallyAvailablePoints = totalAvailablePoints - additionalSpentInOtherStats;
             
             // 기존 분배 포인트는 최소값으로 유지하고, 남은 보너스 포인트만 추가 분배 가능
-            // newValue는 전체 분배 값이므로, 기존 분배를 뺀 나머지가 보너스 포인트를 초과하지 않아야 함
+            // newValue는 전체 분배 값이므로, 기존 분배를 뺀 나머지가 실제 사용 가능한 포인트를 초과하지 않아야 함
             const additionalPoints = newValue - existingSpentOnThisStat;
             
-            // 추가 분배할 수 있는 최대값은 남은 보너스 포인트
-            const maxAdditional = Math.max(0, Math.min(additionalPoints, availablePoints));
+            // 추가 분배할 수 있는 최대값은 실제 사용 가능한 포인트
+            const maxAdditional = Math.max(0, Math.min(additionalPoints, actuallyAvailablePoints));
             const finalValue = existingSpentOnThisStat + maxAdditional;
             
             return { ...prev, [stat]: finalValue };
@@ -209,9 +214,19 @@ const StatAllocationModal: React.FC<StatAllocationModalProps> = ({ currentUser, 
                             const currentSpent = tempPoints[stat] || 0;
                             const existingSpentPoints = currentUser.spentStatPoints || {};
                             const existingSpentOnThisStat = existingSpentPoints[stat] || 0;
-                            // 기존 분배 포인트는 최소값, 최대값은 기존 분배 + 남은 보너스 포인트
+                            const existingTotalSpent = Object.values(existingSpentPoints).reduce((sum, points) => sum + points, 0);
+                            
+                            // 현재 tempPoints에서 다른 능력치에 추가로 분배한 포인트 계산
+                            const currentTotalSpent = Object.values(tempPoints).reduce((sum, points) => sum + points, 0);
+                            const additionalSpentInOtherStats = currentTotalSpent - existingTotalSpent - (currentSpent - existingSpentOnThisStat);
+                            
+                            // 실제 사용 가능한 포인트 = 전체 사용 가능 포인트 - 기존 분배 포인트 - 다른 능력치에 추가로 분배한 포인트
+                            const totalAvailablePoints = totalBonusPoints - existingTotalSpent;
+                            const actuallyAvailablePoints = totalAvailablePoints - additionalSpentInOtherStats;
+                            
+                            // 기존 분배 포인트는 최소값, 최대값은 기존 분배 + 실제 사용 가능한 포인트
                             const minForThisSlider = existingSpentOnThisStat;
-                            const maxForThisSlider = existingSpentOnThisStat + availablePoints;
+                            const maxForThisSlider = existingSpentOnThisStat + actuallyAvailablePoints;
                             const statName = CORE_STATS_DATA[stat].name;
                             const colorClass = statColors[stat];
                             
@@ -272,9 +287,19 @@ const StatAllocationModal: React.FC<StatAllocationModalProps> = ({ currentUser, 
                             const currentSpent = tempPoints[stat] || 0;
                             const existingSpentPoints = currentUser.spentStatPoints || {};
                             const existingSpentOnThisStat = existingSpentPoints[stat] || 0;
-                            // 기존 분배 포인트는 최소값, 최대값은 기존 분배 + 남은 보너스 포인트
+                            const existingTotalSpent = Object.values(existingSpentPoints).reduce((sum, points) => sum + points, 0);
+                            
+                            // 현재 tempPoints에서 다른 능력치에 추가로 분배한 포인트 계산
+                            const currentTotalSpent = Object.values(tempPoints).reduce((sum, points) => sum + points, 0);
+                            const additionalSpentInOtherStats = currentTotalSpent - existingTotalSpent - (currentSpent - existingSpentOnThisStat);
+                            
+                            // 실제 사용 가능한 포인트 = 전체 사용 가능 포인트 - 기존 분배 포인트 - 다른 능력치에 추가로 분배한 포인트
+                            const totalAvailablePoints = totalBonusPoints - existingTotalSpent;
+                            const actuallyAvailablePoints = totalAvailablePoints - additionalSpentInOtherStats;
+                            
+                            // 기존 분배 포인트는 최소값, 최대값은 기존 분배 + 실제 사용 가능한 포인트
                             const minForThisSlider = existingSpentOnThisStat;
-                            const maxForThisSlider = existingSpentOnThisStat + availablePoints;
+                            const maxForThisSlider = existingSpentOnThisStat + actuallyAvailablePoints;
                             const statName = CORE_STATS_DATA[stat].name;
                             const colorClass = statColors[stat];
                             
