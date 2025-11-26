@@ -1,6 +1,6 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { Server } from 'http';
-import { getAllData } from './db.js';
+import * as db from './db.js';
 import { volatileState } from './state.js';
 
 let wss: WebSocketServer;
@@ -95,7 +95,38 @@ export const createWebSocketServer = (server: Server) => {
                     return;
                 }
                 
-                const allData = await getAllData();
+                // 성능 최적화: 전체 사용자 한 번에 로드 (캐시 활용, 개별 조회보다 빠름)
+                const allUsers = await db.getAllUsers({ includeEquipment: false, includeInventory: false });
+                const onlineUserIds = Object.keys(volatileState.userStatuses);
+                const onlineUsersData: Record<string, any> = {};
+                
+                // 온라인 사용자만 필터링
+                for (const user of allUsers) {
+                    if (onlineUserIds.includes(user.id)) {
+                        const nickname = user.nickname && user.nickname.trim().length > 0 ? user.nickname : user.username;
+                        onlineUsersData[user.id] = {
+                            id: user.id,
+                            username: user.username,
+                            nickname,
+                            isAdmin: user.isAdmin,
+                            strategyLevel: user.strategyLevel,
+                            strategyXp: user.strategyXp,
+                            playfulLevel: user.playfulLevel,
+                            playfulXp: user.playfulXp,
+                            gold: user.gold,
+                            diamonds: user.diamonds,
+                            stats: user.stats,
+                            mannerScore: user.mannerScore,
+                            avatarId: user.avatarId,
+                            borderId: user.borderId,
+                            tournamentScore: user.tournamentScore,
+                            league: user.league,
+                            mbti: user.mbti,
+                            towerFloor: user.towerFloor,
+                            monthlyTowerFloor: (user as any).monthlyTowerFloor ?? 0
+                        };
+                    }
+                }
                 
                 // 데이터 로드 후 연결 상태 재확인
                 if (!checkConnection()) {
@@ -103,11 +134,55 @@ export const createWebSocketServer = (server: Server) => {
                     return;
                 }
                 
-                const onlineUsers = Object.keys(volatileState.userStatuses).map(userId => {
-                    const user = allData.users[userId];
+                const onlineUsers = onlineUserIds.map(userId => {
+                    const user = onlineUsersData[userId];
                     const status = volatileState.userStatuses[userId];
                     return user ? { ...user, ...status } : undefined;
                 }).filter(Boolean);
+                
+                // 게임 데이터만 로드 (PVE 게임은 메모리에만 있으므로 DB 조회 최소화)
+                const allGames = await db.getAllActiveGames();
+                const liveGames: Record<string, any> = {};
+                const singlePlayerGames: Record<string, any> = {};
+                const towerGames: Record<string, any> = {};
+                
+                for (const game of allGames) {
+                    const category = game.gameCategory || (game.isSinglePlayer ? 'singleplayer' : 'normal');
+                    const optimizedGame = { ...game };
+                    delete (optimizedGame as any).boardState; // 대역폭 절약
+                    
+                    if (category === 'singleplayer') {
+                        singlePlayerGames[game.id] = optimizedGame;
+                    } else if (category === 'tower') {
+                        towerGames[game.id] = optimizedGame;
+                    } else {
+                        liveGames[game.id] = optimizedGame;
+                    }
+                }
+                
+                // 나머지 데이터 로드 (KV store)
+                const kvRepository = await import('./repositories/kvRepository.ts');
+                const adminLogs = await kvRepository.getKV<any[]>('adminLogs') || [];
+                const announcements = await kvRepository.getKV<any[]>('announcements') || [];
+                const globalOverrideAnnouncement = await kvRepository.getKV<any>('globalOverrideAnnouncement');
+                const gameModeAvailability = await kvRepository.getKV<Record<string, boolean>>('gameModeAvailability') || {};
+                const announcementInterval = await kvRepository.getKV<number>('announcementInterval') || 3;
+                const homeBoardPosts = await (await import('./db.js')).getAllHomeBoardPosts();
+                const guilds = await kvRepository.getKV<Record<string, any>>('guilds') || {};
+                
+                const allData = {
+                    users: onlineUsersData, // 온라인 사용자만 포함
+                    liveGames,
+                    singlePlayerGames,
+                    towerGames,
+                    adminLogs,
+                    announcements,
+                    globalOverrideAnnouncement,
+                    gameModeAvailability,
+                    announcementInterval,
+                    homeBoardPosts,
+                    guilds
+                };
                 
                 // 전송 전 최종 연결 상태 확인
                 if (!checkConnection()) {

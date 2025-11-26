@@ -91,6 +91,12 @@ const ItemDetailModal: React.FC<ItemDetailModalProps> = ({ item, isOwnedByCurren
                         </div>
                         <p className={`text-sm ${styles.color}`}>[{styles.name}]</p>
                         <p className={`text-xs ${canEquip ? 'text-gray-500' : 'text-red-500'}`}>(착용레벨: {requiredLevel})</p>
+                        {/* 제련 가능 횟수 표시 (장비인 경우에만) */}
+                        {item.type === 'equipment' && item.grade !== 'normal' && (
+                            <p className={`text-xs font-semibold ${(item as any).refinementCount > 0 ? 'text-amber-400' : 'text-red-400'}`}>
+                                제련 가능: {(item as any).refinementCount > 0 ? `${(item as any).refinementCount}회` : '제련불가'}
+                            </p>
+                        )}
                         {item.options?.main && (
                             <p className="font-semibold text-yellow-300 text-sm">{item.options.main.display}</p>
                         )}

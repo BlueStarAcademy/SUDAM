@@ -79,29 +79,12 @@ export const handleShopAction = async (volatileState: VolatileState, action: Ser
                     }
                 }
 
-                // 인벤토리를 깊은 복사하여 새로운 배열로 할당 (참조 문제 방지)
-                user.inventory = JSON.parse(JSON.stringify(updatedInventory));
+                // updatedInventory는 이미 새로운 배열이므로 직접 할당 (성능 최적화)
+                user.inventory = updatedInventory;
                 
                 try {
-                    // 데이터베이스에 저장
+                    // 데이터베이스에 저장 (캐시 자동 업데이트됨 - db.updateUser가 gameCache도 업데이트)
                     await db.updateUser(user);
-                    
-                    // 저장 후 DB에서 다시 읽어서 검증 (저장이 제대로 되었는지 확인)
-                    const savedUser = await db.getUser(user.id);
-                    if (!savedUser) {
-                        console.error(`[BUY_SHOP_ITEM] User not found after save: ${user.id}`);
-                        return { error: '저장 후 사용자를 찾을 수 없습니다.' };
-                    }
-                    
-                    // 저장된 인벤토리 길이 확인
-                    if (!savedUser.inventory || savedUser.inventory.length !== user.inventory.length) {
-                        console.error(`[BUY_SHOP_ITEM] Inventory mismatch after save. Expected: ${user.inventory.length}, Got: ${savedUser.inventory?.length || 0}`);
-                        // 저장된 사용자 데이터 사용 (DB에 실제로 저장된 것)
-                        user = savedUser;
-                    } else {
-                        // 저장이 성공했으므로 저장된 사용자 데이터 사용
-                        user = savedUser;
-                    }
                 } catch (error: any) {
                     console.error(`[BUY_SHOP_ITEM] Error updating user ${user.id}:`, error);
                     console.error(`[BUY_SHOP_ITEM] Error stack:`, error.stack);
@@ -215,18 +198,8 @@ export const handleShopAction = async (volatileState: VolatileState, action: Ser
             }
             
             try {
-                // 데이터베이스에 저장
+                // 데이터베이스에 저장 (캐시 자동 업데이트됨)
                 await db.updateUser(user);
-                
-                // 저장 후 DB에서 다시 읽어서 검증
-                const savedUser = await db.getUser(user.id);
-                if (!savedUser) {
-                    console.error(`[BUY_MATERIAL_BOX] User not found after save: ${user.id}`);
-                    return { error: '저장 후 사용자를 찾을 수 없습니다.' };
-                }
-                
-                // 저장된 사용자 데이터 사용 (DB에 실제로 저장된 것)
-                user = savedUser;
             } catch (error: any) {
                 console.error(`[BUY_MATERIAL_BOX] Error updating user ${user.id}:`, error);
                 console.error(`[BUY_MATERIAL_BOX] Error stack:`, error.stack);
@@ -445,18 +418,8 @@ export const handleShopAction = async (volatileState: VolatileState, action: Ser
             user.inventory = JSON.parse(JSON.stringify(updatedInventory));
             
             try {
-                // 데이터베이스에 저장
+                // 데이터베이스에 저장 (캐시 자동 업데이트됨)
                 await db.updateUser(user);
-                
-                // 저장 후 DB에서 다시 읽어서 검증
-                const savedUser = await db.getUser(user.id);
-                if (!savedUser) {
-                    console.error(`[BUY_CONDITION_POTION] User not found after save: ${user.id}`);
-                    return { error: '저장 후 사용자를 찾을 수 없습니다.' };
-                }
-                
-                // 저장된 사용자 데이터 사용 (DB에 실제로 저장된 것)
-                user = savedUser;
             } catch (error: any) {
                 console.error(`[BUY_CONDITION_POTION] Error updating user ${user.id}:`, error);
                 console.error(`[BUY_CONDITION_POTION] Error stack:`, error.stack);
@@ -486,9 +449,9 @@ export const handleShopAction = async (volatileState: VolatileState, action: Ser
 
             // 변경권 아이템 정의
             const consumableItems: Record<string, { name: string; price: number; dailyLimit: number }> = {
-                'option_type_change_ticket': { name: '옵션 종류 변경권', price: 500, dailyLimit: 10 },
+                'option_type_change_ticket': { name: '옵션 종류 변경권', price: 2000, dailyLimit: 3 },
                 'option_value_change_ticket': { name: '옵션 수치 변경권', price: 500, dailyLimit: 10 },
-                'mythic_option_change_ticket': { name: '신화 옵션 종류 변경권', price: 500, dailyLimit: 10 },
+                'mythic_option_change_ticket': { name: '신화 옵션 변경권', price: 500, dailyLimit: 10 },
             };
 
             const itemInfo = consumableItems[itemId];
@@ -564,18 +527,8 @@ export const handleShopAction = async (volatileState: VolatileState, action: Ser
             user.inventory = JSON.parse(JSON.stringify(updatedInventory));
             
             try {
-                // 데이터베이스에 저장
+                // 데이터베이스에 저장 (캐시 자동 업데이트됨)
                 await db.updateUser(user);
-                
-                // 저장 후 DB에서 다시 읽어서 검증
-                const savedUser = await db.getUser(user.id);
-                if (!savedUser) {
-                    console.error(`[BUY_CONSUMABLE] User not found after save: ${user.id}`);
-                    return { error: '저장 후 사용자를 찾을 수 없습니다.' };
-                }
-                
-                // 저장된 사용자 데이터 사용 (DB에 실제로 저장된 것)
-                user = savedUser;
             } catch (error: any) {
                 console.error(`[BUY_CONSUMABLE] Error updating user ${user.id}:`, error);
                 console.error(`[BUY_CONSUMABLE] Error stack:`, error.stack);
@@ -608,6 +561,7 @@ export const handleShopAction = async (volatileState: VolatileState, action: Ser
                 '턴 추가': { name: '턴 추가', price: { gold: 300 }, maxOwned: 3, dailyLimit: 3 },
                 '미사일': { name: '미사일', price: { gold: 300 }, maxOwned: 2, dailyLimit: 2 },
                 '히든': { name: '히든', price: { gold: 500 }, maxOwned: 2, dailyLimit: 2 },
+                '스캔': { name: '스캔', price: { gold: 400 }, maxOwned: 2, dailyLimit: 2 },
                 '배치변경': { name: '배치변경', price: { gold: 100 }, maxOwned: 5, dailyLimit: 5 }
             };
 
@@ -703,12 +657,19 @@ export const handleShopAction = async (volatileState: VolatileState, action: Ser
 
             try {
                 await db.updateUser(user);
+                
+                // 캐시 즉시 업데이트 (DB 재조회 제거로 성능 향상)
+                // updateUser가 이미 캐시를 업데이트하므로 추가 작업 불필요
+                
                 const updatedUser = getSelectiveUserUpdate(user, 'BUY_TOWER_ITEM', { includeAll: true });
-                broadcast({ type: 'USER_UPDATE', payload: { [user.id]: updatedUser } });
+                
+                // WebSocket으로 사용자 업데이트 브로드캐스트 (전체 객체는 WebSocket에서만)
+                const fullUserForBroadcast = JSON.parse(JSON.stringify(user));
+                broadcast({ type: 'USER_UPDATE', payload: { [user.id]: fullUserForBroadcast } });
 
                 return {
                     clientResponse: {
-                        obtainedItems: finalItemsToAdd,
+                        obtainedItemsBulk: finalItemsToAdd,
                         updatedUser
                     }
                 };

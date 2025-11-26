@@ -85,11 +85,18 @@ export async function listUsers(options?: { includeEquipment?: boolean; includeI
   }
 }
 
-export async function getUserById(id: string): Promise<User | null> {
+export async function getUserById(id: string, options?: { includeEquipment?: boolean; includeInventory?: boolean }): Promise<User | null> {
+  const includeEquipment = options?.includeEquipment ?? !isRailway; // Railway에서는 기본적으로 제외
+  const includeInventory = options?.includeInventory ?? !isRailway; // Railway에서는 기본적으로 제외
+  
   try {
     const row = await prisma.user.findUnique({ 
       where: { id },
-      include: { guildMember: true, equipment: true, inventory: true }
+      include: { 
+        guildMember: true, 
+        ...(includeEquipment && { equipment: true }), 
+        ...(includeInventory && { inventory: true })
+      }
     });
     return row ? mapUser(row) : null;
   } catch (error: any) {
@@ -173,8 +180,11 @@ export async function createUser(user: User): Promise<User> {
 export async function updateUser(user: User): Promise<User> {
   const data = buildPersistentFields(user);
   
-  // equipment와 inventory를 UserEquipment와 UserInventory 테이블에 동기화
-  await syncEquipmentAndInventory(user);
+  // equipment와 inventory 동기화를 비동기로 처리하여 응답 속도 개선
+  // 인벤토리/장비 변경은 중요하지만 즉시 동기화할 필요는 없음
+  syncEquipmentAndInventory(user).catch((error) => {
+    console.error(`[updateUser] Failed to sync equipment/inventory for user ${user.id}:`, error);
+  });
   
   const updated = await prisma.user.update({
     where: { id: user.id },
@@ -195,43 +205,50 @@ async function syncEquipmentAndInventory(user: User): Promise<void> {
       });
       const existingItemIds = new Set(existingItems.map(item => item.id));
       
-      // 현재 인벤토리 아이템들을 upsert
-      for (const item of user.inventory) {
-        if (!item.id) continue; // ID가 없으면 스킵
-        
-        const inventoryData = {
-          id: item.id,
-          userId: user.id,
-          templateId: item.name || item.templateId || '',
-          quantity: item.quantity || 1,
-          slot: item.slot || null,
-          enhancementLvl: (item as any).enhancementLvl ?? item.level ?? 0,
-          stars: item.stars || 0,
-          rarity: (item as any).rarity || item.grade || null,
-          metadata: (item as any).metadata || { 
-            options: item.options || [],
-            enhancementFails: (item as any).enhancementFails || 0,
-            isDivineMythic: (item as any).isDivineMythic || false
-          },
-          isEquipped: item.isEquipped || false
-        };
-        
-        await prisma.userInventory.upsert({
-          where: { id: item.id },
-          create: inventoryData,
-          update: {
-            templateId: inventoryData.templateId,
-            quantity: inventoryData.quantity,
-            slot: inventoryData.slot,
-            enhancementLvl: inventoryData.enhancementLvl,
-            stars: inventoryData.stars,
-            rarity: inventoryData.rarity,
-            metadata: inventoryData.metadata,
-            isEquipped: inventoryData.isEquipped
-          }
+      // 현재 인벤토리 아이템들을 배치로 upsert (성능 최적화)
+      const upsertPromises = user.inventory
+        .filter(item => item.id) // ID가 있는 아이템만
+        .map(item => {
+          const inventoryData = {
+            id: item.id!,
+            userId: user.id,
+            templateId: item.name || item.templateId || '',
+            quantity: item.quantity || 1,
+            slot: item.slot || null,
+            enhancementLvl: (item as any).enhancementLvl ?? item.level ?? 0,
+            stars: item.stars || 0,
+            rarity: (item as any).rarity || item.grade || null,
+            metadata: (item as any).metadata || { 
+              options: item.options || [],
+              enhancementFails: (item as any).enhancementFails || 0,
+              isDivineMythic: (item as any).isDivineMythic || false
+            },
+            isEquipped: item.isEquipped || false
+          };
+          
+          existingItemIds.delete(item.id!);
+          
+          return prisma.userInventory.upsert({
+            where: { id: item.id! },
+            create: inventoryData,
+            update: {
+              templateId: inventoryData.templateId,
+              quantity: inventoryData.quantity,
+              slot: inventoryData.slot,
+              enhancementLvl: inventoryData.enhancementLvl,
+              stars: inventoryData.stars,
+              rarity: inventoryData.rarity,
+              metadata: inventoryData.metadata,
+              isEquipped: inventoryData.isEquipped
+            }
+          });
         });
-        
-        existingItemIds.delete(item.id);
+      
+      // 배치로 병렬 실행 (최대 10개씩)
+      const BATCH_SIZE = 10;
+      for (let i = 0; i < upsertPromises.length; i += BATCH_SIZE) {
+        const batch = upsertPromises.slice(i, i + BATCH_SIZE);
+        await Promise.all(batch);
       }
       
       // 더 이상 존재하지 않는 아이템 삭제
@@ -267,50 +284,23 @@ async function syncEquipmentAndInventory(user: User): Promise<void> {
           continue;
         }
         
-        // itemId로 inventory 아이템 찾기
-        const inventoryItem = await prisma.userInventory.findFirst({
+        // inventory 조회는 스킵하고 바로 upsert (성능 최적화)
+        await prisma.userEquipment.upsert({
           where: {
+            userId_slot: {
+              userId: user.id,
+              slot: slot
+            }
+          },
+          create: {
             userId: user.id,
-            id: itemId
+            slot: slot,
+            inventoryId: itemId
+          },
+          update: {
+            inventoryId: itemId
           }
         });
-        
-        if (inventoryItem) {
-          await prisma.userEquipment.upsert({
-            where: {
-              userId_slot: {
-                userId: user.id,
-                slot: slot
-              }
-            },
-            create: {
-              userId: user.id,
-              slot: slot,
-              inventoryId: itemId
-            },
-            update: {
-              inventoryId: itemId
-            }
-          });
-        } else {
-          // inventory에 없는 경우에도 장비 슬롯은 유지 (데이터 손실 방지)
-          await prisma.userEquipment.upsert({
-            where: {
-              userId_slot: {
-                userId: user.id,
-                slot: slot
-              }
-            },
-            create: {
-              userId: user.id,
-              slot: slot,
-              inventoryId: null // inventory에 없어도 슬롯은 유지
-            },
-            update: {
-              inventoryId: null
-            }
-          });
-        }
         
         existingSlots.delete(slot);
       }

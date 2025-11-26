@@ -105,27 +105,60 @@ async function resetAllGuilds() {
         await db.setKV('guilds', {});
         console.log('  ✓ KV store의 길드 정보 초기화됨');
         
-        // 11. 모든 사용자의 status JSON에서 guildId 제거
-        console.log('[11/11] 모든 사용자의 guildId 초기화 중...');
+        // 11. 모든 사용자의 길드 정보 완전히 제거
+        console.log('[11/11] 모든 사용자의 길드 정보 완전히 제거 중...');
         const allUsers = await prisma.user.findMany({
-            select: { id: true, status: true }
+            select: { 
+                id: true, 
+                status: true,
+                guild: { select: { id: true } },
+                guildMember: { select: { id: true } }
+            }
         });
         
         let usersUpdated = 0;
         for (const user of allUsers) {
-            if (user.status && typeof user.status === 'object') {
-                const status = user.status as any;
-                if (status.guildId) {
-                    delete status.guildId;
-                    await prisma.user.update({
-                        where: { id: user.id },
-                        data: { status: status }
-                    });
-                    usersUpdated++;
+            let needsUpdate = false;
+            const status = user.status && typeof user.status === 'object' ? { ...(user.status as any) } : {};
+            
+            // status JSON에서 guildId 제거
+            if (status.guildId) {
+                delete status.guildId;
+                needsUpdate = true;
+            }
+            
+            // status JSON에서 guildApplications 제거
+            if (status.guildApplications) {
+                delete status.guildApplications;
+                needsUpdate = true;
+            }
+            
+            // Prisma 관계가 있는 경우에만 disconnect/delete 시도
+            const hasGuildRelation = user.guild !== null;
+            const hasGuildMemberRelation = user.guildMember !== null;
+            
+            if (needsUpdate || hasGuildRelation || hasGuildMemberRelation) {
+                const updateData: any = {};
+                
+                // status 업데이트가 필요한 경우
+                if (needsUpdate) {
+                    updateData.status = status;
                 }
+                
+                // Guild 관계가 있는 경우 (이미 Guild는 삭제되었지만 관계 레코드가 남아있을 수 있음)
+                // Guild가 삭제되었으므로 disconnect는 불가능, 대신 GuildMember만 삭제
+                if (hasGuildMemberRelation) {
+                    updateData.guildMember = { delete: true };
+                }
+                
+                await prisma.user.update({
+                    where: { id: user.id },
+                    data: updateData
+                });
+                usersUpdated++;
             }
         }
-        console.log(`  ✓ ${usersUpdated}명의 사용자에서 guildId 제거됨`);
+        console.log(`  ✓ ${usersUpdated}명의 사용자에서 모든 길드 정보 제거됨`);
         
         console.log('\n' + '='.repeat(60));
         console.log('✓ 모든 길드 정보가 성공적으로 초기화되었습니다!');

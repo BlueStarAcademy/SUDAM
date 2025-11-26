@@ -118,6 +118,9 @@ const generateItemOptions = (grade: ItemGrade, slot: EquipmentSlot): ItemOptions
 
 export const createItemFromTemplate = (template: Omit<InventoryItem, 'id' | 'createdAt' | 'isEquipped' | 'level' | 'options' | 'quantity'>): InventoryItem => {
     const options = generateItemOptions(template.grade, template.slot!);
+    const getRandomInt = (min: number, max: number): number => {
+        return Math.floor(Math.random() * (max - min + 1)) + min;
+    };
     return {
         id: `item-${randomUUID()}`,
         name: template.name,
@@ -131,6 +134,7 @@ export const createItemFromTemplate = (template: Omit<InventoryItem, 'id' | 'cre
         grade: template.grade,
         stars: 0,
         options: options,
+        refinementCount: getRandomInt(3, 10), // 제련 가능 횟수 3~10회 랜덤 부여
     };
 };
 

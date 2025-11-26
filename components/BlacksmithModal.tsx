@@ -78,6 +78,31 @@ const BlacksmithModal: React.FC<BlacksmithModalProps> = ({ onClose, isTopmost, s
         }
     }, [currentUserWithStatus.inventory, selectedItem, activeTab]);
 
+    // Sync selected item with inventory (for refinement updates)
+    useEffect(() => {
+        if (selectedItem && activeTab === 'refine') {
+            const updatedItem = currentUserWithStatus.inventory.find(invItem => invItem.id === selectedItem.id);
+            if (updatedItem) {
+                // 제련 후 옵션이 변경되었거나 제련 횟수가 변경되었으면 업데이트
+                const refinementCountChanged = (updatedItem as any).refinementCount !== (selectedItem as any).refinementCount;
+                const optionsChanged = JSON.stringify(updatedItem.options) !== JSON.stringify(selectedItem.options);
+                if (refinementCountChanged || optionsChanged) {
+                    setSelectedItem(updatedItem);
+                }
+            }
+        }
+    }, [currentUserWithStatus.inventory, selectedItem, activeTab]);
+
+    // 제련 결과 확인 후 selectedItem 업데이트
+    useEffect(() => {
+        if (modals.refinementResult && modals.refinementResult.success && selectedItem && activeTab === 'refine') {
+            // 제련 결과의 itemAfter로 selectedItem 업데이트
+            if (modals.refinementResult.itemAfter.id === selectedItem.id) {
+                setSelectedItem(modals.refinementResult.itemAfter);
+            }
+        }
+    }, [modals.refinementResult, selectedItem, activeTab]);
+
     // Sync combination items with inventory
     useEffect(() => {
         if (activeTab === 'combine') {

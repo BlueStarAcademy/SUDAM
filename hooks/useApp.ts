@@ -1281,6 +1281,7 @@ export const useApp = () => {
                         'SINGLE_PLAYER_REFRESH_PLACEMENT',
                         'BUY_SHOP_ITEM',
                         'BUY_MATERIAL_BOX',
+                        'BUY_CONSUMABLE',
                         'BUY_CONDITION_POTION',
                         'USE_CONDITION_POTION',
                         'BUY_BORDER',
@@ -1346,7 +1347,7 @@ export const useApp = () => {
                     const actionsThatShouldHaveUpdatedUser = [
                         'TOGGLE_EQUIP_ITEM', 'USE_ITEM', 'USE_ALL_ITEMS_OF_TYPE', 'ENHANCE_ITEM', 
                         'COMBINE_ITEMS', 'DISASSEMBLE_ITEM', 'CRAFT_MATERIAL', 'BUY_SHOP_ITEM', 
-                        'BUY_CONDITION_POTION', 'USE_CONDITION_POTION', 'UPDATE_AVATAR', 
+                        'BUY_CONSUMABLE', 'BUY_CONDITION_POTION', 'USE_CONDITION_POTION', 'UPDATE_AVATAR', 
                         'UPDATE_BORDER', 'CHANGE_NICKNAME', 'UPDATE_MBTI', 'ALLOCATE_STAT_POINT',
                         'SELL_ITEM', 'EXPAND_INVENTORY', 'BUY_BORDER', 'APPLY_PRESET', 'SAVE_PRESET',
                         'DELETE_MAIL', 'DELETE_ALL_CLAIMED_MAIL', 'CLAIM_MAIL_ATTACHMENTS', 

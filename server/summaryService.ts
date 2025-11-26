@@ -1007,13 +1007,13 @@ const processPlayerSummary = async (
             // 승리: 30% 확률, 패배: 5% 확률
             const dropChance = isWinner ? 0.3 : 0.05;
             if (Math.random() < dropChance) {
-                // 획득 확정 시: 종류 변경권(45%), 수치 변경권(45%), 신화 변경권(10%)
+                // 획득 확정 시: 수치 변경권(60%), 종류 변경권(25%), 신화 변경권(15%)
                 const ticketRandom = Math.random();
                 let ticketName: string;
-                if (ticketRandom < 0.45) {
-                    ticketName = '옵션 종류 변경권';
-                } else if (ticketRandom < 0.9) {
+                if (ticketRandom < 0.6) {
                     ticketName = '옵션 수치 변경권';
+                } else if (ticketRandom < 0.85) {
+                    ticketName = '옵션 종류 변경권';
                 } else {
                     ticketName = '신화 옵션 변경권';
                 }

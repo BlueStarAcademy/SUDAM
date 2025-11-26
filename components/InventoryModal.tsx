@@ -442,6 +442,12 @@ const LocalItemDetailDisplay: React.FC<{
                             </span>
                         )}
                     </div>
+                    {/* 제련 가능 횟수 표시 (장비인 경우에만) */}
+                    {item.type === 'equipment' && item.grade !== 'normal' && (
+                        <p className={`text-xs font-semibold ${(item as any).refinementCount > 0 ? 'text-amber-400' : 'text-red-400'}`} style={{ fontSize: `${Math.max(9, Math.round(10 * scaleFactor * mobileTextScale))}px` }}>
+                            제련 가능: {(item as any).refinementCount > 0 ? `${(item as any).refinementCount}회` : '제련불가'}
+                        </p>
+                    )}
                     {item.options?.main && ( // Only display main option if it exists
                         <p className="font-semibold text-yellow-300 flex justify-between items-center" style={{ fontSize: `${Math.max(11, Math.round(12 * scaleFactor * mobileTextScale))}px` }}>
                             <span>

@@ -2,8 +2,12 @@ import { LiveGameSession, User } from '../types/index.js';
 import { volatileState } from './state.js';
 import * as db from './db.js';
 
-const CACHE_TTL_MS = 30 * 1000; // 30초 캐시 유지
-const USER_CACHE_TTL_MS = 60 * 1000; // 사용자 캐시는 60초
+// Railway 환경에서는 캐시 TTL을 늘려서 데이터베이스 쿼리 감소
+// 로컬 환경도 성능 개선을 위해 캐시 TTL 증가
+const isRailway = process.env.RAILWAY_ENVIRONMENT || process.env.NODE_ENV === 'production';
+const CACHE_TTL_MS = isRailway ? 60 * 1000 : 15 * 1000; // Railway: 60초, 로컬: 15초 캐시
+// Railway DB는 네트워크 지연이 크므로 사용자 캐시 TTL을 더 길게 설정
+const USER_CACHE_TTL_MS = isRailway ? 1200 * 1000 : 300 * 1000; // Railway: 20분, 로컬: 5분 사용자 캐시 (성능 대폭 개선)
 
 /**
  * 게임 상태를 캐시에서 가져오거나 DB에서 로드
@@ -69,8 +73,8 @@ export async function getCachedUser(userId: string): Promise<User | null> {
         return cached.user;
     }
 
-    // 캐시 미스 또는 만료된 경우 DB에서 로드
-    const user = await db.getUser(userId);
+    // 캐시 미스 또는 만료된 경우 DB에서 로드 (equipment/inventory 제외하여 빠르게)
+    const user = await db.getUser(userId, { includeEquipment: false, includeInventory: false });
     if (user) {
         cache.set(userId, { user, lastUpdated: now });
     } else if (cached) {

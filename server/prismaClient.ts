@@ -18,12 +18,17 @@ const getDatabaseUrl = () => {
   // connect_timeout: 연결 타임아웃 단축
   // statement_cache_size: 쿼리 캐시 크기
   const separator = url.includes('?') ? '&' : '?';
-  // Railway 환경에서는 연결 수를 줄이고 타임아웃을 단축하여 성능 최적화
+  // Railway DB 연결 최적화 (로컬에서도 Railway DB 사용)
+  // Railway는 연결 수 제한이 있으므로 적절히 설정
   const isRailway = url.includes('railway') || process.env.RAILWAY_ENVIRONMENT;
-  const connectionLimit = isRailway ? '10' : '25'; // Railway는 연결 수 제한이 있으므로 줄임
-  const poolTimeout = isRailway ? '10' : '20'; // Railway는 대기 시간 단축
-  const connectTimeout = isRailway ? '5' : '10'; // Railway는 연결 타임아웃 단축
-  return `${url}${separator}connection_limit=${connectionLimit}&pool_timeout=${poolTimeout}&connect_timeout=${connectTimeout}&statement_cache_size=0`;
+  // Railway DB는 네트워크 지연이 있으므로 연결 풀을 적절히 설정
+  // 연결 수를 늘려서 동시 요청 처리 능력 향상
+  const connectionLimit = isRailway ? '30' : '50'; // Railway: 30개, 로컬: 50개 연결
+  const poolTimeout = isRailway ? '30' : '20'; // Railway: 30초, 로컬: 20초 대기 시간
+  const connectTimeout = isRailway ? '15' : '10'; // Railway: 15초, 로컬: 10초 타임아웃
+  // statement_cache_size를 0으로 설정하면 매번 쿼리를 파싱하므로, 캐시 활성화
+  const statementCacheSize = '200'; // 쿼리 캐시 크기 증가
+  return `${url}${separator}connection_limit=${connectionLimit}&pool_timeout=${poolTimeout}&connect_timeout=${connectTimeout}&statement_cache_size=${statementCacheSize}`;
 };
 
 const prisma = new PrismaClient({

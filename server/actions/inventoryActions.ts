@@ -10,6 +10,7 @@ import {
     MAIN_STAT_DEFINITIONS,
     SPECIAL_STATS_DATA,
     MYTHIC_STATS_DATA,
+    CORE_STATS_DATA,
     ENHANCEMENT_SUCCESS_RATES,
     ENHANCEMENT_COSTS,
     MATERIAL_ITEMS,
@@ -155,6 +156,7 @@ export const generateNewItem = (grade: ItemGrade, slot: EquipmentSlot, isDivineM
         stars: 0,
         enhancementFails: 0,
         isDivineMythic: isDivineMythic,
+        refinementCount: getRandomInt(3, 10), // 제련 가능 횟수 3~10회 랜덤 부여
     };
 
     return newItem;
@@ -290,8 +292,8 @@ export const handleInventoryAction = async (volatileState: VolatileState, action
             if (!success) {
                 return { error: '새 아이템을 받기에 인벤토리 공간이 부족합니다.' };
             }
-            // 인벤토리를 깊은 복사하여 새로운 배열로 할당 (참조 문제 방지)
-            user.inventory = JSON.parse(JSON.stringify(updatedInventory));
+            // updatedInventory는 이미 새로운 배열이므로 직접 할당 (성능 최적화)
+            user.inventory = updatedInventory;
             
             // 실제로 인벤토리에 추가된 아이템 (ID가 변경되었을 수 있음)
             const actualAddedItem = finalItemsToAdd[0] || newItem;
@@ -309,18 +311,8 @@ export const handleInventoryAction = async (volatileState: VolatileState, action
             }
 
             try {
-                // 데이터베이스에 저장
+                // 데이터베이스에 저장 (캐시 자동 업데이트됨)
                 await db.updateUser(user);
-                
-                // 저장 후 DB에서 다시 읽어서 검증
-                const savedUser = await db.getUser(user.id);
-                if (!savedUser) {
-                    console.error(`[COMBINE_ITEMS] User not found after save: ${user.id}`);
-                    return { error: '저장 후 사용자를 찾을 수 없습니다.' };
-                }
-                
-                // 저장된 사용자 데이터 사용 (DB에 실제로 저장된 것)
-                user = savedUser;
             } catch (error: any) {
                 console.error(`[COMBINE_ITEMS] Error updating user ${user.id}:`, error);
                 console.error(`[COMBINE_ITEMS] Error stack:`, error.stack);
@@ -526,22 +518,12 @@ export const handleInventoryAction = async (volatileState: VolatileState, action
                     }
                 }
 
-                // 인벤토리를 깊은 복사하여 새로운 배열로 할당 (참조 문제 방지)
-                user.inventory = JSON.parse(JSON.stringify(user.inventory));
+                // 인벤토리 참조 변경 (배열 복사로 충분)
+                user.inventory = [...user.inventory];
                 
                 try {
-                    // 데이터베이스에 저장
+                    // 데이터베이스에 저장 (캐시 자동 업데이트됨)
                     await db.updateUser(user);
-                    
-                    // 저장 후 DB에서 다시 읽어서 검증
-                    const savedUser = await db.getUser(user.id);
-                    if (!savedUser) {
-                        console.error(`[USE_ITEM] User not found after save (bundle): ${user.id}`);
-                        return { error: '저장 후 사용자를 찾을 수 없습니다.' };
-                    }
-                    
-                    // 저장된 사용자 데이터 사용 (DB에 실제로 저장된 것)
-                    user = savedUser;
                 } catch (error: any) {
                     console.error(`[USE_ITEM] Error updating user ${user.id} (bundle):`, error);
                     console.error(`[USE_ITEM] Error stack:`, error.stack);
@@ -589,22 +571,12 @@ export const handleInventoryAction = async (volatileState: VolatileState, action
             const { success, finalItemsToAdd } = addItemsToInventoryUtil(tempInventoryAfterUse, user.inventorySlots, allObtainedItems);
             if (!success) return { error: '인벤토리 공간이 부족합니다.' };
             
-            // 인벤토리를 깊은 복사하여 새로운 배열로 할당 (참조 문제 방지)
-            user.inventory = JSON.parse(JSON.stringify([...tempInventoryAfterUse, ...finalItemsToAdd]));
+            // 새 배열 생성 (성능 최적화)
+            user.inventory = [...tempInventoryAfterUse, ...finalItemsToAdd];
             
             try {
-                // 데이터베이스에 저장
+                // 데이터베이스에 저장 (캐시 자동 업데이트됨)
                 await db.updateUser(user);
-                
-                // 저장 후 DB에서 다시 읽어서 검증
-                const savedUser = await db.getUser(user.id);
-                if (!savedUser) {
-                    console.error(`[USE_ITEM] User not found after save: ${user.id}`);
-                    return { error: '저장 후 사용자를 찾을 수 없습니다.' };
-                }
-                
-                // 저장된 사용자 데이터 사용 (DB에 실제로 저장된 것)
-                user = savedUser;
             } catch (error: any) {
                 console.error(`[USE_ITEM] Error updating user ${user.id}:`, error);
                 console.error(`[USE_ITEM] Error stack:`, error.stack);
@@ -659,24 +631,14 @@ export const handleInventoryAction = async (volatileState: VolatileState, action
             }
 
             // If space is sufficient, apply all changes
-            // 인벤토리를 깊은 복사하여 새로운 배열로 할당 (참조 문제 방지)
-            user.inventory = JSON.parse(JSON.stringify(updatedInventory));
+            // updatedInventory는 이미 새로운 배열이므로 직접 할당 (성능 최적화)
+            user.inventory = updatedInventory;
             user.gold += totalGoldGained;
             user.diamonds += totalDiamondsGained;
 
             try {
-                // 데이터베이스에 저장
+                // 데이터베이스에 저장 (캐시 자동 업데이트됨)
                 await db.updateUser(user);
-                
-                // 저장 후 DB에서 다시 읽어서 검증
-                const savedUser = await db.getUser(user.id);
-                if (!savedUser) {
-                    console.error(`[USE_ALL_ITEMS_OF_TYPE] User not found after save: ${user.id}`);
-                    return { error: '저장 후 사용자를 찾을 수 없습니다.' };
-                }
-                
-                // 저장된 사용자 데이터 사용 (DB에 실제로 저장된 것)
-                user = savedUser;
             } catch (error: any) {
                 console.error(`[USE_ALL_ITEMS_OF_TYPE] Error updating user ${user.id}:`, error);
                 console.error(`[USE_ALL_ITEMS_OF_TYPE] Error stack:`, error.stack);
@@ -836,18 +798,8 @@ export const handleInventoryAction = async (volatileState: VolatileState, action
             user.inventory = JSON.parse(JSON.stringify(user.inventory));
 
             try {
-                // 데이터베이스에 저장
+                // 데이터베이스에 저장 (캐시 자동 업데이트됨)
                 await db.updateUser(user);
-                
-                // 저장 후 DB에서 다시 읽어서 검증
-                const savedUser = await db.getUser(user.id);
-                if (!savedUser) {
-                    console.error(`[SELL_ITEM] User not found after save: ${user.id}`);
-                    return { error: '저장 후 사용자를 찾을 수 없습니다.' };
-                }
-                
-                // 저장된 사용자 데이터 사용 (DB에 실제로 저장된 것)
-                user = savedUser;
             } catch (error: any) {
                 console.error(`[SELL_ITEM] Error updating user ${user.id}:`, error);
                 console.error(`[SELL_ITEM] Error stack:`, error.stack);
@@ -1045,18 +997,8 @@ export const handleInventoryAction = async (volatileState: VolatileState, action
             user.inventory = JSON.parse(JSON.stringify(user.inventory));
             
             try {
-                // 데이터베이스에 저장
+                // 데이터베이스에 저장 (캐시 자동 업데이트됨)
                 await db.updateUser(user);
-                
-                // 저장 후 DB에서 다시 읽어서 검증
-                const savedUser = await db.getUser(user.id);
-                if (!savedUser) {
-                    console.error(`[ENHANCE_ITEM] User not found after save: ${user.id}`);
-                    return { error: '저장 후 사용자를 찾을 수 없습니다.' };
-                }
-                
-                // 저장된 사용자 데이터 사용 (DB에 실제로 저장된 것)
-                user = savedUser;
             } catch (error: any) {
                 console.error(`[ENHANCE_ITEM] Error updating user ${user.id}:`, error);
                 console.error(`[ENHANCE_ITEM] Error stack:`, error.stack);
@@ -1102,6 +1044,12 @@ export const handleInventoryAction = async (volatileState: VolatileState, action
             // 일반 등급 장비는 제련 불가
             if (item.grade === ItemGrade.Normal) {
                 return { error: '일반 등급 장비는 제련할 수 없습니다.' };
+            }
+            
+            // 제련 가능 횟수 확인
+            const currentRefinementCount = (item as any).refinementCount ?? 0;
+            if (currentRefinementCount <= 0) {
+                return { error: '제련 가능 횟수가 모두 소진되었습니다.' };
             }
             
             // 등급별 소모량
@@ -1180,12 +1128,13 @@ export const handleInventoryAction = async (volatileState: VolatileState, action
                     }
                     const newStatType = availableStats[Math.floor(Math.random() * availableStats.length)];
                     const newValue = gradeDef.value;
+                    const statName = CORE_STATS_DATA[newStatType]?.name || newStatType;
                     item.options.main = {
                         type: newStatType,
                         value: newValue,
                         baseValue: newValue,
                         isPercentage: slotDef.isPercentage,
-                        display: `${newStatType} +${newValue}${slotDef.isPercentage ? '%' : ''}`
+                        display: `${statName} +${newValue}${slotDef.isPercentage ? '%' : ''}`
                     };
                 } else if (optionType === 'combatSub') {
                     // 부옵션 변경
@@ -1194,25 +1143,36 @@ export const handleInventoryAction = async (volatileState: VolatileState, action
                     const rules = GRADE_SUB_OPTION_RULES[grade];
                     const combatTier = rules.combatTier;
                     const pool = SUB_OPTION_POOLS[slot][combatTier];
-                    const usedTypes = new Set([item.options!.main.type, ...item.options!.combatSubs.map(s => s.type)]);
+                    const usedTypes = new Set([
+                        item.options!.main.type,
+                        ...item.options!.combatSubs.map(s => s.type),
+                        ...item.options!.specialSubs.map(s => s.type),
+                        ...item.options!.mythicSubs.map(s => s.type)
+                    ]);
                     const availableOptions = pool.filter(opt => !usedTypes.has(opt.type));
                     if (availableOptions.length === 0) {
                         return { error: '변경 가능한 부옵션이 없습니다.' };
                     }
                     const newSubDef = availableOptions[Math.floor(Math.random() * availableOptions.length)];
                     const value = getRandomInt(newSubDef.range[0], newSubDef.range[1]);
+                    const statName = CORE_STATS_DATA[newSubDef.type]?.name || newSubDef.type;
                     item.options.combatSubs[optionIndex] = {
                         type: newSubDef.type,
                         value,
                         isPercentage: newSubDef.isPercentage,
-                        display: `${newSubDef.type} +${value}${newSubDef.isPercentage ? '%' : ''} [${newSubDef.range[0]}~${newSubDef.range[1]}]`,
+                        display: `${statName} +${value}${newSubDef.isPercentage ? '%' : ''} [${newSubDef.range[0]}~${newSubDef.range[1]}]`,
                         range: newSubDef.range,
                         enhancements: 0,
                     };
                 } else if (optionType === 'specialSub') {
                     // 특수옵션 변경
                     const allSpecialStats = Object.values(SpecialStat);
-                    const usedTypes = new Set(item.options!.specialSubs.map(s => s.type));
+                    const usedTypes = new Set([
+                        item.options!.main.type,
+                        ...item.options!.combatSubs.map(s => s.type),
+                        ...item.options!.specialSubs.map(s => s.type),
+                        ...item.options!.mythicSubs.map(s => s.type)
+                    ]);
                     const availableStats = allSpecialStats.filter(stat => !usedTypes.has(stat));
                     if (availableStats.length === 0) {
                         return { error: '변경 가능한 특수옵션이 없습니다.' };
@@ -1240,7 +1200,8 @@ export const handleInventoryAction = async (volatileState: VolatileState, action
                     }
                     const newValue = getRandomInt(subOption.range[0], subOption.range[1]);
                     subOption.value = newValue;
-                    subOption.display = `${subOption.type} +${newValue}${subOption.isPercentage ? '%' : ''} [${subOption.range[0]}~${subOption.range[1]}]`;
+                    const statName = CORE_STATS_DATA[subOption.type]?.name || subOption.type;
+                    subOption.display = `${statName} +${newValue}${subOption.isPercentage ? '%' : ''} [${subOption.range[0]}~${subOption.range[1]}]`;
                 } else if (optionType === 'specialSub') {
                     const subOption = item.options.specialSubs[optionIndex];
                     if (!subOption || !subOption.range) {
@@ -1269,7 +1230,7 @@ export const handleInventoryAction = async (volatileState: VolatileState, action
                 }
                 const newStatType = availableStats[Math.floor(Math.random() * availableStats.length)];
                 const subDef = MYTHIC_STATS_DATA[newStatType];
-                const value = subDef.value([10, 50]);
+                const value = subDef.value([10, 50]); // range 파라미터는 함수 내부에서 사용되지 않지만 시그니처에 맞춰 전달
                 item.options.mythicSubs[optionIndex] = {
                     type: newStatType,
                     value: value,
@@ -1279,22 +1240,15 @@ export const handleInventoryAction = async (volatileState: VolatileState, action
                 };
             }
             
+            // 제련 가능 횟수 차감
+            (item as any).refinementCount = Math.max(0, ((item as any).refinementCount ?? 0) - 1);
+            
             // 인벤토리를 깊은 복사하여 새로운 배열로 할당 (참조 문제 방지)
             user.inventory = JSON.parse(JSON.stringify(user.inventory));
             
             try {
-                // 데이터베이스에 저장
+                // 데이터베이스에 저장 (캐시 자동 업데이트됨)
                 await db.updateUser(user);
-                
-                // 저장 후 DB에서 다시 읽어서 검증
-                const savedUser = await db.getUser(user.id);
-                if (!savedUser) {
-                    console.error(`[REFINE_EQUIPMENT] User not found after save: ${user.id}`);
-                    return { error: '저장 후 사용자를 찾을 수 없습니다.' };
-                }
-                
-                // 저장된 사용자 데이터 사용 (DB에 실제로 저장된 것)
-                user = savedUser;
             } catch (error: any) {
                 console.error(`[REFINE_EQUIPMENT] Error updating user ${user.id}:`, error);
                 console.error(`[REFINE_EQUIPMENT] Error stack:`, error.stack);
@@ -1400,18 +1354,8 @@ export const handleInventoryAction = async (volatileState: VolatileState, action
             user.inventory = JSON.parse(JSON.stringify(user.inventory));
             
             try {
-                // 데이터베이스에 저장
+                // 데이터베이스에 저장 (캐시 자동 업데이트됨)
                 await db.updateUser(user);
-                
-                // 저장 후 DB에서 다시 읽어서 검증
-                const savedUser = await db.getUser(user.id);
-                if (!savedUser) {
-                    console.error(`[DISASSEMBLE_ITEM] User not found after save: ${user.id}`);
-                    return { error: '저장 후 사용자를 찾을 수 없습니다.' };
-                }
-                
-                // 저장된 사용자 데이터 사용 (DB에 실제로 저장된 것)
-                user = savedUser;
             } catch (error: any) {
                 console.error(`[DISASSEMBLE_ITEM] Error updating user ${user.id}:`, error);
                 console.error(`[DISASSEMBLE_ITEM] Error stack:`, error.stack);
@@ -1492,8 +1436,8 @@ export const handleInventoryAction = async (volatileState: VolatileState, action
             }
             
             // All checks passed, apply changes to the real user object
-            // 인벤토리를 깊은 복사하여 새로운 배열로 할당 (참조 문제 방지)
-            user.inventory = JSON.parse(JSON.stringify(updatedInventory));
+            // updatedInventory는 이미 새로운 배열이므로 직접 할당 (성능 최적화)
+            user.inventory = updatedInventory;
             
             updateQuestProgress(user, 'craft_attempt');
             
@@ -1504,18 +1448,8 @@ export const handleInventoryAction = async (volatileState: VolatileState, action
             }
             
             try {
-                // 데이터베이스에 저장
+                // 데이터베이스에 저장 (캐시 자동 업데이트됨)
                 await db.updateUser(user);
-                
-                // 저장 후 DB에서 다시 읽어서 검증
-                const savedUser = await db.getUser(user.id);
-                if (!savedUser) {
-                    console.error(`[CRAFT_MATERIAL] User not found after save: ${user.id}`);
-                    return { error: '저장 후 사용자를 찾을 수 없습니다.' };
-                }
-                
-                // 저장된 사용자 데이터 사용 (DB에 실제로 저장된 것)
-                user = savedUser;
             } catch (error: any) {
                 console.error(`[CRAFT_MATERIAL] Error updating user ${user.id}:`, error);
                 console.error(`[CRAFT_MATERIAL] Error stack:`, error.stack);

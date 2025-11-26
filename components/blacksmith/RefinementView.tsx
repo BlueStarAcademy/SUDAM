@@ -102,6 +102,10 @@ const ItemDisplay: React.FC<{
                 <div className="flex-grow pt-1 min-w-0">
                     <h3 className={`text-sm font-bold whitespace-nowrap overflow-hidden text-ellipsis ${styles.color}`} title={item.name}>{item.name}</h3>
                     <p className={`text-xs ${canEquip ? 'text-gray-500' : 'text-red-500'}`}>(착용레벨: {requiredLevel})</p>
+                    {/* 제련 가능 횟수 표시 */}
+                    <p className={`text-xs font-semibold ${(item as any).refinementCount > 0 ? 'text-amber-400' : 'text-red-400'}`}>
+                        제련 가능: {(item as any).refinementCount > 0 ? `${(item as any).refinementCount}회` : '제련불가'}
+                    </p>
                 </div>
             </div>
             {/* Bottom section: Clickable options */}
@@ -311,9 +315,18 @@ const RefinementView: React.FC<RefinementViewProps> = ({ selectedItem, currentUs
         return selectedItem.grade !== ItemGrade.Normal;
     }, [selectedItem]);
 
+    // 제련 가능 횟수 확인
+    const refinementCount = useMemo(() => {
+        if (!selectedItem) return 0;
+        return (selectedItem as any).refinementCount ?? 0;
+    }, [selectedItem]);
+
     // 제련 가능 여부
     const canRefine = useMemo(() => {
         if (!selectedItem || !selectedOption || !refinementType || !canRefineAtAll) return false;
+        
+        // 제련 가능 횟수 확인
+        if (refinementCount <= 0) return false;
         
         if (currentUser.gold < requiredGold) return false;
         
@@ -326,7 +339,7 @@ const RefinementView: React.FC<RefinementViewProps> = ({ selectedItem, currentUs
         }
         
         return false;
-    }, [selectedItem, selectedOption, refinementType, ticketCounts, requiredTickets, availableOptions, canRefineAtAll, currentUser.gold, requiredGold]);
+    }, [selectedItem, selectedOption, refinementType, ticketCounts, requiredTickets, availableOptions, canRefineAtAll, currentUser.gold, requiredGold, refinementCount]);
 
     // 변경권 아이템 정보
     const ticketItemInfo = useMemo(() => {
@@ -420,6 +433,16 @@ const RefinementView: React.FC<RefinementViewProps> = ({ selectedItem, currentUs
         return (
             <div className="flex items-center justify-center h-full text-gray-400 text-sm">
                 일반 등급 장비는 제련할 수 없습니다.
+            </div>
+        );
+    }
+
+    // 제련 횟수가 0인 경우
+    if (refinementCount <= 0) {
+        return (
+            <div className="flex flex-col items-center justify-center h-full text-gray-400 text-sm gap-2">
+                <div>제련 가능 횟수가 모두 소진되었습니다.</div>
+                <div className="text-xs text-gray-500">새로운 장비를 획득하면 제련 횟수가 부여됩니다.</div>
             </div>
         );
     }

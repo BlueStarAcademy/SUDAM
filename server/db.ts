@@ -158,14 +158,42 @@ interface CachedUser {
 
 const userCache = new Map<string, CachedUser>();
 // Railway 환경에서는 캐시 TTL을 늘려서 데이터베이스 쿼리 감소
+// 로컬 환경도 성능 개선을 위해 캐시 TTL 증가
 const isRailway = process.env.RAILWAY_ENVIRONMENT || process.env.NODE_ENV === 'production';
-const CACHE_TTL = isRailway ? 30000 : 3000; // Railway: 30초, 로컬: 3초 캐시
-const MAX_CACHE_SIZE = 1000; // 최대 캐시 크기 제한 (메모리 누수 방지)
+// Railway DB는 네트워크 지연이 크므로 캐시 TTL을 더 길게 설정
+const CACHE_TTL = isRailway ? 120000 : 30000; // Railway: 120초, 로컬: 30초 캐시 (성능 대폭 개선)
+const MAX_CACHE_SIZE = 2000; // 최대 캐시 크기 제한 증가 (더 많은 사용자 캐싱)
 
 // Railway 최적화: 기본적으로 equipment/inventory 제외
+// getAllUsers 결과 캐싱 (WebSocket 연결 시마다 호출되므로)
+let allUsersCache: { users: User[]; timestamp: number } | null = null;
+const ALL_USERS_CACHE_TTL = isRailway ? 10000 : 5000; // Railway: 10초, 로컬: 5초 캐시 (성능 최적화)
+
 export const getAllUsers = async (options?: { includeEquipment?: boolean; includeInventory?: boolean }): Promise<User[]> => {
+    // equipment/inventory가 필요 없는 경우에만 캐시 사용
+    const needsEquipment = options?.includeEquipment ?? false;
+    const needsInventory = options?.includeInventory ?? false;
+    const canUseCache = !needsEquipment && !needsInventory;
+    
+    if (canUseCache && allUsersCache) {
+        const now = Date.now();
+        if (now - allUsersCache.timestamp < ALL_USERS_CACHE_TTL) {
+            return allUsersCache.users;
+        }
+    }
+    
     const { listUsers } = await import('./prisma/userService.js');
-    return listUsers(options);
+    const users = await listUsers(options);
+    
+    // 캐시 업데이트 (equipment/inventory가 필요 없는 경우에만)
+    if (canUseCache) {
+        allUsersCache = {
+            users: JSON.parse(JSON.stringify(users)), // 깊은 복사
+            timestamp: Date.now()
+        };
+    }
+    
+    return users;
 };
 
 // 캐시 크기 제한 (LRU 방식으로 오래된 항목 제거)
@@ -190,30 +218,36 @@ const cleanupCache = () => {
     }
 };
 
-export const getUser = async (id: string): Promise<User | null> => {
+export const getUser = async (id: string, options?: { includeEquipment?: boolean; includeInventory?: boolean }): Promise<User | null> => {
     // 캐시 정리 (주기적으로)
     if (Math.random() < 0.1) { // 10% 확률로 캐시 정리 (성능 오버헤드 최소화)
         cleanupCache();
     }
     
-    // 캐시 확인
-    const cached = userCache.get(id);
-    const now = Date.now();
+    // 캐시 확인 (equipment/inventory가 필요 없는 경우에만 캐시 사용)
+    const needsEquipment = options?.includeEquipment ?? false;
+    const needsInventory = options?.includeInventory ?? false;
+    const canUseCache = !needsEquipment && !needsInventory;
     
-    if (cached && (now - cached.timestamp) < CACHE_TTL) {
-        return cached.user;
+    if (canUseCache) {
+        const cached = userCache.get(id);
+        const now = Date.now();
+        
+        if (cached && (now - cached.timestamp) < CACHE_TTL) {
+            return cached.user;
+        }
     }
     
     // 캐시 미스 또는 만료 - DB에서 조회
-    const user = await prismaGetUserById(id);
+    const user = await prismaGetUserById(id, options);
     
-    if (user) {
-        // 캐시에 저장
+    if (user && canUseCache) {
+        // 캐시에 저장 (equipment/inventory가 필요 없는 경우에만)
         userCache.set(id, {
             user: JSON.parse(JSON.stringify(user)), // 깊은 복사
-            timestamp: now
+            timestamp: Date.now()
         });
-    } else {
+    } else if (!user) {
         // 사용자가 없으면 캐시에서도 제거
         userCache.delete(id);
     }
@@ -224,6 +258,8 @@ export const getUser = async (id: string): Promise<User | null> => {
 // 사용자 정보가 업데이트되면 캐시 무효화
 export const invalidateUserCache = (userId: string) => {
     userCache.delete(userId);
+    // getAllUsers 캐시도 무효화 (사용자 정보 변경 시)
+    allUsersCache = null;
 };
 export const getUserByNickname = async (nickname: string): Promise<User | null> => {
     return prismaGetUserByNickname(nickname);
@@ -243,14 +279,8 @@ export const updateUser = async (user: User): Promise<void> => {
     const cached = userCache.get(user.id);
     if (cached) {
         existing = cached.user;
-    } else {
-        // 캐시에 없을 때만 DB 조회 (안전 검사용)
-        try {
-            existing = user.id ? await prismaGetUserById(user.id) : null;
-        } catch (err) {
-            console.error(`[DB] Failed to load existing user ${user.id} before update:`, err);
-        }
     }
+    // 캐시에 없어도 DB 조회는 스킵 (성능 최적화)
 
     if (existing) {
         const prevInventoryCount = Array.isArray(existing.inventory) ? existing.inventory.length : 0;
@@ -269,8 +299,24 @@ export const updateUser = async (user: User): Promise<void> => {
     }
 
     await prismaUpdateUser(user);
-    // 사용자 정보 업데이트 후 캐시 무효화
-    invalidateUserCache(user.id);
+    // 사용자 정보 업데이트 후 캐시 즉시 업데이트 (DB 재조회 방지로 성능 향상)
+    userCache.set(user.id, {
+        user: JSON.parse(JSON.stringify(user)), // 깊은 복사
+        timestamp: Date.now()
+    });
+    // getAllUsers 캐시도 무효화 (사용자 정보 변경 시)
+    allUsersCache = null;
+    
+    // gameCache의 userCache도 업데이트 (다음 요청에서 캐시 히트 보장)
+    try {
+        const { updateUserCache } = await import('./gameCache.js');
+        updateUserCache(user);
+    } catch (error) {
+        // gameCache가 없어도 치명적이지 않음 (로깅만)
+        if (process.env.NODE_ENV === 'development') {
+            console.warn('[updateUser] Failed to update gameCache:', error);
+        }
+    }
 };
 export const deleteUser = async (id: string): Promise<void> => {
     const user = await prismaGetUserById(id);
@@ -344,7 +390,28 @@ export const getAllEndedGames = async (): Promise<LiveGameSession[]> => {
     const { getAllEndedGames: prismaGetAllEndedGames } = await import('./prisma/gameService.ts');
     return prismaGetAllEndedGames();
 };
-export const saveGame = async (game: LiveGameSession): Promise<void> => {
+export const saveGame = async (game: LiveGameSession, forceSave: boolean = false): Promise<void> => {
+    // PVE 게임 최적화: 메모리에만 저장하고 게임 종료 시에만 DB 저장
+    const isPVE = game.isSinglePlayer || game.gameCategory === 'tower';
+    const isGameEnded = game.gameStatus === 'ended' || game.gameStatus === 'no_contest';
+    
+    if (isPVE && !isGameEnded && !forceSave) {
+        // PVE 게임은 메모리에만 저장 (DB 저장 스킵)
+        const now = Date.now();
+        game.serverRevision = (game.serverRevision ?? 0) + 1;
+        game.lastSyncedAt = now;
+        // 캐시 자동 업데이트 (메모리 저장 후 즉시 반영)
+        try {
+            const { updateGameCache } = await import('./gameCache.js');
+            updateGameCache(game);
+        } catch (error) {
+            // 캐시 업데이트 실패는 치명적이지 않으므로 로그만 남김
+            console.warn(`[DB] Failed to update game cache for ${game.id}:`, error);
+        }
+        return;
+    }
+    
+    // PVP 게임 또는 게임 종료 시 DB에 저장
     const { saveGame: prismaSaveGame } = await import('./prisma/gameService.ts');
     const now = Date.now();
     game.serverRevision = (game.serverRevision ?? 0) + 1;
@@ -452,7 +519,8 @@ export const deleteGame = async (id: string): Promise<void> => {
 
 // --- Full State Retrieval (for client sync) ---
 export const getAllData = async (): Promise<Pick<AppState, 'users' | 'userCredentials' | 'liveGames' | 'singlePlayerGames' | 'towerGames' | 'adminLogs' | 'announcements' | 'globalOverrideAnnouncement' | 'gameModeAvailability' | 'announcementInterval' | 'homeBoardPosts'> & { guilds?: Record<string, any> }> => {
-    const users = await listUsers();
+    // Railway DB 성능 최적화: equipment/inventory 제외하여 쿼리 속도 향상
+    const users = await listUsers({ includeEquipment: false, includeInventory: false });
     const allGames = await getAllActiveGames();
     const kvRepository = await import('./repositories/kvRepository.ts');
     

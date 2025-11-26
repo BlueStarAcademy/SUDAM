@@ -1773,7 +1773,9 @@ const startServer = async () => {
             }
 
             const getUserStartTime = Date.now();
-            const user = await db.getUser(userId);
+            // 캐시를 우선 사용하여 DB 쿼리 최소화 (Railway 네트워크 지연 대응)
+            const { getCachedUser } = await import('./gameCache.js');
+            const user = await getCachedUser(userId);
             const getUserDuration = Date.now() - getUserStartTime;
             
             if (!user) {

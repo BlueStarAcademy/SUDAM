@@ -337,6 +337,7 @@ const TowerLobby: React.FC = () => {
                                             { name: '턴 추가', icon: '/images/button/addturn.png', count: getItemCount('턴 추가') || getItemCount('addturn') },
                                             { name: '미사일', icon: '/images/button/missile.png', count: getItemCount('미사일') || getItemCount('missile') },
                                             { name: '히든', icon: '/images/button/hidden.png', count: getItemCount('히든') || getItemCount('hidden') },
+                                            { name: '스캔', icon: '/images/button/scan.png', count: getItemCount('스캔') || getItemCount('scan') },
                                             { name: '배치변경', icon: '/images/button/reflesh.png', count: getItemCount('배치 새로고침') || getItemCount('배치변경') || getItemCount('reflesh') || getItemCount('refresh') }
                                         ];
                                         return items.map((item, index) => (
@@ -1055,6 +1056,12 @@ const TowerLobby: React.FC = () => {
                                         name: '히든',
                                         icon: '/images/button/hidden.png',
                                         count: getItemCount('히든') || getItemCount('hidden'),
+                                        maxCount: 2
+                                    },
+                                    {
+                                        name: '스캔',
+                                        icon: '/images/button/scan.png',
+                                        count: getItemCount('스캔') || getItemCount('scan'),
                                         maxCount: 2
                                     },
                                     {
