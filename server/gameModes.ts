@@ -63,6 +63,12 @@ export const finalizeAnalysisResult = (baseAnalysis: types.AnalysisResult, sessi
 
 export const getGameResult = async (game: LiveGameSession): Promise<LiveGameSession> => {
     console.log(`[getGameResult] Called for game ${game.id}, gameStatus=${game.gameStatus}, isSinglePlayer=${game.isSinglePlayer}, stageId=${game.stageId}`);
+    
+    // 이미 계가가 진행 중이거나 완료된 경우 중복 호출 방지
+    if (game.gameStatus === 'ended' || (game.gameStatus === 'scoring' && (game as any).isScoringProtected)) {
+        console.log(`[getGameResult] Game ${game.id} already in scoring/ended state, skipping`);
+        return game;
+    }
     const isMissileMode = game.mode === types.GameMode.Missile || (game.mode === types.GameMode.Mix && game.settings.mixedModes?.includes(types.GameMode.Missile));
     const p1MissilesUsed = (game.settings.missileCount ?? 0) - (game.missiles_p1 ?? game.settings.missileCount ?? 0);
     const p2MissilesUsed = (game.settings.missileCount ?? 0) - (game.missiles_p2 ?? game.settings.missileCount ?? 0);
@@ -155,8 +161,41 @@ export const getGameResult = async (game: LiveGameSession): Promise<LiveGameSess
         
         // 발견되지 않은 히든 돌들을 모두 영구적으로 공개
         if (stonesToReveal.length > 0) {
+            // 히든돌 공개 애니메이션 추가
+            const now = Date.now();
+            const stonesToRevealWithPlayer = stonesToReveal.map(point => {
+                // moveHistory에서 원래 플레이어 확인
+                const moveIndex = game.moveHistory.findIndex(m => m.x === point.x && m.y === point.y);
+                const player = moveIndex !== -1 ? game.moveHistory[moveIndex].player : 
+                              (game.isSinglePlayer && (game as any).aiInitialHiddenStone && 
+                               (game as any).aiInitialHiddenStone.x === point.x && 
+                               (game as any).aiInitialHiddenStone.y === point.y) 
+                              ? types.Player.White : types.Player.Black;
+                return { point, player };
+            });
+            
             game.permanentlyRevealedStones.push(...stonesToReveal);
             console.log(`[getGameResult] Revealed ${stonesToReveal.length} hidden stones before scoring for game ${game.id}`);
+            
+            // 히든돌 공개 애니메이션 설정
+            game.animation = {
+                type: 'hidden_reveal',
+                stones: stonesToRevealWithPlayer,
+                startTime: now,
+                duration: 2000
+            };
+            game.revealAnimationEndTime = now + 2000;
+            game.gameStatus = 'hidden_final_reveal';
+            
+            // 애니메이션 종료 후 계가 진행하도록 설정
+            await db.saveGame(game);
+            const { broadcastToGameParticipants } = await import('./socket.js');
+            const gameToBroadcast = { ...game };
+            delete (gameToBroadcast as any).boardState;
+            broadcastToGameParticipants(game.id, { type: 'GAME_UPDATE', payload: { [game.id]: gameToBroadcast } }, game);
+            
+            // 애니메이션이 끝날 때까지 대기하지 않고 즉시 반환 (updateHiddenState에서 처리)
+            return game;
         }
     }
     

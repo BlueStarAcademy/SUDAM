@@ -206,12 +206,10 @@ export const updateSinglePlayerHiddenState = async (game: types.LiveGameSession,
             if (game.revealAnimationEndTime && now >= game.revealAnimationEndTime) {
                 game.animation = null;
                 game.revealAnimationEndTime = undefined;
-                // getGameResult는 비동기로 호출 (싱글플레이에서는 게임 종료 처리)
-                import('../gameModes.js').then(({ getGameResult }) => {
-                    getGameResult(game).catch(err => {
-                        console.error(`[SinglePlayer Hidden] Error in getGameResult for game ${game.id}:`, err);
-                    });
-                });
+                game.gameStatus = 'scoring'; // 계가 상태로 변경
+                // 계가 진행 (중복 호출 방지를 위해 상태 변경 후 호출)
+                const { getGameResult } = await import('../gameModes.js');
+                await getGameResult(game);
             }
             break;
     }

@@ -473,7 +473,34 @@ export async function makeGoAiBotMove(
         selectedMove = scoredMoves[0].move;
     }
 
-    // 4. 선택된 수 실행 전에 히든 돌 위에 착점하는지 확인
+    // 4. 선택된 수 실행 전에 유저의 돌 위에 착점하는지 확인 (싱글플레이 모드)
+    if (game.isSinglePlayer || game.gameCategory === 'tower') {
+        const { x, y } = selectedMove;
+        const stoneAtTarget = game.boardState[y]?.[x];
+        
+        // 유저의 돌 위에 착점을 시도하는 경우 차단
+        if (stoneAtTarget === opponentPlayerEnum) {
+            console.error(`[GoAiBot] CRITICAL: AI attempted to place stone on user's stone at (${x}, ${y}), gameId=${game.id}`);
+            
+            // 유효한 수 목록에서 유저의 돌이 있는 위치 제외
+            const filteredMoves = scoredMoves.filter(m => {
+                const stoneAtMove = game.boardState[m.move.y]?.[m.move.x];
+                return stoneAtMove !== opponentPlayerEnum;
+            });
+            
+            if (filteredMoves.length === 0) {
+                console.error('[GoAiBot] No valid moves after filtering user stones. AI resigns.');
+                await summaryService.endGame(game, opponentPlayerEnum, 'resign');
+                return;
+            }
+            
+            // 필터링된 수 중에서 선택
+            selectedMove = filteredMoves[0].move;
+            console.log(`[GoAiBot] Replaced invalid move with valid move at (${selectedMove.x}, ${selectedMove.y})`);
+        }
+    }
+    
+    // 4-1. 히든 돌 위에 착점하는지 확인 (히든바둑 모드)
     const isHiddenMode = game.mode === types.GameMode.Hidden || 
                         (game.mode === types.GameMode.Mix && game.settings.mixedModes?.includes(types.GameMode.Hidden));
     
@@ -600,19 +627,48 @@ export async function makeGoAiBotMove(
     );
 
     if (!result.isValid) {
-        // 유효하지 않은 수를 선택한 경우, 가장 좋은 수로 대체
-        const bestMove = scoredMoves[0].move;
-        const fallbackResult = processMove(
-            game.boardState,
-            { ...bestMove, player: aiPlayerEnum },
-            game.koInfo,
-            game.moveHistory.length
-        );
-        if (fallbackResult.isValid) {
-            selectedMove = bestMove;
-            result = fallbackResult;
+        // 유효하지 않은 수를 선택한 경우, 유효한 수 중에서 대체
+        // 유저의 돌 위에 두는 수는 제외
+        const validFallbackMoves = scoredMoves.filter(m => {
+            // 유저의 돌이 있는 위치 제외
+            if (game.isSinglePlayer || game.gameCategory === 'tower') {
+                const stoneAtMove = game.boardState[m.move.y]?.[m.move.x];
+                if (stoneAtMove === opponentPlayerEnum) {
+                    return false;
+                }
+            }
+            
+            // processMove로 유효성 검증
+            const testResult = processMove(
+                game.boardState,
+                { ...m.move, player: aiPlayerEnum },
+                game.koInfo,
+                game.moveHistory.length,
+                {
+                    ignoreSuicide: false,
+                    isSinglePlayer: game.isSinglePlayer || game.gameCategory === 'tower',
+                    opponentPlayer: (game.isSinglePlayer || game.gameCategory === 'tower') ? opponentPlayerEnum : undefined
+                }
+            );
+            return testResult.isValid;
+        });
+        
+        if (validFallbackMoves.length > 0) {
+            selectedMove = validFallbackMoves[0].move;
+            result = processMove(
+                game.boardState,
+                { ...selectedMove, player: aiPlayerEnum },
+                game.koInfo,
+                game.moveHistory.length,
+                {
+                    ignoreSuicide: false,
+                    isSinglePlayer: game.isSinglePlayer || game.gameCategory === 'tower',
+                    opponentPlayer: (game.isSinglePlayer || game.gameCategory === 'tower') ? opponentPlayerEnum : undefined
+                }
+            );
+            console.log(`[GoAiBot] Replaced invalid move with fallback move at (${selectedMove.x}, ${selectedMove.y})`);
         } else {
-            console.warn('[GoAiBot] Selected move and fallback move invalid. AI resigns.');
+            console.warn('[GoAiBot] No valid fallback moves available. AI resigns.');
             await summaryService.endGame(game, opponentPlayerEnum, 'resign');
             return;
         }
