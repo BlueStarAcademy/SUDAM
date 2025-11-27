@@ -407,11 +407,11 @@ const WaitingRoom: React.FC<WaitingRoomComponentProps> = ({ mode }) => {
                           <AiChallengePanel mode={mode} onOpenModal={() => setIsAiChallengeModalOpen(true)} />
                       </div>
 
-                      <div className="h-[350px] min-h-0">
+                      <div className="h-[500px] min-h-0">
                           <GameList games={ongoingGames} onAction={handlers.handleAction} currentUser={currentUserWithStatus} />
                       </div>
                       {/* 채팅창과 랭킹전 패널을 나란히 배치 */}
-                      <div className="flex-1 flex flex-row gap-4 min-h-0">
+                      <div className="h-[200px] flex flex-row gap-4 min-h-0">
                           <div className="flex-1 flex flex-col bg-panel border border-color rounded-lg shadow-lg min-h-0">
                               <ChatWindow messages={chatMessages} mode={chatChannel} onAction={handlers.handleAction} locationPrefix={locationPrefix} onViewUser={handlers.openViewingUser} />
                           </div>
