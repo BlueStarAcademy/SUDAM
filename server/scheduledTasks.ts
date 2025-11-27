@@ -1096,6 +1096,98 @@ export async function recoverAllBotScores(forceDays?: number): Promise<void> {
     console.log(`[OneTimeRecover] Recovered bot scores for ${updatedCount} users. Total bots recovered: ${totalBotsRecovered}`);
 }
 
+// 1회성: 어제 점수가 0으로 되어있는 봇 점수를 즉시 수정하는 함수
+export async function fixBotYesterdayScores(): Promise<void> {
+    console.log(`[OneTimeFix] Fixing bot yesterday scores for all users...`);
+    const allUsers = await db.getAllUsers();
+    const now = Date.now();
+    const todayStart = getStartOfDayKST(now);
+    let updatedCount = 0;
+    let totalBotsFixed = 0;
+    
+    for (const user of allUsers) {
+        if (!user.weeklyCompetitors || user.weeklyCompetitors.length === 0) {
+            continue;
+        }
+        
+        if (!user.weeklyCompetitorsBotScores) {
+            continue;
+        }
+        
+        const updatedUser = JSON.parse(JSON.stringify(user));
+        let hasChanges = false;
+        
+        for (const competitor of updatedUser.weeklyCompetitors) {
+            if (!competitor.id.startsWith('bot-')) {
+                continue;
+            }
+            
+            const botId = competitor.id;
+            const botScoreData = updatedUser.weeklyCompetitorsBotScores[botId];
+            
+            if (!botScoreData) {
+                continue;
+            }
+            
+            const currentScore = botScoreData.score || 0;
+            const yesterdayScore = botScoreData.yesterdayScore ?? 0;
+            const lastUpdate = botScoreData.lastUpdate || 0;
+            const lastUpdateDay = getStartOfDayKST(lastUpdate);
+            
+            // 어제 점수가 0이고 현재 점수가 0보다 크면 수정 필요
+            // 또는 어제 점수가 없고 현재 점수가 있으면 수정 필요
+            if (currentScore > 0 && (yesterdayScore === 0 || yesterdayScore === undefined)) {
+                // 경쟁상대 업데이트일부터 어제까지의 점수를 계산하여 어제 점수로 설정
+                const competitorsUpdateDay = user.lastWeeklyCompetitorsUpdate 
+                    ? getStartOfDayKST(user.lastWeeklyCompetitorsUpdate)
+                    : todayStart;
+                
+                // 어제 날짜 시작 타임스탬프
+                const yesterdayStart = todayStart - (24 * 60 * 60 * 1000);
+                
+                // 경쟁상대 업데이트일부터 어제까지의 점수 계산
+                let yesterdayTotal = 0;
+                for (let dayOffset = 0; ; dayOffset++) {
+                    const targetDate = new Date(competitorsUpdateDay + (dayOffset * 24 * 60 * 60 * 1000));
+                    const targetDayStart = getStartOfDayKST(targetDate.getTime());
+                    
+                    if (targetDayStart >= todayStart) {
+                        break; // 오늘 이후는 제외
+                    }
+                    
+                    const dailyGain = getBotScoreForDate(botId, targetDate);
+                    yesterdayTotal += dailyGain;
+                }
+                
+                // 현재 점수에서 오늘 점수를 빼면 어제 점수 (더 정확한 방법)
+                const todayGain = getBotScoreForDate(botId, new Date(todayStart));
+                const calculatedYesterdayScore = Math.max(0, currentScore - todayGain);
+                
+                // 계산된 어제 점수와 누적 어제 점수 중 더 정확한 값 사용
+                // (현재 점수가 정확하다면 currentScore - todayGain이 더 정확할 수 있음)
+                const fixedYesterdayScore = Math.max(yesterdayTotal, calculatedYesterdayScore);
+                
+                updatedUser.weeklyCompetitorsBotScores[botId] = {
+                    score: currentScore,
+                    lastUpdate: lastUpdate || now,
+                    yesterdayScore: fixedYesterdayScore
+                };
+                
+                hasChanges = true;
+                totalBotsFixed++;
+                console.log(`[OneTimeFix] Fixed bot ${botId} (${competitor.nickname || 'Unknown'}) for user ${user.nickname}: yesterdayScore ${yesterdayScore} -> ${fixedYesterdayScore} (currentScore: ${currentScore}, calculated: ${calculatedYesterdayScore}, accumulated: ${yesterdayTotal})`);
+            }
+        }
+        
+        if (hasChanges) {
+            await db.updateUser(updatedUser);
+            updatedCount++;
+        }
+    }
+    
+    console.log(`[OneTimeFix] Fixed yesterday scores for ${updatedCount} users. Total bots fixed: ${totalBotsFixed}`);
+}
+
 // 매일 0시에 랭킹 정산 (전략바둑, 놀이바둑, 챔피언십)
 export async function processDailyRankings(): Promise<void> {
     const now = Date.now();
@@ -1206,22 +1298,14 @@ export async function processDailyRankings(): Promise<void> {
         let updatedUser = JSON.parse(JSON.stringify(user));
         
         // 봇의 리그 점수 업데이트 (매일 0시에 실행, 월요일 0시도 포함)
-        // 월요일 0시에는 processWeeklyResetAndRematch에서 이미 봇 점수를 리셋하고 초기 점수를 추가했으므로,
-        // 여기서는 추가로 오늘 날짜의 점수를 더 추가함
-        // forceUpdate=false로 호출하여 오늘 이미 업데이트된 경우 스킵
-        // 단, 봇 점수가 모두 0이면 강제로 업데이트 (배포 사이트에서 봇 점수가 0으로 남아있는 경우 대비)
+        // 매일 0시에 모든 봇 점수를 1~50점씩 추가하여 업데이트
+        // 어제 점수(yesterdayScore)를 올바르게 저장하여 변화도 계산이 정확하도록 함
         // 모든 유저의 봇 점수를 업데이트하여 다른 유저가 볼 때도 정확한 점수가 표시되도록 함
         if (updatedUser.weeklyCompetitors && updatedUser.weeklyCompetitors.length > 0) {
-            // 봇 점수가 모두 0인지 확인
-            const hasZeroBotScores = updatedUser.weeklyCompetitors.some(c => 
-                c.id.startsWith('bot-') && 
-                (!updatedUser.weeklyCompetitorsBotScores?.[c.id] || 
-                 updatedUser.weeklyCompetitorsBotScores[c.id].score === 0)
-            );
-            
             const userBeforeUpdate = JSON.stringify(updatedUser.weeklyCompetitorsBotScores || {});
-            // 봇 점수가 모두 0이면 강제 업데이트
-            updatedUser = await updateBotLeagueScores(updatedUser, hasZeroBotScores);
+            // 매일 0시에 모든 봇 점수를 업데이트 (forceUpdate=false로 호출하여 오늘 이미 업데이트된 경우만 스킵)
+            // updateBotLeagueScores 함수가 어제 점수를 올바르게 저장하고 오늘 점수를 추가함
+            updatedUser = await updateBotLeagueScores(updatedUser, false);
             const userAfterUpdate = JSON.stringify(updatedUser.weeklyCompetitorsBotScores || {});
             if (userBeforeUpdate !== userAfterUpdate) {
                 botsUpdated++;

@@ -243,7 +243,8 @@ const BlacksmithModal: React.FC<BlacksmithModalProps> = ({ onClose, isTopmost, s
                 currentUser={currentUserWithStatus} 
                 onAction={handlers.handleAction} 
                 enhancementOutcome={enhancementOutcome} 
-                onOutcomeConfirm={handlers.clearEnhancementOutcome} 
+                onOutcomeConfirm={handlers.clearEnhancementOutcome}
+                onStartEnhancement={handlers.startEnhancement}
             />;
             case 'combine': return <CombinationView 
                 items={combinationItems}

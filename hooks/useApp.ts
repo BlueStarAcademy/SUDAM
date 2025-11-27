@@ -1530,9 +1530,10 @@ export const useApp = () => {
                 
                 const enhancementOutcome = result.clientResponse?.enhancementOutcome || result.enhancementOutcome;
                 if (enhancementOutcome) {
-                    const { message, success, itemBefore, itemAfter } = enhancementOutcome;
+                    const { message, success, itemBefore, itemAfter, xpGained } = enhancementOutcome;
                     setEnhancementResult({ message, success });
-                    setEnhancementOutcome({ message, success, itemBefore, itemAfter });
+                    // 서버 응답이 오면 롤링 애니메이션을 종료하고 실제 결과를 표시
+                    setEnhancementOutcome({ message, success, itemBefore, itemAfter, xpGained, isRolling: false });
                     setIsEnhancementResultModalOpen(true);
                     const enhancementAnimationTarget = result.clientResponse?.enhancementAnimationTarget || result.enhancementAnimationTarget;
                     if (enhancementAnimationTarget) {
@@ -3385,6 +3386,24 @@ export const useApp = () => {
     const closeEnhancementModal = useCallback(() => {
         setIsEnhancementResultModalOpen(false);
         setEnhancementOutcome(null);
+    }, []);
+
+    const startEnhancement = useCallback((item: InventoryItem) => {
+        // 제련 시작 시 즉시 모달을 열고 롤링 애니메이션을 위한 임시 결과 설정
+        const tempItemAfter = JSON.parse(JSON.stringify(item));
+        // 임시 결과: 성공/실패는 아직 모르므로 일단 성공으로 가정하고 롤링 애니메이션 표시
+        // 별이 하나 증가한 상태로 표시 (실제 결과는 서버 응답에서 업데이트됨)
+        if (tempItemAfter.stars < 10) {
+            tempItemAfter.stars = tempItemAfter.stars + 1;
+        }
+        setEnhancementOutcome({
+            message: '제련 중...',
+            success: true, // 임시로 성공으로 설정 (실제 결과는 서버 응답에서 업데이트됨)
+            itemBefore: JSON.parse(JSON.stringify(item)),
+            itemAfter: tempItemAfter,
+            isRolling: true, // 롤링 애니메이션 상태
+        });
+        setIsEnhancementResultModalOpen(true);
     }, []);
 
         const closeClaimAllSummary = useCallback(() => {

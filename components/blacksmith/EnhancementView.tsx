@@ -227,9 +227,10 @@ interface EnhancementViewProps {
     onAction: (action: ServerAction) => void;
     enhancementOutcome: { message: string; success: boolean; itemBefore: InventoryItem; itemAfter: InventoryItem; } | null;
     onOutcomeConfirm: () => void;
+    onStartEnhancement?: (item: InventoryItem) => void;
 }
 
-const EnhancementView: React.FC<EnhancementViewProps> = ({ selectedItem, currentUser, onAction, enhancementOutcome, onOutcomeConfirm }) => {
+const EnhancementView: React.FC<EnhancementViewProps> = ({ selectedItem, currentUser, onAction, enhancementOutcome, onOutcomeConfirm, onStartEnhancement }) => {
     const isMobile = useIsMobile();
     const [isEnhancing, setIsEnhancing] = useState(false);
     const [enhancementProgress, setEnhancementProgress] = useState(0);
@@ -406,12 +407,17 @@ useEffect(() => {
     const failBonus = (selectedItem.enhancementFails || 0) * failBonusRate;
 
     const handleEnhanceClick = () => {
-        if (!canEnhance || isEnhancing) return;
+        if (!canEnhance || isEnhancing || !selectedItem) return;
 
         setIsEnhancing(true);
         setEnhancementProgress(0);
 
         clearEnhancementTimers();
+
+        // 제련 시작 시 즉시 모달을 열고 롤링 애니메이션 시작
+        if (onStartEnhancement) {
+            onStartEnhancement(selectedItem);
+        }
 
         const duration = 2000;
         const targetItemId = selectedItem.id;

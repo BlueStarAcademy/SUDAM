@@ -372,6 +372,8 @@ export type EnhancementResult = {
   success: boolean;
   itemBefore: InventoryItem;
   itemAfter: InventoryItem;
+  isRolling?: boolean; // 롤링 애니메이션 상태 (제련 진행 중)
+  xpGained?: number;
 };
 
 export type UserWithStatus = User & UserStatusInfo;

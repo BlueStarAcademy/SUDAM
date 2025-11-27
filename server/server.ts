@@ -2122,12 +2122,16 @@ const startServer = async () => {
         try {
             console.log('[Admin] ========== 봇 점수 복구 시작 ==========');
             
-            // recoverAllBotScores 함수 사용 (일관성 유지)
-            const { recoverAllBotScores } = await import('./scheduledTasks.js');
+            const { updateBotLeagueScores } = await import('./scheduledTasks.js');
+            const { listUsers } = await import('./prisma/userService.js');
             
-            // forceDays를 지정하지 않으면 점수가 0인 봇만 복구
-            // 점수가 0이면 경쟁상대 업데이트일부터 오늘까지 자동 계산
-            await recoverAllBotScores();
+            const allUsers = await listUsers({ includeEquipment: false, includeInventory: false });
+            for (const user of allUsers) {
+                if (user.weeklyCompetitors && user.weeklyCompetitors.length > 0) {
+                    const updatedUser = await updateBotLeagueScores(user, true);
+                    await db.updateUser(updatedUser);
+                }
+            }
             
             console.log(`[Admin] ========== 봇 점수 복구 완료 ==========`);
             res.status(200).json({ success: true, message: '봇 점수 복구 완료. 점수가 0이었던 모든 봇의 점수가 복구되었습니다.' });
