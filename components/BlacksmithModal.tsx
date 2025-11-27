@@ -7,6 +7,7 @@ import ConversionView from './blacksmith/ConversionView.js';
 import RefinementView from './blacksmith/RefinementView.js';
 import InventoryGrid from './blacksmith/InventoryGrid.js';
 import DisassemblyResultModal from './DisassemblyResultModal.js'; // New import
+import RefinementResultModal from './blacksmith/RefinementResultModal.js';
 import { useAppContext } from '../hooks/useAppContext.js';
 import { BLACKSMITH_MAX_LEVEL, BLACKSMITH_COMBINABLE_GRADES_BY_LEVEL, BLACKSMITH_COMBINATION_GREAT_SUCCESS_RATES, BLACKSMITH_DISASSEMBLY_JACKPOT_RATES, BLACKSMITH_XP_REQUIRED_FOR_LEVEL_UP } from '../constants/rules';
 import { InventoryItem, EnhancementResult, ServerAction } from '../types.js';
@@ -266,7 +267,7 @@ const BlacksmithModal: React.FC<BlacksmithModalProps> = ({ onClose, isTopmost, s
                 selectedItem={selectedItem} 
                 currentUser={currentUserWithStatus} 
                 onAction={handlers.handleAction}
-                refinementResult={modals.refinementResult || null}
+                refinementResult={null}
                 onResultConfirm={handlers.clearRefinementResult}
             />;
             default: return null;
@@ -500,6 +501,12 @@ const BlacksmithModal: React.FC<BlacksmithModalProps> = ({ onClose, isTopmost, s
                 isOpen={!!modals.disassemblyResult}
                 onClose={handlers.closeDisassemblyResult}
                 result={modals.disassemblyResult}
+            />
+
+            <RefinementResultModal
+                result={modals.refinementResult}
+                onClose={handlers.clearRefinementResult}
+                isTopmost={isTopmost}
             />
         </>
     );

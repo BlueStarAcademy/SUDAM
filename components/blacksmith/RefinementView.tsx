@@ -626,49 +626,6 @@ const RefinementView: React.FC<RefinementViewProps> = ({ selectedItem, currentUs
                     )}
                 </div>
             </div>
-            
-            {/* 제련 결과 모달 */}
-            {refinementResult && (
-                <div className="absolute inset-0 bg-gray-900/80 rounded-lg flex flex-col items-center justify-center z-20 animate-fade-in p-4">
-                    <div className="text-6xl mb-4 animate-bounce">🎉</div>
-                    <h2 className="text-3xl font-bold text-green-400">제련 완료!</h2>
-                    <p className="text-gray-300 mt-2 text-center">{refinementResult.message}</p>
-                    {refinementResult.success && (
-                        <div className="bg-gray-800/50 p-3 rounded-lg mt-4 w-full max-w-sm text-xs space-y-1">
-                            <h4 className="font-bold text-center text-yellow-300 mb-2">변경 사항</h4>
-                            {refinementResult.itemBefore.options && refinementResult.itemAfter.options && (
-                                <>
-                                    {refinementResult.itemBefore.options.main.type !== refinementResult.itemAfter.options.main.type && (
-                                        <div className="flex justify-between">
-                                            <span>주옵션:</span>
-                                            <span className="truncate">{refinementResult.itemBefore.options.main.display} → {refinementResult.itemAfter.options.main.display}</span>
-                                        </div>
-                                    )}
-                                    {refinementResult.itemBefore.options.combatSubs[0]?.type !== refinementResult.itemAfter.options.combatSubs[0]?.type && (
-                                        <div className="flex justify-between text-green-300">
-                                            <span>부옵션 변경:</span>
-                                            <span className="truncate">{refinementResult.itemBefore.options.combatSubs[0]?.display} → {refinementResult.itemAfter.options.combatSubs[0]?.display}</span>
-                                        </div>
-                                    )}
-                                    {refinementResult.itemBefore.options.specialSubs[0]?.type !== refinementResult.itemAfter.options.specialSubs[0]?.type && (
-                                        <div className="flex justify-between text-green-300">
-                                            <span>특수옵션 변경:</span>
-                                            <span className="truncate">{refinementResult.itemBefore.options.specialSubs[0]?.display} → {refinementResult.itemAfter.options.specialSubs[0]?.display}</span>
-                                        </div>
-                                    )}
-                                    {refinementResult.itemBefore.options.mythicSubs[0]?.type !== refinementResult.itemAfter.options.mythicSubs[0]?.type && (
-                                        <div className="flex justify-between text-green-300">
-                                            <span>신화옵션 변경:</span>
-                                            <span className="truncate">{refinementResult.itemBefore.options.mythicSubs[0]?.display} → {refinementResult.itemAfter.options.mythicSubs[0]?.display}</span>
-                                        </div>
-                                    )}
-                                </>
-                            )}
-                        </div>
-                    )}
-                    <Button onClick={onResultConfirm} colorScheme="green" className="mt-6 w-full max-w-sm">확인</Button>
-                </div>
-            )}
         </div>
     );
 };
