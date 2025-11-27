@@ -18,7 +18,7 @@ import { Player } from '../types/index.js';
 import { processGameSummary, endGame } from './summaryService.js';
 // FIX: Correctly import from the placeholder module.
 import * as aiPlayer from './aiPlayer.js';
-import { processRankingRewards, processWeeklyLeagueUpdates, updateWeeklyCompetitorsIfNeeded, processWeeklyTournamentReset, resetAllTournamentScores, resetAllUsersLeagueScoresForNewWeek, processDailyRankings, processDailyQuestReset, resetAllChampionshipScoresToZero, processTowerRankingRewards, fixBotYesterdayScores } from './scheduledTasks.js';
+import { processRankingRewards, processWeeklyLeagueUpdates, updateWeeklyCompetitorsIfNeeded, processWeeklyTournamentReset, resetAllTournamentScores, resetAllUsersLeagueScoresForNewWeek, processDailyRankings, processDailyQuestReset, resetAllChampionshipScoresToZero, processTowerRankingRewards } from './scheduledTasks.js';
 import * as tournamentService from './tournamentService.js';
 import { AVATAR_POOL, BOT_NAMES, PLAYFUL_GAME_MODES, SPECIAL_GAME_MODES, SINGLE_PLAYER_MISSIONS, GRADE_LEVEL_REQUIREMENTS, NICKNAME_MAX_LENGTH, NICKNAME_MIN_LENGTH } from '../constants';
 import { calculateTotalStats } from './statService.js';
@@ -220,6 +220,7 @@ const startServer = async () => {
     
     // --- 1회성: 어제 점수가 0으로 되어있는 봇 점수 수정 (즉시 실행) ---
     console.log(`[Server Startup] Fixing bot yesterday scores...`);
+    const { fixBotYesterdayScores } = await import('./scheduledTasks.js');
     await fixBotYesterdayScores();
     
     // --- 봇 점수 관련 로직은 이미 개선되어 서버 시작 시 실행 불필요 ---
