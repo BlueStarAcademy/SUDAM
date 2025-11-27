@@ -916,9 +916,10 @@ const startServer = async () => {
     app.get('/api/ranking/:type', async (req, res) => {
         try {
             const { type } = req.params;
-            const { limit, offset } = req.query;
+            const { limit, offset, season } = req.query;
             const limitNum = limit ? parseInt(limit as string, 10) : undefined;
             const offsetNum = offset ? parseInt(offset as string, 10) : 0;
+            const isSeason = season === 'true' || season === '1';
 
             // 타임아웃 설정 (30초)
             const timeoutPromise = new Promise((_, reject) => {
@@ -945,24 +946,40 @@ const startServer = async () => {
             }
 
             let rankings: any[] = [];
-            switch (type) {
-                case 'strategic':
-                    rankings = cache.strategic;
-                    break;
-                case 'playful':
-                    rankings = cache.playful;
-                    break;
-                case 'championship':
-                    rankings = cache.championship;
-                    break;
-                case 'combat':
-                    rankings = cache.combat;
-                    break;
-                case 'manner':
-                    rankings = cache.manner;
-                    break;
-                default:
-                    return res.status(400).json({ error: 'Invalid ranking type' });
+            // 시즌별 티어 랭킹 요청인 경우
+            if (isSeason) {
+                switch (type) {
+                    case 'strategic':
+                        rankings = cache.strategicSeason || [];
+                        break;
+                    case 'playful':
+                        rankings = cache.playfulSeason || [];
+                        break;
+                    default:
+                        // 시즌 랭킹은 strategic/playful만 지원
+                        return res.status(400).json({ error: 'Season ranking only available for strategic/playful' });
+                }
+            } else {
+                // 누적 랭킹 (기본)
+                switch (type) {
+                    case 'strategic':
+                        rankings = cache.strategic;
+                        break;
+                    case 'playful':
+                        rankings = cache.playful;
+                        break;
+                    case 'championship':
+                        rankings = cache.championship;
+                        break;
+                    case 'combat':
+                        rankings = cache.combat;
+                        break;
+                    case 'manner':
+                        rankings = cache.manner;
+                        break;
+                    default:
+                        return res.status(400).json({ error: 'Invalid ranking type' });
+                }
             }
 
             // 페이지네이션 적용
@@ -970,10 +987,11 @@ const startServer = async () => {
                 rankings = rankings.slice(offsetNum, offsetNum + limitNum);
             }
 
+            const cacheKey = isSeason ? `${type}Season` : type;
             res.json({
                 type,
                 rankings,
-                total: Array.isArray(cache[type as keyof typeof cache]) ? cache[type as keyof typeof cache].length : 0,
+                total: Array.isArray(cache[cacheKey as keyof typeof cache]) ? cache[cacheKey as keyof typeof cache].length : 0,
                 cached: Date.now() - cache.timestamp < 60000 // 1분 이내면 캐시된 데이터
             });
         } catch (error: any) {

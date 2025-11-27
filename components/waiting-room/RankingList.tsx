@@ -39,7 +39,8 @@ const getCurrentSeasonName = () => {
 
 const RankingList: React.FC<RankingListProps> = ({ currentUser, mode, onViewUser, onShowTierInfo, onShowPastRankings, lobbyType }) => {
     const rankingType = lobbyType === 'strategic' ? 'strategic' : 'playful';
-    const { rankings, loading, error, total } = useRanking(rankingType);
+    // 대기실에서는 시즌별 티어 랭킹 점수 사용 (매 시즌 시작일에 1200점 부여, 랭킹전을 통해 얻거나 잃은 점수)
+    const { rankings, loading, error, total } = useRanking(rankingType, undefined, undefined, true);
     
     const allRankedUsers = useMemo(() => {
         return rankings.map(entry => ({

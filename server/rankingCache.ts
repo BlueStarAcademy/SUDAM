@@ -21,6 +21,8 @@ interface RankingCache {
     championship: RankingEntry[];
     combat: RankingEntry[];
     manner: RankingEntry[];
+    strategicSeason: RankingEntry[]; // 시즌별 티어 랭킹
+    playfulSeason: RankingEntry[]; // 시즌별 티어 랭킹
     timestamp: number;
 }
 
@@ -51,13 +53,15 @@ export async function buildRankingCache(): Promise<RankingCache> {
                 championship: [],
                 combat: [],
                 manner: [],
+                strategicSeason: [],
+                playfulSeason: [],
                 timestamp: now
             };
         }
         
         // 병렬로 여러 랭킹 계산 (combat은 별도 처리)
         // 각 계산에 개별 에러 핸들링 추가 (하나 실패해도 다른 것들은 성공)
-        const [strategicRankings, playfulRankings, championshipRankings, mannerRankings, combatRankings] = await Promise.all([
+        const [strategicRankings, playfulRankings, championshipRankings, mannerRankings, combatRankings, strategicSeasonRankings, playfulSeasonRankings] = await Promise.all([
             Promise.resolve(calculateRanking(allUsers, SPECIAL_GAME_MODES, 'strategic', 'standard')).catch((err) => {
                 console.error('[RankingCache] Error calculating strategic rankings:', err);
                 return [];
@@ -78,6 +82,14 @@ export async function buildRankingCache(): Promise<RankingCache> {
                 // combat ranking 실패 시 빈 배열 반환 (서버 크래시 방지)
                 console.error('[RankingCache] Error calculating combat rankings:', error);
                 return [];
+            }),
+            Promise.resolve(calculateSeasonRanking(allUsers, SPECIAL_GAME_MODES, 'strategic')).catch((err) => {
+                console.error('[RankingCache] Error calculating strategic season rankings:', err);
+                return [];
+            }),
+            Promise.resolve(calculateSeasonRanking(allUsers, PLAYFUL_GAME_MODES, 'playful')).catch((err) => {
+                console.error('[RankingCache] Error calculating playful season rankings:', err);
+                return [];
             })
         ]);
         
@@ -87,6 +99,8 @@ export async function buildRankingCache(): Promise<RankingCache> {
             championship: championshipRankings || [],
             combat: combatRankings || [],
             manner: mannerRankings || [],
+            strategicSeason: strategicSeasonRankings || [],
+            playfulSeason: playfulSeasonRankings || [],
             timestamp: now
         };
         
@@ -248,7 +262,7 @@ async function calculateCombatRankings(allUsers: any[]): Promise<RankingEntry[]>
     return rankings.map((entry, index) => ({ ...entry, rank: index + 1 }));
 }
 
-// 특정 타입의 랭킹 계산
+// 특정 타입의 랭킹 계산 (누적 랭킹 점수 사용)
 function calculateRanking(
     allUsers: any[],
     gameModes: any[],
@@ -288,6 +302,67 @@ function calculateRanking(
             borderId: user.borderId,
             rank: 0, // rank는 나중에 정렬 후 설정됨
             score: score, // 1200에서의 차이값 그대로 사용 (기본점수 제외)
+            totalGames,
+            wins,
+            losses,
+            league: user.league
+        });
+    }
+    
+    // 정렬 후 rank 설정
+    rankings.sort((a, b) => b.score - a.score);
+    return rankings.map((entry, index) => ({
+        ...entry,
+        rank: index + 1 // 정렬 후 rank 설정
+    }));
+}
+
+// 시즌별 티어 랭킹 점수 계산 (매 시즌 시작일에 1200점 부여, 랭킹전을 통해 얻거나 잃은 점수)
+function calculateSeasonRanking(
+    allUsers: any[],
+    gameModes: any[],
+    mode: 'strategic' | 'playful'
+): RankingEntry[] {
+    const rankings: RankingEntry[] = [];
+    
+    for (const user of allUsers) {
+        if (!user || !user.id) continue;
+        
+        // 한 번만 계산
+        const totalGames = calculateTotalGames(user, gameModes);
+        // 10판 이상 PVP 필수
+        if (totalGames < 10) continue;
+        
+        let wins = 0;
+        let losses = 0;
+        let totalScore = 0;
+        let modeCount = 0;
+        
+        // 해당 모드들의 rankingScore 평균 계산
+        for (const gameMode of gameModes) {
+            const gameStats = user.stats?.[gameMode.mode];
+            if (gameStats) {
+                wins += gameStats.wins || 0;
+                losses += gameStats.losses || 0;
+                // rankingScore는 매 시즌 시작일에 1200점으로 초기화되고 랭킹전을 통해 변동
+                if (gameStats.rankingScore !== undefined) {
+                    totalScore += gameStats.rankingScore;
+                    modeCount++;
+                }
+            }
+        }
+        
+        // 평균 점수 계산 (모드가 없으면 제외)
+        if (modeCount === 0) continue;
+        const avgScore = Math.round(totalScore / modeCount);
+        
+        rankings.push({
+            id: user.id,
+            nickname: user.nickname || user.username,
+            avatarId: user.avatarId,
+            borderId: user.borderId,
+            rank: 0, // rank는 나중에 정렬 후 설정됨
+            score: avgScore, // 시즌별 티어 랭킹 점수 (1200점 기준)
             totalGames,
             wins,
             losses,

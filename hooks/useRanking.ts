@@ -20,7 +20,7 @@ export interface RankingResponse {
     cached: boolean;
 }
 
-export function useRanking(type: 'strategic' | 'playful' | 'championship' | 'combat' | 'manner', limit?: number, offset?: number) {
+export function useRanking(type: 'strategic' | 'playful' | 'championship' | 'combat' | 'manner', limit?: number, offset?: number, season?: boolean) {
     const [rankings, setRankings] = useState<RankingEntry[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -38,6 +38,7 @@ export function useRanking(type: 'strategic' | 'playful' | 'championship' | 'com
                 const params = new URLSearchParams();
                 if (limit !== undefined) params.append('limit', limit.toString());
                 if (offset !== undefined) params.append('offset', offset.toString());
+                if (season === true) params.append('season', 'true');
 
                 const response = await fetch(`/api/ranking/${type}?${params.toString()}`);
                 if (!response.ok) {
@@ -65,7 +66,7 @@ export function useRanking(type: 'strategic' | 'playful' | 'championship' | 'com
         return () => {
             isCancelled = true;
         };
-    }, [type, limit, offset]);
+    }, [type, limit, offset, season]);
 
     return { rankings, loading, error, total, cached };
 }
