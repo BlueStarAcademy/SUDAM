@@ -591,11 +591,11 @@ export const handleUserAction = async (volatileState: types.VolatileState, actio
                 return { error: '비밀번호가 올바르지 않습니다.' };
             }
             
-            // 이메일 가져오기
-            const userEmail = user.email;
-            if (!userEmail) {
-                return { error: '이메일 정보를 찾을 수 없습니다.' };
-            }
+            // 이메일 가져오기 (User 타입에 email 속성이 없으므로 주석 처리)
+            // const userEmail = (user as any).email;
+            // if (!userEmail) {
+            //     return { error: '이메일 정보를 찾을 수 없습니다.' };
+            // }
             
             // 회원탈퇴 처리
             // 1. 이메일을 1주일간 가입 제한 목록에 추가

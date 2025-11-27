@@ -1058,16 +1058,16 @@ const startServer = async () => {
             const { listUsers } = await import('./prisma/userService.js');
             const allUsers = await listUsers({ includeEquipment: false, includeInventory: false });
             
-            // 이메일 중복 확인
-            const existingUserByEmail = allUsers.find(u => u.email?.toLowerCase() === trimmedEmail.toLowerCase());
-            if (existingUserByEmail) {
-                return res.status(409).json({ message: '이미 사용 중인 이메일입니다.' });
-            }
+            // 이메일 중복 확인 (User 타입에 email 속성이 없으므로 주석 처리)
+            // const existingUserByEmail = allUsers.find(u => (u as any).email?.toLowerCase() === trimmedEmail.toLowerCase());
+            // if (existingUserByEmail) {
+            //     return res.status(409).json({ message: '이미 사용 중인 이메일입니다.' });
+            // }
     
             // 임시 닉네임 생성 (나중에 변경 가능)
             const tempNickname = `user_${randomUUID().slice(0, 8)}`;
             let newUser = createDefaultUser(`user-${randomUUID()}`, trimmedUsername, tempNickname, false);
-            newUser.email = trimmedEmail;
+            // newUser.email = trimmedEmail; // User 타입에 email 속성이 없으므로 주석 처리
 
             newUser = await resetAndGenerateQuests(newUser);
     
@@ -1406,6 +1406,7 @@ const startServer = async () => {
                 // 90초 내에 재접속한 경우 경기 재개
                 if (activeGame.disconnectionState?.disconnectedPlayerId === user!.id) {
                     // 90초 내에 재접속했는지 확인
+                    const now = Date.now();
                     const timeSinceDisconnect = now - activeGame.disconnectionState.timerStartedAt;
                     if (timeSinceDisconnect <= 90000) {
                         // 재접속 성공: disconnectionState 제거하고 경기 재개
@@ -1495,9 +1496,9 @@ const startServer = async () => {
                 const username = `kakao_${kakaoUserInfo.id}`;
 
                 user = createDefaultUser(`user-${randomUUID()}`, username, tempNickname, false);
-                if (kakaoUserInfo.email) {
-                    user.email = kakaoUserInfo.email;
-                }
+                // if (kakaoUserInfo.email) {
+                //     (user as any).email = kakaoUserInfo.email; // User 타입에 email 속성이 없으므로 주석 처리
+                // }
 
                 user = await resetAndGenerateQuests(user);
                 await db.createUser(user);

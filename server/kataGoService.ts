@@ -554,7 +554,7 @@ maxVisits = ${KATAGO_MAX_VISITS}
 
 let kataGoManager: KataGoManager | null = null;
 
-const getKataGoManager = (): KataGoManager => {
+export const getKataGoManager = (): KataGoManager => {
     if (!kataGoManager) {
         kataGoManager = new KataGoManager();
     }
