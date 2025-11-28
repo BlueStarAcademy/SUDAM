@@ -9,8 +9,7 @@
     "restartPolicyType": "NEVER",
     "healthcheckPath": "/api/health",
     "healthcheckTimeout": 60,
-    "healthcheckInterval": 120,
-    "restartPolicyMaxRetries": 0
+    "healthcheckInterval": 120
   }
 }
 
