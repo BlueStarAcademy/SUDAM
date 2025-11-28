@@ -3,6 +3,15 @@
  * WebP를 지원하는 브라우저에서는 WebP를 우선적으로 사용합니다.
  */
 
+// Modernizr 타입 선언
+declare global {
+    interface Window {
+        Modernizr?: {
+            webp?: boolean;
+        };
+    }
+}
+
 /**
  * 이미지 경로를 WebP로 변환 (브라우저 지원 시)
  * @param path 원본 이미지 경로 (.png, .jpg 등)
@@ -45,4 +54,3 @@ export function toWebP(path: string): string {
 export function toOriginal(path: string): string {
   return path.replace(/\.webp$/i, '.png');
 }
-

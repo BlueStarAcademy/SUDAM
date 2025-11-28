@@ -274,7 +274,7 @@ export const updateSinglePlayerMissileState = async (game: types.LiveGameSession
                     if (game.isSinglePlayer && stoneAtTo === opponentPlayer) {
                         console.error(`[SinglePlayer Missile] CRITICAL: Attempted to place stone on AI stone at (${at.x}, ${at.y}) during animation completion, gameId=${game.id}`);
                         // AI 돌 위에 덮어씌우지 않음
-                        return;
+                        return false;
                     }
                     game.boardState[at.y][at.x] = playerWhoMoved;
                 }
@@ -555,7 +555,7 @@ export const updateSinglePlayerMissileState = async (game: types.LiveGameSession
                     if (game.isSinglePlayer && stoneAtTo === opponentPlayer) {
                         console.error(`[SinglePlayer Missile] CRITICAL: Attempted to place stone on AI stone at (${at.x}, ${at.y}) during animation completion, gameId=${game.id}`);
                         // AI 돌 위에 덮어씌우지 않음
-                        return;
+                        return false;
                     }
                     game.boardState[at.y][at.x] = playerWhoMoved;
                 }
@@ -629,7 +629,7 @@ export const updateSinglePlayerMissileState = async (game: types.LiveGameSession
                     if (game.isSinglePlayer && stoneAtTo === opponentPlayer) {
                         console.error(`[SinglePlayer Missile] CRITICAL: Attempted to place stone on AI stone at (${at.x}, ${at.y}) during animation completion, gameId=${game.id}`);
                         // AI 돌 위에 덮어씌우지 않음
-                        return;
+                        return false;
                     }
                     game.boardState[at.y][at.x] = playerWhoMoved;
                 }
@@ -884,7 +884,9 @@ export const handleSinglePlayerMissileAction = async (game: types.LiveGameSessio
             const preservedBaseStoneCaptures = game.baseStoneCaptures ? { ...game.baseStoneCaptures } : undefined;
             const preservedHiddenStoneCaptures = game.hiddenStoneCaptures ? { ...game.hiddenStoneCaptures } : undefined;
             
-            const { from, direction, boardState: clientBoardState, moveHistory: clientMoveHistory } = payload;
+            const { from, direction } = payload;
+            const clientBoardState = (payload as any).boardState;
+            const clientMoveHistory = (payload as any).moveHistory;
             if (!from || !direction) {
                 console.warn(`[SinglePlayer Missile] LAUNCH_MISSILE failed: missing from or direction, payload=${JSON.stringify(payload)}, gameId=${game.id}`);
                 return { error: "Invalid payload: missing from or direction." };
@@ -1012,7 +1014,7 @@ export const handleSinglePlayerMissileAction = async (game: types.LiveGameSessio
                                        ((game as any).baseStones_p2?.some((bs: types.Point) => bs.x === to.x && bs.y === to.y));
                     if (isBaseStone) {
                         if (!game.baseStoneCaptures) {
-                            game.baseStoneCaptures = { [types.Player.Black]: 0, [types.Player.White]: 0 };
+                            game.baseStoneCaptures = { [types.Player.Black]: 0, [types.Player.White]: 0, [types.Player.None]: 0 };
                         }
                         game.baseStoneCaptures[myPlayerEnum]++;
                         game.captures[myPlayerEnum] += 5;

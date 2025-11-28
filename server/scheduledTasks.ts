@@ -1721,8 +1721,8 @@ export async function processGuildWarMatching(force: boolean = false): Promise<v
             guild2Id: guild2.id,
             status: 'active',
             startTime: now,
-            endTime: null,
-            result: null,
+            endTime: undefined,
+            result: undefined,
             createdAt: now,
             updatedAt: now,
         };

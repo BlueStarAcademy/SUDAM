@@ -529,7 +529,9 @@ export const handleMissileAction = (game: types.LiveGameSession, action: types.S
                 return { error: "Animation already in progress." };
             }
             
-            const { from, direction, boardState: clientBoardState, moveHistory: clientMoveHistory } = payload;
+            const { from, direction } = payload;
+            const clientBoardState = (payload as any).boardState;
+            const clientMoveHistory = (payload as any).moveHistory;
             if (!from || !direction) {
                 console.warn(`[Missile Go] LAUNCH_MISSILE failed: missing from or direction, payload=${JSON.stringify(payload)}, gameId=${game.id}`);
                 return { error: "Invalid payload: missing from or direction." };

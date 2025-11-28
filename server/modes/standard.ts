@@ -792,7 +792,7 @@ const handleStandardAction = async (volatileState: types.VolatileState, game: ty
             await summaryService.processGameSummary(game);
 
             if (volatileState.userStatuses[user.id]) {
-                volatileState.userStatuses[user.id] = { status: 'waiting', mode: game.mode };
+                volatileState.userStatuses[user.id] = { status: types.UserStatus.Waiting, mode: game.mode };
             }
 
             return {};

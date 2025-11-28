@@ -122,6 +122,8 @@ export async function buildRankingCache(): Promise<RankingCache> {
             championship: [],
             combat: [],
             manner: [],
+            strategicSeason: [],
+            playfulSeason: [],
             timestamp: now
         };
     }

@@ -1,7 +1,7 @@
 
 
 // server/guildService.ts
-import { Guild, GuildMemberRole, GuildMission, GuildMissionProgressKey, ChatMessage, Mail, GuildResearchId } from '../types/index.js';
+import { Guild, GuildMemberRole, GuildMission, ChatMessage, Mail, GuildResearchId } from '../types/index.js';
 import * as db from './db.js';
 import { GUILD_MISSIONS_POOL, GUILD_XP_PER_LEVEL, GUILD_BOSSES } from '../constants/index.js';
 import { randomUUID } from 'crypto';
@@ -9,9 +9,10 @@ import { calculateGuildMissionXp } from '../utils/guildUtils.js';
 
 export const checkGuildLevelUp = (guild: Guild): boolean => {
     let leveledUp = false;
+    const guildXp = guild.xp ?? 0;
     let xpForNextLevel = GUILD_XP_PER_LEVEL(guild.level);
-    while (guild.xp >= xpForNextLevel) {
-        guild.xp -= xpForNextLevel;
+    while (guildXp >= xpForNextLevel) {
+        guild.xp = (guild.xp ?? 0) - xpForNextLevel;
         guild.level++;
         leveledUp = true;
         xpForNextLevel = GUILD_XP_PER_LEVEL(guild.level);
@@ -20,51 +21,57 @@ export const checkGuildLevelUp = (guild: Guild): boolean => {
 };
 
 export const addContribution = (guild: Guild, userId: string, amount: number) => {
-    const member = guild.members.find(m => m.userId === userId);
+    const member = guild.members?.find(m => m.userId === userId);
     if (member) {
-        member.contribution = (member.contribution || 0) + amount;
+        (member as any).contribution = ((member as any).contribution || 0) + amount;
         member.weeklyContribution = (member.weeklyContribution || 0) + amount;
     }
 };
 
 // FIX: Added optional guildsToUpdate parameter to prevent race conditions and allow passing the guilds object from the caller.
-export const updateGuildMissionProgress = async (guildId: string, missionType: GuildMissionProgressKey, amount: number | string, guildsToUpdate?: Record<string, Guild>) => {
+export const updateGuildMissionProgress = async (guildId: string, missionType: string, amount: number | string, guildsToUpdate?: Record<string, Guild>) => {
     // FIX: Add parentheses to clarify operator precedence between '??' and '||'.
     const guilds = (guildsToUpdate ?? (await db.getKV<Record<string, Guild>>('guilds'))) || {};
     const guild = guilds[guildId];
     if (!guild || !guild.weeklyMissions) return;
 
     let missionUpdated = false;
+    const missionProgress = (guild as any).missionProgress || {};
 
-    if (typeof guild.missionProgress[missionType] === 'number') {
-        (guild.missionProgress[missionType] as number) += (amount as number);
+    if (typeof missionProgress[missionType] === 'number') {
+        missionProgress[missionType] = (missionProgress[missionType] as number) + (amount as number);
+        (guild as any).missionProgress = missionProgress;
         missionUpdated = true;
-    } else if (Array.isArray(guild.missionProgress[missionType])) {
+    } else if (Array.isArray(missionProgress[missionType])) {
         // FIX: Cast to any[] to handle different types for 'amount' (string for userId, number for others)
-        if (!(guild.missionProgress[missionType] as any[]).includes(amount)) {
-            (guild.missionProgress[missionType] as any[]).push(amount);
+        if (!(missionProgress[missionType] as any[]).includes(amount)) {
+            (missionProgress[missionType] as any[]).push(amount);
+            (guild as any).missionProgress = missionProgress;
             missionUpdated = true;
         }
     }
 
     for (const mission of guild.weeklyMissions) {
         if (mission.progressKey === missionType) {
-            if (Array.isArray(guild.missionProgress[missionType])) {
+            if (Array.isArray(missionProgress[missionType])) {
                 // FIX: Cast to string[] to resolve type error
-                mission.progress = (guild.missionProgress[missionType] as string[]).length;
+                (mission as any).progress = (missionProgress[missionType] as string[]).length;
             } else {
                 // FIX: Cast to number to resolve type error
-                mission.progress = guild.missionProgress[missionType] as number;
+                (mission as any).progress = missionProgress[missionType] as number;
             }
             
             // Check for completion here!
-            if (!mission.isCompleted && mission.progress >= mission.target) {
-                mission.isCompleted = true;
+            const missionProgressValue = (mission as any).progress || 0;
+            const missionTarget = mission.target ?? 0;
+            if (!(mission as any).isCompleted && missionProgressValue >= missionTarget) {
+                (mission as any).isCompleted = true;
                 missionUpdated = true;
                 
                 // 미션 완료 시 길드 XP 자동 추가 (보상 받기 전에도)
-                const finalXp = calculateGuildMissionXp(mission.guildReward.guildXp, guild.level);
-                guild.xp += finalXp;
+                const guildRewardXp = mission.guildReward?.guildXp ?? 0;
+                const finalXp = calculateGuildMissionXp(guildRewardXp, guild.level);
+                guild.xp = (guild.xp ?? 0) + finalXp;
                 checkGuildLevelUp(guild);
                 
                 // Add a system message to guild chat to notify users to claim their reward
@@ -76,7 +83,7 @@ export const updateGuildMissionProgress = async (guildId: string, missionType: G
                     text: `주간 임무 [${mission.title}]을(를) 달성했습니다! 길드 활동 > 길드 미션 탭에서 보상을 수령하세요.`,
                     timestamp: Date.now(),
                 };
-                guild.chatHistory.push(message);
+                guild.chatHistory.push(message as any);
                 if (guild.chatHistory.length > 100) {
                     guild.chatHistory.shift();
                 }
@@ -96,8 +103,8 @@ export const resetWeeklyGuildMissions = (guild: Guild, now: number) => {
         progress: 0,
         isCompleted: false,
         claimedBy: [],
-    }));
-    guild.missionProgress = {
+    })) as any;
+    (guild as any).missionProgress = {
         checkIns: 0,
         strategicWins: 0,
         playfulWins: 0,
@@ -123,38 +130,44 @@ export const resetWeeklyGuildMissions = (guild: Guild, now: number) => {
         const nextBoss = GUILD_BOSSES[nextBossIndex];
         
         guild.guildBossState = {
+            bossId: nextBoss.id,
+            hp: nextBoss.maxHp,
+            maxHp: nextBoss.maxHp,
             currentBossId: nextBoss.id,
             currentBossHp: nextBoss.maxHp,
             totalDamageLog: {},
-            lastReset: now,
+            lastResetAt: now,
         };
         console.log(`[GuildBossReset] Guild ${guild.name}: Boss reset to ${nextBoss.name} (${nextBoss.id})`);
     } else {
         // 길드 보스 상태가 없으면 첫 번째 보스로 초기화
         const firstBoss = GUILD_BOSSES[0];
         guild.guildBossState = {
+            bossId: firstBoss.id,
+            hp: firstBoss.maxHp,
+            maxHp: firstBoss.maxHp,
             currentBossId: firstBoss.id,
             currentBossHp: firstBoss.maxHp,
             totalDamageLog: {},
-            lastReset: now,
+            lastResetAt: now,
         };
         console.log(`[GuildBossReset] Guild ${guild.name}: Boss initialized to ${firstBoss.name} (${firstBoss.id})`);
     }
 };
 
 export const checkCompletedResearch = async (guild: Guild): Promise<GuildResearchId | null> => {
-    if (guild.researchTask && Date.now() >= guild.researchTask.completionTime) {
+    if (guild.researchTask && guild.researchTask.completionTime && Date.now() >= guild.researchTask.completionTime) {
         const completedTaskId = guild.researchTask.researchId;
         if (!guild.research) {
             guild.research = {} as any;
         }
-        if (!guild.research[completedTaskId]) {
-            guild.research[completedTaskId] = { level: 0 };
+        if (!guild.research![completedTaskId]) {
+            guild.research![completedTaskId] = { level: 0 };
         }
-        guild.research[completedTaskId]!.level += 1;
+        guild.research![completedTaskId]!.level += 1;
         guild.researchTask = null;
         
-        return completedTaskId;
+        return completedTaskId as GuildResearchId;
     }
     return null;
 };

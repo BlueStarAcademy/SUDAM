@@ -296,7 +296,7 @@ export const processMatchCompletion = (state: TournamentState, user: User, compl
                         // 2~5회차는 bracket_ready 상태로 설정 (클라이언트에서 카운트다운 처리)
                         state.status = 'bracket_ready';
                         // nextRoundStartTime은 클라이언트 카운트다운이 처리하므로 설정하지 않음
-                        state.nextRoundStartTime = undefined;
+                        state.nextRoundStartTime = null;
                     } else {
                         state.status = 'complete';
                     }
@@ -364,7 +364,7 @@ export const processMatchCompletion = (state: TournamentState, user: User, compl
                 // 다음 경기가 있으면 bracket_ready 상태로 설정 (클라이언트에서 카운트다운 처리)
                 state.status = 'bracket_ready';
                 // nextRoundStartTime은 클라이언트 카운트다운이 처리하므로 설정하지 않음
-                state.nextRoundStartTime = undefined;
+                state.nextRoundStartTime = null;
                 // currentSimulatingMatch는 아직 설정하지 않음 (경기 시작 시 설정됨)
             } else {
                 state.status = 'complete';
@@ -857,7 +857,7 @@ export const createTournament = (type: TournamentType, user: User, players: Play
         currentSimulatingMatch: null,
         currentMatchCommentary: [],
         lastPlayedDate: Date.now(),
-        nextRoundStartTime: undefined, // 첫 경기는 수동 시작 (유저가 경기 시작 버튼을 눌러야 함)
+        nextRoundStartTime: null, // 첫 경기는 수동 시작 (유저가 경기 시작 버튼을 눌러야 함)
         timeElapsed: 0,
         accumulatedGold: type === 'neighborhood' ? 0 : undefined, // 동네바둑리그만 골드 누적
         accumulatedMaterials: type === 'national' ? {} : undefined, // 전국바둑대회만 재료 누적
@@ -999,7 +999,7 @@ export const startNextRound = (state: TournamentState, user: User) => {
         }, 0);
         
         // 클라이언트에서 카운트다운이 처리하므로 nextRoundStartTime 설정하지 않음
-        state.nextRoundStartTime = undefined;
+        state.nextRoundStartTime = null;
         
         // 컨디션은 처음 세팅된 값을 유지 (변경하지 않음)
         // 능력치는 originalStats로 리셋

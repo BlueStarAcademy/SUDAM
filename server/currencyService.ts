@@ -70,7 +70,7 @@ export function pruneCurrencyLogs(user: User): boolean {
     
     const originalLength = (user as any).currencyLogs.length;
     const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-    (user as any).currencyLogs = (user as any).currencyLogs.filter(log => log.timestamp >= weekAgo);
+    (user as any).currencyLogs = (user as any).currencyLogs.filter((log: any) => log.timestamp >= weekAgo);
     
     return (user as any).currencyLogs.length !== originalLength;
 }

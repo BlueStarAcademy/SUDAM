@@ -8,7 +8,7 @@
  */
 
 import prisma from './prismaClient.js';
-import { PrismaClient } from '../generated/prisma/index.js';
+import { PrismaClient } from '../generated/prisma/client.ts';
 import * as db from './db.js';
 
 // 백업 데이터베이스 URL (Supabase 백업에서 가져온 URL)
@@ -129,7 +129,7 @@ const restoreUserFromBackup = async (nickname: string) => {
         
         // 3. 백업 인벤토리 복구
         if (backupUser.inventory && backupUser.inventory.length > 0) {
-            const inventoryData = backupUser.inventory.map(inv => ({
+            const inventoryData = backupUser.inventory.map((inv: any) => ({
                 id: inv.id,
                 userId: currentUser.id,
                 templateId: inv.templateId,

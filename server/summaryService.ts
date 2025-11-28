@@ -365,7 +365,7 @@ const processTowerGameSummary = async (game: LiveGameSession) => {
 
     // towerFloor 또는 monthlyTowerFloor가 업데이트되었거나, 보상이 지급된 경우 DB 저장
     const towerFloorUpdated = isWinner && (floor > userTowerFloor || floor > ((user as any).monthlyTowerFloor ?? 0));
-    const hasRewards = summary.gold > 0 || summary.xp.change > 0 || (summary.items && summary.items.length > 0);
+    const hasRewards = (summary.gold ?? 0) > 0 || summary.xp.change > 0 || (summary.items && summary.items.length > 0);
     const levelUpOccurred = user.strategyLevel !== (freshUser.strategyLevel ?? 0);
     
     // towerFloor 업데이트가 있으면 즉시 저장하고 브로드캐스트 (다음 층 도전 버튼 활성화를 위해)
