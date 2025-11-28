@@ -2303,8 +2303,14 @@ export const useApp = () => {
                                     gold: mergedUser.gold,
                                     diamonds: mergedUser.diamonds,
                                     equipment: mergedUser.equipment,
-                                    actionPoints: mergedUser.actionPoints
+                                    actionPoints: mergedUser.actionPoints,
+                                    clearedSinglePlayerStages: mergedUser.clearedSinglePlayerStages,
+                                    singlePlayerProgress: mergedUser.singlePlayerProgress
                                 });
+                                
+                                // currentUser 상태 업데이트 (clearedSinglePlayerStages 반영)
+                                setCurrentUser(mergedUser);
+                                currentUserRef.current = mergedUser;
                             }
                             return;
                         }

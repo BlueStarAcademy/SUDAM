@@ -200,8 +200,14 @@ const processSinglePlayerGameSummary = async (game: LiveGameSession) => {
     await db.updateUser(user);
     
     // 사용자 업데이트를 클라이언트에 브로드캐스트 (clearedSinglePlayerStages 업데이트 포함)
-    const { broadcast } = await import('./socket.js');
-    broadcast({ type: 'USER_UPDATE', payload: { [user.id]: user } });
+    // inventory는 크기가 클 수 있으므로 필요한 경우에만 포함
+    const { broadcastUserUpdate } = await import('./socket.js');
+    const fieldsToUpdate = ['clearedSinglePlayerStages', 'singlePlayerProgress', 'gold', 'strategyXp', 'strategyLevel'];
+    // inventory가 실제로 변경된 경우에만 포함 (아이템 보상이 있을 때만)
+    if (summary.items && summary.items.length > 0) {
+        fieldsToUpdate.push('inventory');
+    }
+    broadcastUserUpdate(user, fieldsToUpdate);
 };
 
 const processTowerGameSummary = async (game: LiveGameSession) => {
@@ -542,12 +548,12 @@ const refundActionPointsForEarlyTermination = async (
     }
     
     // 환불된 사용자에게 브로드캐스트
-    const { broadcast } = await import('./socket.js');
+    const { broadcastUserUpdate } = await import('./socket.js');
     if (badMannerPlayerId !== player1.id) {
-        broadcast({ type: 'USER_UPDATE', payload: { [player1.id]: player1 } });
+        broadcastUserUpdate(player1, ['actionPoints']);
     }
     if (badMannerPlayerId !== player2.id) {
-        broadcast({ type: 'USER_UPDATE', payload: { [player2.id]: player2 } });
+        broadcastUserUpdate(player2, ['actionPoints']);
     }
 };
 
@@ -612,8 +618,8 @@ const sendBadMannerPenaltyMail = async (
     
     await db.updateUser(badMannerPlayer);
     
-    const { broadcast } = await import('./socket.js');
-    broadcast({ type: 'USER_UPDATE', payload: { [badMannerPlayer.id]: badMannerPlayer } });
+    const { broadcastUserUpdate } = await import('./socket.js');
+    broadcastUserUpdate(badMannerPlayer, ['mannerScore', 'mail']);
 };
 
 export const createConsumableItemInstance = (name: string): InventoryItem | null => {
@@ -1124,6 +1130,7 @@ export const processGameSummary = async (game: LiveGameSession): Promise<void> =
                 : p1.id;
             
             // 기권한 사람이 아닌 상대방에게 행동력 환불
+            const { broadcastUserUpdate } = await import('./socket.js');
             if (resignedPlayerId === p1.id && p2.id !== aiUserId && !p2.isAdmin) {
                 p2.actionPoints.current = Math.min(
                     p2.actionPoints.max,
@@ -1131,8 +1138,7 @@ export const processGameSummary = async (game: LiveGameSession): Promise<void> =
                 );
                 p2.lastActionPointUpdate = Date.now();
                 await db.updateUser(p2);
-                const { broadcast } = await import('./socket.js');
-                broadcast({ type: 'USER_UPDATE', payload: { [p2.id]: p2 } });
+                broadcastUserUpdate(p2, ['actionPoints']);
             } else if (resignedPlayerId === p2.id && p1.id !== aiUserId && !p1.isAdmin) {
                 p1.actionPoints.current = Math.min(
                     p1.actionPoints.max,
@@ -1140,8 +1146,7 @@ export const processGameSummary = async (game: LiveGameSession): Promise<void> =
                 );
                 p1.lastActionPointUpdate = Date.now();
                 await db.updateUser(p1);
-                const { broadcast } = await import('./socket.js');
-                broadcast({ type: 'USER_UPDATE', payload: { [p1.id]: p1 } });
+                broadcastUserUpdate(p1, ['actionPoints']);
             }
         } else if (winReason === 'disconnect' && game.moveHistory.length < 20) {
             // 20수 이내 접속장애로 무효처리된 경우: 접속이 끊어진 유저는 행동력 소모 유지, 무효처리를 당한 유저는 행동력 환불
@@ -1149,6 +1154,7 @@ export const processGameSummary = async (game: LiveGameSession): Promise<void> =
             const disconnectedPlayerId = game.disconnectionCounts?.[p1.id] > 0 ? p1.id : p2.id;
             
             // 접속이 끊어진 유저가 아닌 상대방에게 행동력 환불
+            const { broadcastUserUpdate } = await import('./socket.js');
             if (disconnectedPlayerId === p1.id && p2.id !== aiUserId && !p2.isAdmin) {
                 p2.actionPoints.current = Math.min(
                     p2.actionPoints.max,
@@ -1156,8 +1162,7 @@ export const processGameSummary = async (game: LiveGameSession): Promise<void> =
                 );
                 p2.lastActionPointUpdate = Date.now();
                 await db.updateUser(p2);
-                const { broadcast } = await import('./socket.js');
-                broadcast({ type: 'USER_UPDATE', payload: { [p2.id]: p2 } });
+                broadcastUserUpdate(p2, ['actionPoints']);
             } else if (disconnectedPlayerId === p2.id && p1.id !== aiUserId && !p1.isAdmin) {
                 p1.actionPoints.current = Math.min(
                     p1.actionPoints.max,
@@ -1165,8 +1170,7 @@ export const processGameSummary = async (game: LiveGameSession): Promise<void> =
                 );
                 p1.lastActionPointUpdate = Date.now();
                 await db.updateUser(p1);
-                const { broadcast } = await import('./socket.js');
-                broadcast({ type: 'USER_UPDATE', payload: { [p1.id]: p1 } });
+                broadcastUserUpdate(p1, ['actionPoints']);
             }
         } else {
             // 기권이 아닌 경우 (예: 1분 경과 후 무효처리): 양쪽 모두 행동력 환불
@@ -1186,18 +1190,12 @@ export const processGameSummary = async (game: LiveGameSession): Promise<void> =
                 p2.lastActionPointUpdate = Date.now();
                 await db.updateUser(p2);
             }
-            const { broadcast } = await import('./socket.js');
+            const { broadcastUserUpdate } = await import('./socket.js');
             if (p1.id !== aiUserId && !p1.isAdmin) {
-                broadcast({ type: 'USER_UPDATE', payload: { [p1.id]: p1 } });
+                broadcastUserUpdate(p1, ['actionPoints']);
             }
             if (p2.id !== aiUserId && !p2.isAdmin) {
-                broadcast({ type: 'USER_UPDATE', payload: { [p2.id]: p2 } });
-            }
-            if (p1.id !== aiUserId && !p1.isAdmin) {
-                broadcast({ type: 'USER_UPDATE', payload: { [p1.id]: p1 } });
-            }
-            if (p2.id !== aiUserId && !p2.isAdmin) {
-                broadcast({ type: 'USER_UPDATE', payload: { [p2.id]: p2 } });
+                broadcastUserUpdate(p2, ['actionPoints']);
             }
         }
     }
@@ -1211,8 +1209,13 @@ export const processGameSummary = async (game: LiveGameSession): Promise<void> =
             const { summary: p1Summary, updatedPlayer: updatedP1 } = await processPlayerSummary(p1, p2, p1IsWinner, isDraw, game, isNoContest, p1IsNoContestInitiator);
             await db.updateUser(updatedP1);
             game.summary[p1.id] = p1Summary;
-            const selectiveUpdate = getSelectiveUserUpdate(updatedP1, '', { includeAll: true });
-            broadcast({ type: 'USER_UPDATE', payload: { [updatedP1.id]: selectiveUpdate } });
+            // 게임 종료 후 업데이트된 필드만 브로드캐스트 (메모리 절약)
+            const { broadcastUserUpdate } = await import('./socket.js');
+            const fieldsToUpdate = ['gold', 'diamonds', 'strategyXp', 'strategyLevel', 'playfulXp', 'playfulLevel', 'mannerScore', 'rating', 'stats'];
+            if (p1Summary.items && p1Summary.items.length > 0) {
+                fieldsToUpdate.push('inventory');
+            }
+            broadcastUserUpdate(updatedP1, fieldsToUpdate);
         }
     } catch (e) {
         console.error(`[Summary] Error processing summary for player 1 (${p1.id}) in game ${game.id}:`, e);
@@ -1223,8 +1226,13 @@ export const processGameSummary = async (game: LiveGameSession): Promise<void> =
             const { summary: p2Summary, updatedPlayer: updatedP2 } = await processPlayerSummary(p2, p1, p2IsWinner, isDraw, game, isNoContest, p2IsNoContestInitiator);
             await db.updateUser(updatedP2);
             game.summary[p2.id] = p2Summary;
-            const selectiveUpdate = getSelectiveUserUpdate(updatedP2, '', { includeAll: true });
-            broadcast({ type: 'USER_UPDATE', payload: { [updatedP2.id]: selectiveUpdate } });
+            // 게임 종료 후 업데이트된 필드만 브로드캐스트 (메모리 절약)
+            const { broadcastUserUpdate } = await import('./socket.js');
+            const fieldsToUpdate = ['gold', 'diamonds', 'strategyXp', 'strategyLevel', 'playfulXp', 'playfulLevel', 'mannerScore', 'rating', 'stats'];
+            if (p2Summary.items && p2Summary.items.length > 0) {
+                fieldsToUpdate.push('inventory');
+            }
+            broadcastUserUpdate(updatedP2, fieldsToUpdate);
         }
     } catch (e) {
         console.error(`[Summary] Error processing summary for player 2 (${p2.id}) in game ${game.id}:`, e);

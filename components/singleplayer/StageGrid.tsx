@@ -60,15 +60,14 @@ const StageGrid: React.FC<StageGridProps> = ({ selectedClass, currentUser }) => 
         
         // 첫 번째 스테이지는 항상 열려있음
         if (stageIndex === 0) return false;
-        // singlePlayerProgress를 확인하여 순차 진행 여부 확인
-        const singlePlayerProgress = (currentUser as any).singlePlayerProgress ?? 0;
-        if (stageIndex <= singlePlayerProgress) {
-            // singlePlayerProgress가 stageIndex보다 크거나 같으면 열림
-            return false;
-        }
-        // 이전 스테이지를 클리어했으면 열림
+        
+        // 같은 레벨 내에서 순차적으로 진행해야 함
+        // 이전 스테이지를 클리어했는지 확인
         const previousStage = stages[stageIndex - 1];
-        return previousStage ? !isStageCleared(previousStage.id) : true;
+        if (!previousStage) return true; // 이전 스테이지가 없으면 잠금
+        
+        // 이전 스테이지를 클리어했으면 열림
+        return !isStageCleared(previousStage.id);
     };
 
     // 스테이지의 게임 모드 이름 결정 (살리기 바둑과 따내기 바둑 구분)

@@ -205,6 +205,30 @@ export const handleSinglePlayerAction = async (volatileState: VolatileState, act
                 return { error: 'Stage not found.' };
             }
             
+            // 관리자가 아닌 경우 스테이지 잠금 확인
+            if (!user.isAdmin) {
+                // 같은 레벨의 스테이지들 필터링
+                const sameLevelStages = SINGLE_PLAYER_STAGES
+                    .filter(s => s.level === stage.level)
+                    .sort((a, b) => {
+                        const aNum = parseInt(a.id.split('-')[1]);
+                        const bNum = parseInt(b.id.split('-')[1]);
+                        return aNum - bNum;
+                    });
+                
+                const currentStageIndex = sameLevelStages.findIndex(s => s.id === stageId);
+                
+                // 첫 번째 스테이지가 아니면 이전 스테이지 클리어 여부 확인
+                if (currentStageIndex > 0) {
+                    const previousStage = sameLevelStages[currentStageIndex - 1];
+                    const clearedStages = user.clearedSinglePlayerStages || [];
+                    
+                    if (!clearedStages.includes(previousStage.id)) {
+                        return { error: '이전 스테이지를 먼저 클리어해야 합니다.' };
+                    }
+                }
+            }
+            
             if (user.actionPoints.current < stage.actionPointCost) {
                 return { error: `액션 포인트가 부족합니다. (필요: ${stage.actionPointCost})` };
             }

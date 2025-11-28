@@ -95,36 +95,45 @@ export const createWebSocketServer = (server: Server) => {
                     return;
                 }
                 
-                // 성능 최적화: 온라인 사용자만 로드 (랭킹은 별도 API 사용)
-                const allUsers = await db.getAllUsers({ includeEquipment: false, includeInventory: false });
+                // 성능 최적화: 온라인 사용자만 로드 (100명 동시 사용자 대응)
                 const onlineUserIds = Object.keys(volatileState.userStatuses);
                 const onlineUsersData: Record<string, any> = {};
                 
-                // 온라인 사용자만 필터링하여 전송 (랭킹은 /api/ranking 엔드포인트 사용)
-                for (const user of allUsers) {
-                    if (onlineUserIds.includes(user.id)) {
-                        const nickname = user.nickname && user.nickname.trim().length > 0 ? user.nickname : user.username;
-                        onlineUsersData[user.id] = {
-                            id: user.id,
-                            username: user.username,
-                            nickname,
-                            isAdmin: user.isAdmin,
-                            strategyLevel: user.strategyLevel,
-                            strategyXp: user.strategyXp,
-                            playfulLevel: user.playfulLevel,
-                            playfulXp: user.playfulXp,
-                            gold: user.gold,
-                            diamonds: user.diamonds,
-                            stats: user.stats,
-                            mannerScore: user.mannerScore,
-                            avatarId: user.avatarId,
-                            borderId: user.borderId,
-                            tournamentScore: user.tournamentScore,
-                            league: user.league,
-                            mbti: user.mbti,
-                            towerFloor: user.towerFloor,
-                            monthlyTowerFloor: (user as any).monthlyTowerFloor ?? 0
-                        };
+                // 100명 동시 사용자 대응: 온라인 사용자만 개별 조회 (전체 조회 대신)
+                // 최대 100명만 처리하여 메모리 사용량 제한
+                const maxOnlineUsers = 100;
+                const limitedOnlineUserIds = onlineUserIds.slice(0, maxOnlineUsers);
+                
+                for (const userId of limitedOnlineUserIds) {
+                    try {
+                        const user = await db.getUser(userId, { includeEquipment: false, includeInventory: false });
+                        if (user) {
+                            const nickname = user.nickname && user.nickname.trim().length > 0 ? user.nickname : user.username;
+                            onlineUsersData[user.id] = {
+                                id: user.id,
+                                username: user.username,
+                                nickname,
+                                isAdmin: user.isAdmin,
+                                strategyLevel: user.strategyLevel,
+                                strategyXp: user.strategyXp,
+                                playfulLevel: user.playfulLevel,
+                                playfulXp: user.playfulXp,
+                                gold: user.gold,
+                                diamonds: user.diamonds,
+                                stats: user.stats,
+                                mannerScore: user.mannerScore,
+                                avatarId: user.avatarId,
+                                borderId: user.borderId,
+                                tournamentScore: user.tournamentScore,
+                                league: user.league,
+                                mbti: user.mbti,
+                                towerFloor: user.towerFloor,
+                                monthlyTowerFloor: (user as any).monthlyTowerFloor ?? 0
+                            };
+                        }
+                    } catch (error) {
+                        // 개별 사용자 조회 실패는 조용히 처리 (다음 사용자 계속 처리)
+                        console.error(`[WebSocket] Failed to load user ${userId} for INITIAL_STATE:`, error);
                     }
                 }
                 
@@ -140,16 +149,21 @@ export const createWebSocketServer = (server: Server) => {
                     return user ? { ...user, ...status } : undefined;
                 }).filter(Boolean);
                 
-                // 게임 데이터만 로드 (PVE 게임은 메모리에만 있으므로 DB 조회 최소화)
+                // 게임 데이터만 로드 (100명 동시 사용자 대응: 최대 50개 게임만 로드)
                 const allGames = await db.getAllActiveGames();
                 const liveGames: Record<string, any> = {};
                 const singlePlayerGames: Record<string, any> = {};
                 const towerGames: Record<string, any> = {};
                 
-                for (const game of allGames) {
+                // 최대 50개 게임만 처리하여 메모리 사용량 제한
+                const maxGames = 50;
+                const limitedGames = allGames.slice(0, maxGames);
+                
+                for (const game of limitedGames) {
                     const category = game.gameCategory || (game.isSinglePlayer ? 'singleplayer' : 'normal');
                     const optimizedGame = { ...game };
                     delete (optimizedGame as any).boardState; // 대역폭 절약
+                    delete (optimizedGame as any).moveHistory; // 대역폭 절약 (100명 동시 사용자 대응)
                     
                     if (category === 'singleplayer') {
                         singlePlayerGames[game.id] = optimizedGame;
@@ -381,7 +395,13 @@ export const broadcastUserUpdate = (user: any, changedFields?: string[]) => {
     if (changedFields) {
         changedFields.forEach(field => {
             if (user[field] !== undefined) {
-                optimizedUser[field] = user[field];
+                // inventory는 크기가 클 수 있으므로 최적화
+                if (field === 'inventory' && Array.isArray(user[field])) {
+                    // inventory는 최대 50개 항목만 전송 (100명 동시 사용자 대응)
+                    optimizedUser[field] = user[field].slice(0, 50);
+                } else {
+                    optimizedUser[field] = user[field];
+                }
             }
         });
     } else {
@@ -393,23 +413,26 @@ export const broadcastUserUpdate = (user: any, changedFields?: string[]) => {
     const message = { type: 'USER_UPDATE', payload: { [user.id]: optimizedUser } };
     // 최적화: 메시지 직렬화를 한 번만 수행
     const messageString = JSON.stringify(message);
+    let sentCount = 0;
     let errorCount = 0;
     
     // 최적화: Array.from 대신 직접 순회 (메모리 효율)
+    // 100명 동시 사용자 대응: 연결된 클라이언트만 전송
     for (const client of wss.clients) {
         if (client.readyState === WebSocket.OPEN) {
             try {
                 client.send(messageString, (err) => {
                     if (err) errorCount++;
                 });
+                sentCount++;
             } catch (error) {
                 errorCount++;
             }
         }
     }
     
-    // 에러가 많이 발생한 경우에만 로깅
+    // 에러가 많이 발생한 경우에만 로깅 (프로덕션에서는 조용히 처리)
     if (errorCount > 10 && process.env.NODE_ENV === 'development') {
-        console.warn(`[WebSocket] broadcastUserUpdate had ${errorCount} errors`);
+        console.warn(`[WebSocket] broadcastUserUpdate had ${errorCount} errors (sent to ${sentCount} clients)`);
     }
 };

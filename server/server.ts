@@ -181,8 +181,9 @@ const startServer = async () => {
         (process as any).exit(1);
     }
 
-    // Fetch all users from DB
-    const allDbUsers = await db.getAllUsers();
+    // Fetch all users from DB (optimized: without equipment/inventory to reduce memory usage)
+    const { listUsers } = await import('./prisma/userService.js');
+    const allDbUsers = await listUsers({ includeEquipment: false, includeInventory: false });
     const coreStats = Object.values(CoreStat) as CoreStat[];
     let usersUpdatedCount = 0;
 
@@ -320,14 +321,20 @@ const startServer = async () => {
     server.listen(port, '0.0.0.0', async () => {
         console.log(`[Server] Server listening on port ${port}`);
         
-        // KataGo 엔진 초기화 (서버 시작 시 미리 준비)
-        try {
-            await initializeKataGo();
-        } catch (error: any) {
-            console.error('[Server] Failed to initialize KataGo during server startup:', error);
-            console.error('[Server] Server will continue without KataGo pre-initialization');
-            // 서버는 계속 실행 (KataGo 초기화 실패는 치명적이지 않음)
-        }
+        // Health check를 즉시 응답할 수 있도록 서버 리스닝 상태 확인
+        // Railway는 서버가 리스닝을 시작하면 health check를 수행하므로,
+        // 무거운 초기화 작업은 비동기로 지연 처리
+        
+        // KataGo 엔진 초기화 (서버 시작 후 비동기로 처리, 블로킹 방지)
+        setImmediate(async () => {
+            try {
+                await initializeKataGo();
+            } catch (error: any) {
+                console.error('[Server] Failed to initialize KataGo during server startup:', error);
+                console.error('[Server] Server will continue without KataGo pre-initialization');
+                // 서버는 계속 실행 (KataGo 초기화 실패는 치명적이지 않음)
+            }
+        });
     });
 
     const processActiveTournamentSimulations = async () => {
@@ -494,6 +501,34 @@ const startServer = async () => {
                     }
                 } catch (error) {
                     console.error('[MainLoop] Error deleting expired mails:', error);
+                }
+            }
+            
+            // 메모리 사용량 모니터링 (Railway 환경에서만, 5분마다)
+            if (process.env.RAILWAY_ENVIRONMENT) {
+                const memCheckInterval = 5 * 60 * 1000; // 5분
+                const lastMemCheck = (global as any).lastMemCheck || 0;
+                if (now - lastMemCheck >= memCheckInterval) {
+                    (global as any).lastMemCheck = now;
+                    const memUsage = process.memoryUsage();
+                    const memUsageMB = {
+                        rss: Math.round(memUsage.rss / 1024 / 1024),
+                        heapTotal: Math.round(memUsage.heapTotal / 1024 / 1024),
+                        heapUsed: Math.round(memUsage.heapUsed / 1024 / 1024),
+                        external: Math.round(memUsage.external / 1024 / 1024)
+                    };
+                    console.log(`[Memory] RSS: ${memUsageMB.rss}MB, Heap: ${memUsageMB.heapUsed}/${memUsageMB.heapTotal}MB, External: ${memUsageMB.external}MB`);
+                    
+                    // 메모리 사용량이 350MB를 초과하면 경고 (100명 동시 사용자 대응)
+                    if (memUsageMB.rss > 350) {
+                        console.warn(`[Memory] High memory usage detected: ${memUsageMB.rss}MB RSS`);
+                        // 메모리 사용량이 400MB를 초과하면 강제 캐시 정리
+                        if (memUsageMB.rss > 400) {
+                            console.warn(`[Memory] Forcing cache cleanup due to high memory usage`);
+                            const { cleanupExpiredCache } = await import('./gameCache.js');
+                            cleanupExpiredCache();
+                        }
+                    }
                 }
             }
 
@@ -963,28 +998,14 @@ const startServer = async () => {
     scheduleMainLoop(1000);
     
     // --- API Endpoints ---
-    // Health check endpoint for deployment platforms
+    // Health check endpoint for deployment platforms (must be fast and lightweight)
     app.get('/api/health', (req, res) => {
-        try {
-            const memUsage = process.memoryUsage();
-            res.status(200).json({ 
-                status: 'ok', 
-                timestamp: new Date().toISOString(),
-                uptime: process.uptime(),
-                memory: {
-                    rss: Math.round(memUsage.rss / 1024 / 1024), // MB
-                    heapTotal: Math.round(memUsage.heapTotal / 1024 / 1024), // MB
-                    heapUsed: Math.round(memUsage.heapUsed / 1024 / 1024), // MB
-                    external: Math.round(memUsage.external / 1024 / 1024) // MB
-                }
-            });
-        } catch (error: any) {
-            console.error('[Health] Error in health check:', error);
-            res.status(500).json({ 
-                status: 'error', 
-                error: error.message 
-            });
-        }
+        // Railway health check는 빠르게 응답해야 하므로 최소한의 작업만 수행
+        res.status(200).json({ 
+            status: 'ok', 
+            timestamp: new Date().toISOString(),
+            uptime: process.uptime()
+        });
     });
 
     // 랭킹 API 엔드포인트

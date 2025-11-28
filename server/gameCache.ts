@@ -114,6 +114,17 @@ export function cleanupExpiredCache(): void {
     // 게임 캐시 정리
     const gameCache = volatileState.gameCache;
     if (gameCache) {
+        const maxGameCacheSize = isRailway ? 30 : 100; // Railway: 100명 동시 사용자 대응을 위해 30개로 제한
+        if (gameCache.size > maxGameCacheSize) {
+            // LRU 방식으로 오래된 항목 제거
+            const sorted = Array.from(gameCache.entries())
+                .sort((a, b) => a[1].lastUpdated - b[1].lastUpdated);
+            const toRemove = sorted.slice(0, gameCache.size - maxGameCacheSize);
+            for (const [gameId] of toRemove) {
+                gameCache.delete(gameId);
+            }
+        }
+        
         for (const [gameId, cached] of gameCache.entries()) {
             if (now - cached.lastUpdated > CACHE_TTL_MS * 2) {
                 gameCache.delete(gameId);
@@ -124,6 +135,17 @@ export function cleanupExpiredCache(): void {
     // 사용자 캐시 정리
     const userCache = volatileState.userCache;
     if (userCache) {
+        const maxUserCacheSize = isRailway ? 100 : 300; // Railway: 100명 동시 사용자 대응을 위해 100개로 제한
+        if (userCache.size > maxUserCacheSize) {
+            // LRU 방식으로 오래된 항목 제거
+            const sorted = Array.from(userCache.entries())
+                .sort((a, b) => a[1].lastUpdated - b[1].lastUpdated);
+            const toRemove = sorted.slice(0, userCache.size - maxUserCacheSize);
+            for (const [userId] of toRemove) {
+                userCache.delete(userId);
+            }
+        }
+        
         for (const [userId, cached] of userCache.entries()) {
             if (now - cached.lastUpdated > USER_CACHE_TTL_MS * 2) {
                 userCache.delete(userId);
