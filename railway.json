@@ -6,18 +6,7 @@
   },
   "deploy": {
     "startCommand": "npm run railway:start",
-    "restartPolicyType": "NEVER",
-    "healthcheckPath": "/api/health",
-    "healthcheckTimeout": 60,
-    "healthcheckInterval": 120
-  },
-  "watchPatterns": [
-    "**/*.ts",
-    "**/*.tsx",
-    "**/*.js",
-    "**/*.jsx",
-    "**/*.json",
-    "**/*.prisma"
-  ]
+    "restartPolicyType": "NEVER"
+  }
 }
 
