@@ -14,15 +14,24 @@ const __dirname = path.dirname(__filename);
 // 프로젝트 루트 기준으로 경로 설정 (process.cwd() 사용)
 const PROJECT_ROOT = process.cwd();
 
+// Railway 환경 감지
+const isRailway = process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY || false;
+const isLinux = process.platform === 'linux';
+const isRailwayLinux = isRailway && isLinux;
+
 // 환경 변수로 KataGo 경로 설정 가능
-const KATAGO_PATH = process.env.KATAGO_PATH || path.resolve(PROJECT_ROOT, 'katago/katago.exe');
+// Railway Linux 환경에서는 Linux binary 우선 사용
+const defaultKataGoPath = isRailwayLinux 
+    ? path.resolve(PROJECT_ROOT, 'katago/katago')  // Linux: 확장자 없음
+    : path.resolve(PROJECT_ROOT, 'katago/katago.exe');  // Windows: .exe
+
+const KATAGO_PATH = process.env.KATAGO_PATH || defaultKataGoPath;
 const MODEL_PATH = process.env.KATAGO_MODEL_PATH || path.resolve(PROJECT_ROOT, 'katago/kata1-b28c512nbt-s9853922560-d5031756885.bin.gz');
 const CONFIG_PATH = path.resolve(__dirname, './temp_katago_config.cfg');
 const KATAGO_HOME_PATH = process.env.KATAGO_HOME_PATH || path.resolve(__dirname, './katago_home');
 
 // KataGo 설정 - 환경 변수로 조정 가능
 // Railway 환경에 맞게 KataGo 설정 최적화
-const isRailway = process.env.RAILWAY_ENVIRONMENT || process.env.NODE_ENV === 'production';
 const KATAGO_NUM_ANALYSIS_THREADS = parseInt(process.env.KATAGO_NUM_ANALYSIS_THREADS || (isRailway ? '2' : '4'), 10);
 const KATAGO_NUM_SEARCH_THREADS = parseInt(process.env.KATAGO_NUM_SEARCH_THREADS || (isRailway ? '4' : '8'), 10);
 const KATAGO_MAX_VISITS = parseInt(process.env.KATAGO_MAX_VISITS || (isRailway ? '500' : '1000'), 10);
@@ -251,20 +260,38 @@ class KataGoManager {
             const projectKatagoPathLinux = path.resolve(PROJECT_ROOT, 'katago/katago');
             const projectModelPath = path.resolve(PROJECT_ROOT, 'katago/kata1-b28c512nbt-s9853922560-d5031756885.bin.gz');
             
+            // Railway Linux 환경에서는 Linux 경로 우선, 그 외에는 플랫폼에 따라 우선순위 결정
             const pathsToTry = [
                 // 1. 환경 변수로 명시적으로 설정된 경로 (최우선)
                 ...(process.env.KATAGO_PATH ? [KATAGO_PATH] : []),
-                // 2. 프로젝트 루트의 katago 폴더 (Linux - 확장자 없음)
+                // 2. Railway Linux 환경: Linux 경로 우선
+                ...(isRailwayLinux ? [
+                    projectKatagoPathLinux,
+                    path.resolve(__dirname, '../katago/katago'),
+                    path.resolve(__dirname, '../../katago/katago'),
+                    '/app/katago/katago',  // Railway 표준 경로
+                ] : []),
+                // 3. 일반 Linux 환경: Linux 경로 우선
+                ...(isLinux && !isRailway ? [
+                    projectKatagoPathLinux,
+                    path.resolve(__dirname, '../katago/katago'),
+                    path.resolve(__dirname, '../../katago/katago'),
+                ] : []),
+                // 4. Windows 환경: Windows 경로 우선
+                ...(!isLinux ? [
+                    projectKatagoPathWin,
+                    path.resolve(__dirname, '../katago/katago.exe'),
+                    path.resolve(__dirname, '../../katago/katago.exe'),
+                    'C:\\katago\\katago.exe',
+                    'D:\\katago\\katago.exe',
+                ] : []),
+                // 5. 플랫폼 무관 대체 경로들
                 projectKatagoPathLinux,
-                // 3. 프로젝트 루트의 katago 폴더 (Windows - .exe 확장자)
                 projectKatagoPathWin,
-                // 4. 기타 대체 경로들 (Linux 먼저 시도)
                 path.resolve(__dirname, '../katago/katago'),
                 path.resolve(__dirname, '../katago/katago.exe'),
                 path.resolve(__dirname, '../../katago/katago'),
                 path.resolve(__dirname, '../../katago/katago.exe'),
-                'C:\\katago\\katago.exe',
-                'D:\\katago\\katago.exe',
             ];
             
             const modelPathsToTry = [

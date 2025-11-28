@@ -8,6 +8,8 @@
     "start": "concurrently \"npm:start-client\" \"npm:start-server\"",
     "start-client": "vite --host",
     "start-server": "cross-env PORT=4000 node node_modules/tsx/dist/cli.mjs --tsconfig server/tsconfig.json server/server.ts",
+    "railway:setup-katago": "bash scripts/download-katago-linux.sh && bash scripts/download-katago-model.sh",
+    "railway:start": "npm run railway:setup-katago || echo 'KataGo setup failed, continuing without it' && npm run start-server",
     "build": "vite build",
     "prisma:generate": "npx prisma generate --schema prisma/schema.prisma",
     "prisma:migrate:deploy": "npx prisma migrate deploy --schema prisma/schema.prisma",

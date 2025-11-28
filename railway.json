@@ -5,7 +5,7 @@
     "dockerfilePath": "Dockerfile.backend"
   },
   "deploy": {
-    "startCommand": "npm run start-server",
+    "startCommand": "npm run railway:start",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10
   },
