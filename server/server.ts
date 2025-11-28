@@ -1412,7 +1412,25 @@ const startServer = async () => {
     app.post('/api/auth/login', async (req, res) => {
         console.log('[/api/auth/login] Received request');
         let responseSent = false;
+        
+        // 요청 타임아웃 설정 (30초)
+        const requestTimeout = setTimeout(() => {
+            if (!responseSent && !res.headersSent) {
+                responseSent = true;
+                console.error('[/api/auth/login] Request timeout after 30 seconds');
+                try {
+                    res.status(504).json({ message: '로그인 요청이 시간 초과되었습니다. 다시 시도해주세요.' });
+                } catch (err) {
+                    console.error('[/api/auth/login] Failed to send timeout response:', err);
+                    if (!res.headersSent) {
+                        res.status(504).end();
+                    }
+                }
+            }
+        }, 30000); // 30초 타임아웃
+        
         const sendResponse = (status: number, data: any) => {
+            clearTimeout(requestTimeout);
             if (!responseSent) {
                 try {
                     responseSent = true;
@@ -1718,12 +1736,27 @@ const startServer = async () => {
             const sanitizedUser = JSON.parse(JSON.stringify(user));
             sendResponse(200, { user: sanitizedUser });
         } catch (e: any) {
+            clearTimeout(requestTimeout);
             console.error('[/api/auth/login] Login error:', e);
             console.error('[/api/auth/login] Error stack:', e?.stack);
             console.error('[/api/auth/login] Error message:', e?.message);
+            console.error('[/api/auth/login] Error code:', e?.code);
+            console.error('[/api/auth/login] Error name:', e?.name);
+            
+            // 데이터베이스 연결 오류인 경우 더 명확한 메시지
+            const isDbError = e?.code?.startsWith('P') || e?.message?.includes('database') || e?.message?.includes('connection') || e?.message?.includes('timeout');
+            
             if (!responseSent) {
                 try {
-                    sendResponse(500, { message: '서버 로그인 처리 중 오류가 발생했습니다.', error: process.env.NODE_ENV === 'development' ? e?.message : undefined });
+                    const errorMessage = isDbError 
+                        ? '데이터베이스 연결 오류가 발생했습니다. 잠시 후 다시 시도해주세요.'
+                        : '서버 로그인 처리 중 오류가 발생했습니다.';
+                    
+                    sendResponse(500, { 
+                        message: errorMessage,
+                        error: process.env.NODE_ENV === 'development' ? e?.message : undefined,
+                        errorCode: process.env.NODE_ENV === 'development' ? e?.code : undefined
+                    });
                 } catch (sendError: any) {
                     console.error('[/api/auth/login] Failed to send error response:', sendError);
                     if (!res.headersSent) {
@@ -1732,11 +1765,17 @@ const startServer = async () => {
                         } catch (finalError: any) {
                             console.error('[/api/auth/login] Failed to send final error response:', finalError);
                             if (!res.headersSent) {
-                                res.status(500).end();
+                                try {
+                                    res.status(500).end();
+                                } catch (lastError: any) {
+                                    console.error('[/api/auth/login] All error response attempts failed:', lastError);
+                                }
                             }
                         }
                     }
                 }
+            } else {
+                console.error('[/api/auth/login] Response already sent, cannot send error response');
             }
         }
     });
