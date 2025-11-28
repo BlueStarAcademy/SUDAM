@@ -388,6 +388,11 @@ export async function makeGoAiBotMove(
         return;
     }
     
+    // 아이템 사용 모드에서는 AI 수를 두지 않음 (사용자가 아이템을 사용 중)
+    if (game.gameStatus === 'hidden_placing' || game.gameStatus === 'scanning' || game.gameStatus === 'missile_selecting') {
+        return;
+    }
+    
     const profile = getGoAiBotProfile(aiLevel);
     const aiPlayerEnum = game.currentPlayer;
     const opponentPlayerEnum = aiPlayerEnum === types.Player.Black ? types.Player.White : types.Player.Black;
@@ -887,7 +892,7 @@ export async function makeGoAiBotMove(
             console.log(`[GoAiBot][${gameType}] Auto-scoring check: totalTurns=${totalTurns}, autoScoringTurns=${autoScoringTurns}, gameStatus=${game.gameStatus}, validMovesLength=${validMoves.length}`);
             if (totalTurns >= autoScoringTurns) {
                 // 게임 상태를 먼저 확인하여 중복 트리거 방지
-                if (game.gameStatus === 'playing' || game.gameStatus === 'hidden_placing') {
+                if (game.gameStatus === 'playing' || (game.gameStatus as string) === 'hidden_placing') {
                     const gameType = game.isSinglePlayer ? 'SinglePlayer' : 'AiGame';
                     console.log(`[GoAiBot][${gameType}] Auto-scoring triggered at ${totalTurns} turns (stageId: ${game.stageId || 'N/A'}, validMovesLength: ${validMoves.length}, gameStatus: ${game.gameStatus})`);
                     // 게임 상태를 먼저 scoring으로 변경하여 다른 로직이 게임을 재시작하지 않도록 함

@@ -139,13 +139,19 @@ export const updateStrategicGameState = async (game: types.LiveGameSession, now:
         const { updateSinglePlayerMissileState } = await import('./singlePlayerMissile.js');
         await updateSinglePlayerHiddenState(game, now);
         const missileStateChanged = await updateSinglePlayerMissileState(game, now);
-        if (missileStateChanged) {
-            (game as any)._missileStateChanged = true;
+        const itemTimeoutStateChanged = (game as any)._itemTimeoutStateChanged;
+        if (missileStateChanged || itemTimeoutStateChanged) {
+            if (itemTimeoutStateChanged) {
+                (game as any)._itemTimeoutStateChanged = false;
+            }
+            if (missileStateChanged) {
+                (game as any)._missileStateChanged = true;
+            }
             // 싱글플레이 게임의 경우 서버 루프에서 브로드캐스트하지 않으므로, 여기서 직접 브로드캐스트
             const { broadcastToGameParticipants } = await import('../socket.js');
             const db = await import('../db.js');
             await db.saveGame(game);
-            console.log(`[updateStrategicGameState] SinglePlayer missile state changed, broadcasting GAME_UPDATE: gameId=${game.id}, gameStatus=${game.gameStatus}, animation=${game.animation ? 'exists' : 'null'}`);
+            console.log(`[updateStrategicGameState] SinglePlayer state changed (missile=${missileStateChanged}, itemTimeout=${itemTimeoutStateChanged}), broadcasting GAME_UPDATE: gameId=${game.id}, gameStatus=${game.gameStatus}`);
             broadcastToGameParticipants(game.id, { type: 'GAME_UPDATE', payload: { [game.id]: game } }, game);
         }
     } else {
@@ -414,12 +420,17 @@ const handleStandardAction = async (volatileState: types.VolatileState, game: ty
             }
             
             if (isHidden) {
-                const hiddenKey = user.id === game.player1.id ? 'hidden_stones_used_p1' : 'hidden_stones_used_p2';
-                const usedCount = game[hiddenKey] || 0;
-                if (usedCount >= game.settings.hiddenStoneCount!) {
+                // 히든 아이템 개수 확인 및 감소 (스캔 아이템처럼)
+                const hiddenKey = user.id === game.player1.id ? 'hidden_stones_p1' : 'hidden_stones_p2';
+                const currentHidden = game[hiddenKey] ?? 0;
+                if (currentHidden <= 0) {
                     return { error: "No hidden stones left." };
                 }
-                game[hiddenKey] = usedCount + 1;
+                game[hiddenKey] = currentHidden - 1;
+                
+                // 사용 횟수도 추적 (통계용)
+                const usedKey = user.id === game.player1.id ? 'hidden_stones_used_p1' : 'hidden_stones_used_p2';
+                game[usedKey] = (game[usedKey] || 0) + 1;
             }
 
             const result = processMove(

@@ -493,14 +493,16 @@ export const handleSinglePlayerAction = async (volatileState: VolatileState, act
             return { clientResponse: { success: true, gameId: game.id, game: gameCopy } };
         }
         case 'SINGLE_PLAYER_REFRESH_PLACEMENT': {
+            console.log(`[handleSinglePlayerAction] SINGLE_PLAYER_REFRESH_PLACEMENT: gameId=${payload.gameId}`);
             const { gameId } = payload;
             // 싱글플레이 게임은 메모리 캐시에서 먼저 찾기
-            const { getCachedGame } = await import('../gameCache.js');
+            const { getCachedGame, updateGameCache } = await import('../gameCache.js');
             let game = await getCachedGame(gameId);
             if (!game) {
                 game = await db.getLiveGame(gameId);
             }
             if (!game || !game.isSinglePlayer || !game.stageId) {
+                console.log(`[handleSinglePlayerAction] SINGLE_PLAYER_REFRESH_PLACEMENT: Invalid game`);
                 return { error: 'Invalid single player game.' };
             }
             // 계가 중일 때는 게임 상태를 초기화하지 않음
@@ -511,7 +513,8 @@ export const handleSinglePlayerAction = async (volatileState: VolatileState, act
             if (game.gameStatus === 'pending') {
                 return { error: '게임이 시작되지 않았습니다.' };
             }
-            if (game.gameStatus !== 'playing' || game.currentPlayer !== Player.Black || game.moveHistory.length > 0) {
+            if (game.gameStatus !== 'playing' || game.currentPlayer !== Player.Black || (game.moveHistory && game.moveHistory.length > 0)) {
+                console.log(`[handleSinglePlayerAction] SINGLE_PLAYER_REFRESH_PLACEMENT: Invalid state - gameStatus=${game.gameStatus}, currentPlayer=${game.currentPlayer}, moveHistory.length=${game.moveHistory?.length || 0}`);
                 return { error: '배치는 첫 수 전에만 새로고침할 수 있습니다.' };
             }
 
@@ -542,6 +545,9 @@ export const handleSinglePlayerAction = async (volatileState: VolatileState, act
             game.blackPatternStones = blackPattern;
             game.whitePatternStones = whitePattern;
 
+            // 캐시 업데이트
+            updateGameCache(game);
+            
             // DB 업데이트를 비동기로 처리 (응답 지연 최소화)
             db.updateUser(user).catch(err => {
                 console.error(`[REFRESH_SINGLE_PLAYER_BOARD] Failed to save user ${user.id}:`, err);
@@ -551,6 +557,7 @@ export const handleSinglePlayerAction = async (volatileState: VolatileState, act
             const { broadcastToGameParticipants } = await import('../socket.js');
             broadcastToGameParticipants(game.id, { type: 'GAME_UPDATE', payload: { [game.id]: game } }, game);
 
+            console.log(`[handleSinglePlayerAction] SINGLE_PLAYER_REFRESH_PLACEMENT: Success - refreshesUsed=${game.singlePlayerPlacementRefreshesUsed}`);
             return { clientResponse: { updatedUser: user, game } };
         }
         case 'START_SINGLE_PLAYER_MISSION': {
@@ -995,8 +1002,18 @@ export const handleSinglePlayerAction = async (volatileState: VolatileState, act
             const { handleSinglePlayerMissileAction } = await import('../modes/singlePlayerMissile.js');
             const result = await handleSinglePlayerMissileAction(game, action, user);
             
+            // handleSinglePlayerMissileAction이 null을 반환하는 경우
+            if (result === null) {
+                return { error: 'Invalid single player game.' };
+            }
+            
+            // result가 undefined인 경우 빈 객체 반환
+            if (result === undefined) {
+                return {};
+            }
+            
             // 게임 상태가 변경되었을 수 있으므로 저장 및 브로드캐스트
-            if (result !== null && result !== undefined && !result.error) {
+            if (!result.error) {
                 // 게임 캐시 업데이트 (다음 미사일 아이템 사용 시 게임을 찾을 수 있도록)
                 const { updateGameCache } = await import('../gameCache.js');
                 updateGameCache(game);
@@ -1011,29 +1028,56 @@ export const handleSinglePlayerAction = async (volatileState: VolatileState, act
         case 'START_HIDDEN_PLACEMENT':
         case 'START_SCANNING':
         case 'SCAN_BOARD': {
+            console.log(`[handleSinglePlayerAction] ${type} action received, payload:`, payload);
             const { gameId } = payload;
             if (!gameId) {
+                console.error(`[handleSinglePlayerAction] ${type}: Game ID is required`);
                 return { error: 'Game ID is required.' };
             }
             // 싱글플레이 게임은 메모리 캐시에서 먼저 찾기
             const { getCachedGame } = await import('../gameCache.js');
             let game = await getCachedGame(gameId);
             if (!game) {
+                console.log(`[handleSinglePlayerAction] ${type}: Game not in cache, fetching from DB`);
                 game = await db.getLiveGame(gameId);
             }
-            if (!game || !game.isSinglePlayer) {
+            if (!game) {
+                console.error(`[handleSinglePlayerAction] ${type}: Game not found in cache or DB, gameId=${gameId}`);
+                return { error: 'Game not found.' };
+            }
+            if (!game.isSinglePlayer) {
+                console.error(`[handleSinglePlayerAction] ${type}: Game is not single player, gameId=${gameId}, isSinglePlayer=${game.isSinglePlayer}`);
                 return { error: 'Invalid single player game.' };
             }
+            console.log(`[handleSinglePlayerAction] ${type}: Game found, gameStatus=${game.gameStatus}, currentPlayer=${game.currentPlayer}`);
             const { handleSinglePlayerHiddenAction } = await import('../modes/singlePlayerHidden.js');
+            console.log(`[handleSinglePlayerAction] Before handleSinglePlayerHiddenAction: gameStatus=${game.gameStatus}, type=${type}`);
             const result = handleSinglePlayerHiddenAction(volatileState, game, action, user);
+            console.log(`[handleSinglePlayerAction] After handleSinglePlayerHiddenAction: result=`, result, `gameStatus=${game.gameStatus}`);
+            
+            // handleSinglePlayerHiddenAction이 null을 반환하는 경우 (게임이 싱글플레이가 아닌 경우)
+            if (result === null) {
+                console.log(`[handleSinglePlayerAction] handleSinglePlayerHiddenAction returned null, returning error`);
+                return { error: 'Invalid single player game.' };
+            }
             
             // 게임 상태가 변경되었을 수 있으므로 저장 및 브로드캐스트
-            if (result !== null && result !== undefined && !result.error) {
+            if (result !== undefined && !result.error) {
+                console.log(`[handleSinglePlayerAction] Saving and broadcasting game update: gameStatus=${game.gameStatus}`);
+                const { updateGameCache } = await import('../gameCache.js');
+                updateGameCache(game);
                 await db.saveGame(game);
                 const { broadcastToGameParticipants } = await import('../socket.js');
                 broadcastToGameParticipants(game.id, { type: 'GAME_UPDATE', payload: { [game.id]: game } }, game);
+                console.log(`[handleSinglePlayerAction] Game saved and broadcasted: gameStatus=${game.gameStatus}`);
+            } else {
+                console.log(`[handleSinglePlayerAction] Not saving/broadcasting: result=`, result);
             }
             
+            // result가 undefined인 경우 빈 객체 반환 (타입 안전성 보장)
+            if (result === undefined) {
+                return {};
+            }
             return result;
         }
         default:

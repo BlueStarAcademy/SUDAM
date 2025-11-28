@@ -221,11 +221,13 @@ const Game: React.FC<GameComponentProps> = ({ session }) => {
 
         // 분석 결과가 도착했을 때만 모달 표시 (바둑판 초기화 방지)
         // scoring 상태일 때는 분석 결과가 준비될 때까지 게임 화면을 유지
+        // 기권/접속 끊김 등 즉시 종료되는 경우에는 analysisResult 없이도 모달 표시
         const currentAnalysisResult = session.analysisResult?.['system'];
         const analysisResultJustArrived = currentAnalysisResult && !prevAnalysisResult;
+        const isImmediateEnd = gameHasJustEnded && (session.winReason === 'resign' || session.winReason === 'disconnect' || session.winReason === 'timeout');
         const shouldShowModal = gameHasJustEnded || 
             ((isSinglePlayer || isTower)
-                ? ((gameStatus === 'ended' && currentAnalysisResult && prevGameStatus !== 'ended') ||
+                ? (isImmediateEnd || (gameStatus === 'ended' && currentAnalysisResult && prevGameStatus !== 'ended') ||
                    (gameStatus === 'scoring' && currentAnalysisResult && analysisResultJustArrived))
                 : ((gameStatus === 'ended' && currentAnalysisResult && prevGameStatus !== 'ended') ||
                    (gameStatus === 'scoring' && currentAnalysisResult && analysisResultJustArrived)));

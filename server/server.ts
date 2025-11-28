@@ -1029,6 +1029,21 @@ const startServer = async () => {
                     buildRankingCache(),
                     timeoutPromise
                 ]) as any;
+                
+                // cache가 null이거나 undefined인 경우 빈 캐시로 초기화
+                if (!cache) {
+                    console.warn('[API/Ranking] Cache is null or undefined, using empty cache');
+                    cache = {
+                        strategic: [],
+                        playful: [],
+                        championship: [],
+                        combat: [],
+                        manner: [],
+                        strategicSeason: [],
+                        playfulSeason: [],
+                        timestamp: Date.now()
+                    };
+                }
             } catch (timeoutError: any) {
                 console.error('[API/Ranking] Cache build timeout or error:', timeoutError?.message || timeoutError);
                 // 타임아웃 시 빈 응답 반환 (502 에러 방지)
@@ -1046,10 +1061,10 @@ const startServer = async () => {
             if (isSeason) {
                 switch (type) {
                     case 'strategic':
-                        rankings = cache.strategicSeason || [];
+                        rankings = Array.isArray(cache?.strategicSeason) ? cache.strategicSeason : [];
                         break;
                     case 'playful':
-                        rankings = cache.playfulSeason || [];
+                        rankings = Array.isArray(cache?.playfulSeason) ? cache.playfulSeason : [];
                         break;
                     default:
                         // 시즌 랭킹은 strategic/playful만 지원
@@ -1059,19 +1074,19 @@ const startServer = async () => {
                 // 누적 랭킹 (기본)
                 switch (type) {
                     case 'strategic':
-                        rankings = cache.strategic;
+                        rankings = Array.isArray(cache?.strategic) ? cache.strategic : [];
                         break;
                     case 'playful':
-                        rankings = cache.playful;
+                        rankings = Array.isArray(cache?.playful) ? cache.playful : [];
                         break;
                     case 'championship':
-                        rankings = cache.championship;
+                        rankings = Array.isArray(cache?.championship) ? cache.championship : [];
                         break;
                     case 'combat':
-                        rankings = cache.combat;
+                        rankings = Array.isArray(cache?.combat) ? cache.combat : [];
                         break;
                     case 'manner':
-                        rankings = cache.manner;
+                        rankings = Array.isArray(cache?.manner) ? cache.manner : [];
                         break;
                     default:
                         return res.status(400).json({ error: 'Invalid ranking type' });
@@ -1079,21 +1094,33 @@ const startServer = async () => {
             }
 
             // 페이지네이션 적용
-            if (limitNum) {
+            if (limitNum && Array.isArray(rankings)) {
                 rankings = rankings.slice(offsetNum, offsetNum + limitNum);
             }
 
             const cacheKey = isSeason ? `${type}Season` : type;
+            const cacheValue = cache?.[cacheKey as keyof typeof cache];
+            const total = Array.isArray(cacheValue) ? cacheValue.length : (Array.isArray(rankings) ? rankings.length : 0);
+            const cached = cache?.timestamp && (Date.now() - (cache.timestamp || 0) < 60000); // 1분 이내면 캐시된 데이터
+            
             res.json({
                 type,
                 rankings,
-                total: Array.isArray(cache[cacheKey as keyof typeof cache]) ? cache[cacheKey as keyof typeof cache].length : 0,
-                cached: Date.now() - cache.timestamp < 60000 // 1분 이내면 캐시된 데이터
+                total,
+                cached: cached || false
             });
         } catch (error: any) {
             console.error('[API/Ranking] Error:', error);
             console.error('[API/Ranking] Error stack:', error?.stack);
-            // 에러 발생 시 빈 배열 반환 (502 에러 방지)
+            // 에러 발생 시 빈 배열 반환 (500 에러 방지)
+            const { type } = req.params;
+            return res.status(200).json({
+                type,
+                rankings: [],
+                total: 0,
+                cached: false,
+                error: error?.message || 'Unknown error'
+            });
             res.status(200).json({
                 type: req.params.type,
                 rankings: [],

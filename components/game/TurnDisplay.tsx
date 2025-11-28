@@ -210,13 +210,16 @@ const TurnDisplay: React.FC<TurnDisplayProps> = ({
         const updateTimer = () => {
             const now = Date.now();
             const remaining = Math.max(0, Math.ceil((session.itemUseDeadline! - now) / 1000));
-            setTimeLeft(remaining);
+            const clampedRemaining = Math.min(30, Math.max(0, remaining)); // 0-30초 범위로 제한
             
             // 0초가 되면 초읽기 효과음 재생
-            if (remaining === 0 && prevTimeLeft.current > 0) {
+            if (clampedRemaining === 0 && prevTimeLeft.current > 0) {
                 audioService.timerWarning();
             }
-            prevTimeLeft.current = remaining;
+            prevTimeLeft.current = clampedRemaining;
+            
+            // 상태 업데이트 (항상 업데이트하여 막대그래프가 작동하도록)
+            setTimeLeft(clampedRemaining);
             
             // 아이템 시간이 초과되었는데 게임 상태가 여전히 아이템 모드인 경우
             // 싱글플레이에서는 서버의 게임 루프가 제대로 작동하지 않을 수 있으므로
@@ -334,25 +337,17 @@ const TurnDisplay: React.FC<TurnDisplayProps> = ({
                 {/* 전광판 스타일 텍스트 */}
                 <div className="w-full overflow-hidden flex-shrink-0 relative h-6">
                     <div 
-                        className={`font-bold ${textClass} tracking-wider text-[clamp(0.8rem,2.5vmin,1rem)] whitespace-nowrap absolute inset-0 flex items-center`}
+                        className={`font-bold ${textClass} tracking-wider text-[clamp(0.8rem,2.5vmin,1rem)] whitespace-nowrap absolute inset-0 flex items-center justify-center`}
                         style={{
-                            animation: timeLeft > 0 ? 'scroll 10s linear infinite' : 'none',
                             textShadow: '0 0 8px rgba(255, 255, 255, 0.5), 0 0 16px rgba(255, 255, 255, 0.3)'
                         }}
                     >
                         <span className="inline-block">{tickerText}</span>
-                        <span className="inline-block ml-8">{tickerText}</span>
                     </div>
                 </div>
                 <div className={`w-full bg-tertiary rounded-full h-[clamp(0.5rem,1.5vh,0.75rem)] relative overflow-hidden border-2 ${isSinglePlayer ? 'border-black/20' : 'border-tertiary'} flex-shrink-0`}>
                     <div className="absolute inset-0 bg-highlight rounded-full" style={{ width: `${percentage}%`, transition: 'width 0.5s linear' }}></div>
                 </div>
-                <style>{`
-                    @keyframes scroll {
-                        0% { transform: translateX(0); }
-                        100% { transform: translateX(-50%); }
-                    }
-                `}</style>
             </>
         );
     }

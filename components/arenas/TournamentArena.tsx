@@ -202,7 +202,7 @@ const TournamentArena: React.FC<TournamentArenaProps> = ({ type }) => {
                         currentUser={currentUserWithStatus}
                         onBack={async () => {
                             if (tournamentState.status === 'round_in_progress') {
-                                if (window.confirm('경기가 진행 중입니다. 현재 경기를 기권하시겠습니까? 현재 경기는 패배 처리됩니다.')) {
+                                if (window.confirm('경기를 포기하시겠습니까?')) {
                                     handlers.handleAction({ type: 'FORFEIT_CURRENT_MATCH', payload: { type } });
                                 }
                             } else {

@@ -7,10 +7,11 @@ interface DisconnectionModalProps {
 }
 
 const DisconnectionModal: React.FC<DisconnectionModalProps> = ({ session, currentUser }) => {
-    const { disconnectionState, player1, player2, disconnectionCounts } = session;
+    const { disconnectionState, player1, player2, disconnectionCounts, gameStatus } = session;
     const [timeLeft, setTimeLeft] = useState(90);
 
-    if (!disconnectionState) return null;
+    // 게임이 종료되었거나 disconnectionState가 없으면 모달 표시하지 않음
+    if (!disconnectionState || gameStatus === 'ended' || gameStatus === 'no_contest') return null;
 
     const disconnectedPlayer = disconnectionState.disconnectedPlayerId === player1.id ? player1 : player2;
     const isDisconnectedMe = disconnectedPlayer.id === currentUser.id;

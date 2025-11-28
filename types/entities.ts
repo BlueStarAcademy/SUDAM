@@ -691,6 +691,8 @@ export type LiveGameSession = {
   hiddenMoves?: { [moveIndex: number]: boolean };
   scans_p1?: number;
   scans_p2?: number;
+  hidden_stones_p1?: number;
+  hidden_stones_p2?: number;
   revealedHiddenMoves?: { [playerId: string]: number[] };
   newlyRevealed?: { point: Point, player: Player }[];
   justCaptured?: { point: Point; player: Player; wasHidden: boolean }[];

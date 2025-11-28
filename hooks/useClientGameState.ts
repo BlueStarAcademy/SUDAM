@@ -224,11 +224,15 @@ export function updateGameStateAfterMove(
         updatedTurnStartTime = Date.now();
     }
     
+    // 패 처리: 새로운 패가 발생하면 설정, 패가 발생하지 않으면 해제
+    // 패는 바로 다음 수에서만 유효하고, 그 이후에는 자동으로 해제됨
+    let finalKoInfo = newKoInfo || null;
+    
     // 게임 상태 업데이트
     const updatedGame: LiveGameSession = {
         ...game,
         boardState: newBoardState,
-        koInfo: newKoInfo,
+        koInfo: finalKoInfo,
         lastMove: { x, y },
         moveHistory: [...(game.moveHistory || []), { x, y, player: movePlayer }],
         captures: newCaptures,

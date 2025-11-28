@@ -3,6 +3,7 @@ import * as db from './db.js';
 // FIX: Import GameMode to resolve TS2304 error.
 import { type ServerAction, type User, type VolatileState, InventoryItem, Quest, QuestLog, Negotiation, Player, LeagueTier, TournamentType, GameMode } from '../types/index.js';
 import * as types from '../types/index.js';
+import { volatileState } from './state.js';
 import { isDifferentDayKST, isDifferentWeekKST, isDifferentMonthKST } from '../utils/timeUtils.js';
 import * as effectService from './effectService.js';
 import { regenerateActionPoints } from './effectService.js';
@@ -167,10 +168,11 @@ export const handleAction = async (volatileState: VolatileState, action: ServerA
     // user가 전달되지 않은 경우에만 DB에서 조회 (중복 쿼리 방지)
     let userData = user;
     if (!userData) {
-        userData = await db.getUser(action.userId);
-        if (!userData) {
+        const fetchedUser = await db.getUser(action.userId);
+        if (!fetchedUser) {
             return { error: 'User not found.' };
         }
+        userData = fetchedUser;
     }
     
 
@@ -218,12 +220,15 @@ export const handleAction = async (volatileState: VolatileState, action: ServerA
                 const { handleSinglePlayerAction } = await import('./actions/singlePlayerActions.js');
                 const result = await handleSinglePlayerAction(volatileState, action, userData);
                 // singlePlayerActions에서 이미 저장 및 브로드캐스트를 처리하므로 여기서는 결과만 반환
-                return result || { error: result?.error || 'Failed to process single player missile action.' };
+                if (result && (result as any).error) {
+                    return result;
+                }
+                return result || { error: 'Failed to process single player missile action.' };
             }
         }
         
         // 싱글플레이 자동 계가 트리거 (PLACE_STONE with triggerAutoScoring) 처리
-        if (type === 'PLACE_STONE' && payload?.triggerAutoScoring && gameId.startsWith('sp-game-')) {
+        if (type === 'PLACE_STONE' && (payload as any)?.triggerAutoScoring && gameId.startsWith('sp-game-')) {
             // 싱글플레이 게임은 메모리 캐시에서 먼저 찾기
             const { getCachedGame } = await import('./gameCache.js');
             let game = await getCachedGame(gameId);
@@ -234,15 +239,81 @@ export const handleAction = async (volatileState: VolatileState, action: ServerA
             if (!game || !game.isSinglePlayer) {
                 return { error: 'Invalid single player game.' };
             }
-            // handleStandardAction을 통해 처리 (싱글플레이 게임도 표준 액션 핸들러 사용)
-            const { handleStandardAction } = await import('./modes/standard.js');
-            return await handleStandardAction(volatileState, game, action, userData);
+            // handleStrategicGameAction을 통해 처리 (싱글플레이 게임도 전략 액션 핸들러 사용)
+            const { handleStrategicGameAction } = await import('./modes/strategic.js');
+            const result = await handleStrategicGameAction(volatileState, game, action, userData);
+            return result || {};
+        }
+        
+        // 싱글플레이 게임의 히든바둑 액션은 먼저 처리 (게임을 찾기 전에)
+        const actionTypeStr = type as string;
+        if (actionTypeStr === 'START_HIDDEN_PLACEMENT' || actionTypeStr === 'START_SCANNING' || actionTypeStr === 'SCAN_BOARD') {
+            // 싱글플레이 게임은 캐시에서 직접 찾기 (DB에 저장되지 않을 수 있음)
+            const { getCachedGame } = await import('./gameCache.js');
+            let game = await getCachedGame(gameId);
+            
+            // 싱글플레이어 게임의 경우 캐시에서 직접 확인 (TTL 무시)
+            if (!game && gameId.startsWith('sp-game-')) {
+                const cache = volatileState.gameCache;
+                if (cache) {
+                    const cached = cache.get(gameId);
+                    if (cached) {
+                        console.log(`[handleAction] Found single player game in cache (expired TTL): gameId=${gameId}, gameStatus=${cached.game.gameStatus}`);
+                        game = cached.game;
+                        // 캐시 갱신
+                        const { updateGameCache } = await import('./gameCache.js');
+                        updateGameCache(game);
+                    }
+                }
+            }
+            
+            // 여전히 없으면 DB에서 찾기
+            if (!game) {
+                game = await db.getLiveGame(gameId);
+            }
+            
+            if (!game) {
+                console.error(`[handleAction] Game not found: gameId=${gameId}, type=${type}`);
+                return { error: 'Game not found.' };
+            }
+            
+            if (game.isSinglePlayer) {
+                // PLACE_STONE은 히든 아이템 사용 시 서버에서 처리해야 함
+                const actionType = type as string;
+                if (actionType === 'PLACE_STONE' && (game.gameStatus === 'hidden_placing' || (payload as any)?.isHidden)) {
+                    console.log(`[handleAction] Processing single player PLACE_STONE with hidden item: type=${type}, gameId=${gameId}, gameStatus=${game.gameStatus}, isHidden=${(payload as any)?.isHidden}`);
+                    // strategic 모드 핸들러로 라우팅 (히든 아이템 처리 포함)
+                    if (SPECIAL_GAME_MODES.some(m => m.mode === game.mode)) {
+                        const { handleStrategicGameAction } = await import('./modes/strategic.js');
+                        const { updateGameCache } = await import('./gameCache.js');
+                        const result = await handleStrategicGameAction(volatileState, game, action, userData);
+                        if (result && !result.error) {
+                            updateGameCache(game);
+                            await db.saveGame(game);
+                            const { broadcastToGameParticipants } = await import('./socket.js');
+                            broadcastToGameParticipants(game.id, { type: 'GAME_UPDATE', payload: { [game.id]: game } }, game);
+                        }
+                        return result || {};
+                    }
+                }
+                console.log(`[handleAction] Processing single player action: type=${type}, gameId=${gameId}, gameStatus=${game.gameStatus}`);
+                const { handleSinglePlayerAction } = await import('./actions/singlePlayerActions.js');
+                const singlePlayerResult = await handleSinglePlayerAction(volatileState, action, userData);
+                console.log(`[handleAction] Single player action result:`, singlePlayerResult);
+                // singlePlayerActions.ts에서 이미 저장 및 브로드캐스트를 처리하므로 여기서는 결과만 반환
+                return singlePlayerResult || {};
+            }
         }
         
         // 캐시를 사용하여 DB 조회 최소화
         const { getCachedGame, updateGameCache } = await import('./gameCache.js');
         const game = await getCachedGame(gameId);
-        if (!game) return { error: 'Game not found.' };
+        if (!game) {
+            console.error(`[handleAction] Game not found: gameId=${gameId}, type=${type}`);
+            return { error: 'Game not found.' };
+        }
+        
+        console.log(`[handleAction] Game found: gameId=${gameId}, type=${type}, isSinglePlayer=${game.isSinglePlayer}, gameStatus=${game.gameStatus}`);
         
         // PVE 게임 (타워, 싱글플레이어, AI 게임)의 착수 액션은 클라이언트에서만 처리
         const isPVEGame = game.gameCategory === 'tower' || game.gameCategory === 'singleplayer' || game.isSinglePlayer || game.isAiGame;
@@ -358,25 +429,6 @@ export const handleAction = async (volatileState: VolatileState, action: ServerA
         }
         
         let result: HandleActionResult | null | undefined = null;
-        
-        // 싱글플레이 게임의 히든바둑 액션 처리
-        if (game.isSinglePlayer && (type === 'START_HIDDEN_PLACEMENT' || type === 'START_SCANNING' || type === 'SCAN_BOARD')) {
-            const { handleSinglePlayerAction } = await import('./actions/singlePlayerActions.js');
-            const singlePlayerResult = await handleSinglePlayerAction(volatileState, action, userData);
-            if (singlePlayerResult !== null && singlePlayerResult !== undefined) {
-                const { getCachedGame, updateGameCache } = await import('./gameCache.js');
-                const updatedGame = await getCachedGame(gameId);
-                if (updatedGame) {
-                    updateGameCache(updatedGame);
-                    db.saveGame(updatedGame).catch(err => {
-                        console.error(`[GameActions] Failed to save game ${updatedGame.id}:`, err);
-                    });
-                    const { broadcastToGameParticipants } = await import('./socket.js');
-                    broadcastToGameParticipants(updatedGame.id, { type: 'GAME_UPDATE', payload: { [updatedGame.id]: updatedGame } }, updatedGame);
-                }
-            }
-            return singlePlayerResult || {};
-        }
         
         if (SPECIAL_GAME_MODES.some(m => m.mode === game.mode)) {
             result = await handleStrategicGameAction(volatileState, game, action, userData);

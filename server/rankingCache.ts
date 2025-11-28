@@ -110,12 +110,14 @@ export async function buildRankingCache(): Promise<RankingCache> {
         return rankingCache;
     } catch (error) {
         console.error('[RankingCache] Error building ranking cache:', error);
+        console.error('[RankingCache] Error stack:', (error as Error)?.stack);
         // 에러 발생 시 기존 캐시 반환 또는 빈 캐시 반환
         if (rankingCache) {
             console.warn('[RankingCache] Returning stale cache due to error');
             return rankingCache;
         }
         // 캐시가 없으면 빈 캐시 반환
+        const errorNow = Date.now();
         return {
             strategic: [],
             playful: [],
@@ -124,7 +126,7 @@ export async function buildRankingCache(): Promise<RankingCache> {
             manner: [],
             strategicSeason: [],
             playfulSeason: [],
-            timestamp: now
+            timestamp: errorNow
         };
     }
 }

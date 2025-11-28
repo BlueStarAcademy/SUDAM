@@ -300,12 +300,17 @@ const handleStandardAction = async (volatileState: types.VolatileState, game: ty
             }
             
             if (isHidden) {
-                const hiddenKey = user.id === game.player1.id ? 'hidden_stones_used_p1' : 'hidden_stones_used_p2';
-                const usedCount = game[hiddenKey] || 0;
-                if (usedCount >= game.settings.hiddenStoneCount!) {
+                // 히든 아이템 개수 확인 및 감소 (스캔 아이템처럼)
+                const hiddenKey = user.id === game.player1.id ? 'hidden_stones_p1' : 'hidden_stones_p2';
+                const currentHidden = game[hiddenKey] ?? 0;
+                if (currentHidden <= 0) {
                     return { error: "No hidden stones left." };
                 }
-                game[hiddenKey] = usedCount + 1;
+                game[hiddenKey] = currentHidden - 1;
+                
+                // 사용 횟수도 추적 (통계용)
+                const usedKey = user.id === game.player1.id ? 'hidden_stones_used_p1' : 'hidden_stones_used_p2';
+                game[usedKey] = (game[usedKey] || 0) + 1;
             }
 
             const result = processMove(
@@ -430,6 +435,18 @@ const handleStandardAction = async (volatileState: types.VolatileState, game: ty
                     game.turnDeadline = undefined;
                     game.turnStartTime = undefined;
                 }
+                
+                // 히든 아이템 사용 후 게임 상태 복원 (싱글플레이어)
+                if (game.isSinglePlayer && game.gameStatus === 'hidden_reveal_animating') {
+                    // 애니메이션 후 playing으로 변경되지만, itemUseDeadline은 지금 초기화
+                    game.itemUseDeadline = undefined;
+                    if (game.pausedTurnTimeLeft) {
+                        const currentPlayerTimeKey = myPlayerEnum === types.Player.Black ? 'blackTimeLeft' : 'whiteTimeLeft';
+                        game[currentPlayerTimeKey] = game.pausedTurnTimeLeft;
+                        game.pausedTurnTimeLeft = undefined;
+                    }
+                }
+                
                 return {};
             }
 
@@ -444,6 +461,7 @@ const handleStandardAction = async (volatileState: types.VolatileState, game: ty
             if (isHidden) {
                 if (!game.hiddenMoves) game.hiddenMoves = {};
                 game.hiddenMoves[game.moveHistory.length - 1] = true;
+                console.log(`[handleStandardAction] Hidden stone placed at (${x}, ${y}), moveIndex=${game.moveHistory.length - 1}, gameId=${game.id}`);
             }
 
             if (result.capturedStones.length > 0) {
@@ -504,9 +522,24 @@ const handleStandardAction = async (volatileState: types.VolatileState, game: ty
             game.currentPlayer = opponentPlayerEnum;
             game.missileUsedThisTurn = false;
             
-            game.gameStatus = 'playing';
-            game.itemUseDeadline = undefined;
-            game.pausedTurnTimeLeft = undefined;
+            // 히든 아이템 사용 후 게임 상태 복원 (싱글플레이어)
+            // 턴 전환 후에 상태 복원 (currentPlayer 변경 후)
+            const wasHiddenPlacing = game.gameStatus === 'hidden_placing';
+            if (game.isSinglePlayer && wasHiddenPlacing) {
+                console.log(`[handleStandardAction] Restoring game state after hidden placement, gameId=${game.id}, isHidden=${isHidden}`);
+                game.gameStatus = 'playing';
+                game.itemUseDeadline = undefined;
+                // pausedTurnTimeLeft는 이미 시간 계산에 사용되었으므로 undefined로 설정
+                game.pausedTurnTimeLeft = undefined;
+            } else if (wasHiddenPlacing) {
+                game.gameStatus = 'playing';
+                game.itemUseDeadline = undefined;
+                game.pausedTurnTimeLeft = undefined;
+            } else {
+                game.gameStatus = 'playing';
+                game.itemUseDeadline = undefined;
+                game.pausedTurnTimeLeft = undefined;
+            }
 
 
             if (game.settings.timeLimit > 0) {

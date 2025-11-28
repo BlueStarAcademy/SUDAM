@@ -450,6 +450,10 @@ export const endGame = async (game: LiveGameSession, winner: Player, winReason: 
     game.winReason = winReason;
     game.gameStatus = 'ended';
     
+    // 게임 종료 시 disconnectionState 제거 (재접속중 화면 방지)
+    game.disconnectionState = null;
+    game.disconnectionCounts = {};
+    
     // 디버깅: 승자 설정 로그
     console.log(`[endGame] Game ${game.id} ended: winner=${winner === Player.Black ? 'Black' : winner === Player.White ? 'White' : 'None'}, winReason=${winReason}, finalScores=${JSON.stringify(game.finalScores)}`);
     game.isEarlyTermination = isEarlyTermination; // 조기 종료 플래그

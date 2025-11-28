@@ -111,7 +111,7 @@ const GameModals: React.FC<GameModalsProps> = (props) => {
     const confirmModalContent = {
         resign: {
             title: "기권 확인",
-            message: "정말로 기권하시겠습니까? 기권패로 처리됩니다.",
+            message: "경기를 포기하시겠습니까?",
             confirmText: "기권",
             onConfirm: () => onAction({ type: 'RESIGN_GAME', payload: { gameId } }),
         },

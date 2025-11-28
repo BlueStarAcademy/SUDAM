@@ -1,7 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { GameProps, Player } from '../../types.js';
 import Button from '../Button.js';
 import { SINGLE_PLAYER_STAGES } from '../../constants';
+import AlertModal from '../AlertModal.js';
+import ConfirmModal from '../ConfirmModal.js';
 
 interface SinglePlayerControlsProps extends Pick<GameProps, 'session' | 'onAction' | 'currentUser'> {
     setShowResultModal?: (show: boolean) => void;
@@ -69,6 +71,8 @@ const ItemImageButton: React.FC<ItemImageButtonProps> = ({ src, alt, onClick, di
 };
 
 const SinglePlayerControls: React.FC<SinglePlayerControlsProps> = ({ session, onAction, currentUser, setShowResultModal }) => {
+    const [alertModal, setAlertModal] = useState<{ title?: string; message: string } | null>(null);
+    const [confirmModal, setConfirmModal] = useState<{ title?: string; message: string; onConfirm: () => void } | null>(null);
     
     if (session.gameStatus === 'ended' || session.gameStatus === 'no_contest') {
         const isWinner = session.winner === Player.Black;
@@ -96,7 +100,7 @@ const SinglePlayerControls: React.FC<SinglePlayerControlsProps> = ({ session, on
                 }
             } catch (error) {
                 console.error('[SinglePlayerControls] Failed to retry stage:', error);
-                window.alert('재도전에 실패했습니다. 다시 시도해주세요.');
+                setAlertModal({ message: '재도전에 실패했습니다. 다시 시도해주세요.' });
             }
         };
         const handleNextStage = async () => {
@@ -119,7 +123,7 @@ const SinglePlayerControls: React.FC<SinglePlayerControlsProps> = ({ session, on
                 }
             } catch (error) {
                 console.error('[SinglePlayerControls] Failed to start next stage:', error);
-                window.alert('다음 단계 시작에 실패했습니다. 다시 시도해주세요.');
+                setAlertModal({ message: '다음 단계 시작에 실패했습니다. 다시 시도해주세요.' });
             }
         };
         const handleExitToLobby = async () => {
@@ -174,16 +178,23 @@ const SinglePlayerControls: React.FC<SinglePlayerControlsProps> = ({ session, on
             const confirmationMessage = nextCost > 0
                 ? `${nextCost.toLocaleString()} 골드를 사용하여 배치를 다시 섞으시겠습니까? (남은 재배치 ${remainingRefreshes}/5)`
                 : '첫 재배치는 무료입니다. 배치를 다시 섞으시겠습니까?';
-            if (window.confirm(confirmationMessage)) {
-                onAction({ type: 'SINGLE_PLAYER_REFRESH_PLACEMENT', payload: { gameId: session.id } });
-            }
+            setConfirmModal({
+                message: confirmationMessage,
+                onConfirm: () => {
+                    onAction({ type: 'SINGLE_PLAYER_REFRESH_PLACEMENT', payload: { gameId: session.id } });
+                }
+            });
         }
     };
 
     const handleForfeit = () => {
-        if (window.confirm('현재 스테이지를 포기하고 로비로 돌아가시겠습니까?')) {
-            window.location.hash = '#/singleplayer';
-        }
+        setConfirmModal({
+            title: '기권 확인',
+            message: '경기를 포기하시겠습니까?',
+            onConfirm: () => {
+                onAction({ type: 'RESIGN_GAME', payload: { gameId: session.id } });
+            }
+        });
     };
 
     // 게임 모드별 아이템 로직
@@ -197,9 +208,8 @@ const SinglePlayerControls: React.FC<SinglePlayerControlsProps> = ({ session, on
     const isMyTurn = session.currentPlayer === Player.Black; // 싱글플레이어에서는 유저가 항상 흑
     const gameStatus = session.gameStatus;
     
-    // 히든 아이템
-    const myHiddenUsed = session.hidden_stones_used_p1 ?? 0;
-    const hiddenLeft = Math.max(0, hiddenCountSetting - myHiddenUsed);
+    // 히든 아이템 (스캔 아이템처럼 개수 기반)
+    const hiddenLeft = session.hidden_stones_p1 ?? hiddenCountSetting;
     const hiddenDisabled = !isMyTurn || gameStatus !== 'playing' || hiddenLeft <= 0;
     
     const handleUseHidden = React.useCallback(() => {
@@ -331,6 +341,28 @@ const SinglePlayerControls: React.FC<SinglePlayerControlsProps> = ({ session, on
                     />
                 )}
             </div>
+            
+            {alertModal && (
+                <AlertModal
+                    title={alertModal.title}
+                    message={alertModal.message}
+                    onClose={() => setAlertModal(null)}
+                />
+            )}
+            
+            {confirmModal && (
+                <ConfirmModal
+                    title={confirmModal.title || '확인'}
+                    message={confirmModal.message}
+                    onConfirm={confirmModal.onConfirm}
+                    onCancel={() => setConfirmModal(null)}
+                    confirmText="확인"
+                    cancelText="취소"
+                    confirmColorScheme="red"
+                    isTopmost={true}
+                    windowId="singleplayer-confirm-modal"
+                />
+            )}
         </div>
     );
 };

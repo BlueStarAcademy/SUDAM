@@ -489,9 +489,10 @@ const GameControls: React.FC<GameControlsProps> = (props) => {
         // 미사일 모드: 게임 모드가 Missile이거나, 싱글플레이에서 missileCount가 설정된 경우
         const isMissileMode = (mode === GameMode.Missile || (mode === GameMode.Mix && (session.settings.mixedModes || []).includes(GameMode.Missile))) || (session.isSinglePlayer && (missileCountSetting > 0 || (session.settings as any)?.missileCount > 0));
         const p1Id = session.player1.id;
-        const myHiddenUsed = currentUser.id === p1Id ? (session.hidden_stones_used_p1 ?? 0) : (session.hidden_stones_used_p2 ?? 0);
-        const totalHiddenAvailable = hiddenCountSetting;
-        const hiddenLeft = Math.max(0, totalHiddenAvailable - myHiddenUsed);
+        // 히든 아이템 (스캔 아이템처럼 개수 기반)
+        const hiddenLeft = currentUser.id === p1Id 
+            ? (session.hidden_stones_p1 ?? hiddenCountSetting)
+            : (session.hidden_stones_p2 ?? hiddenCountSetting);
         const myScansLeft = currentUser.id === p1Id
             ? (session.scans_p1 ?? scanCountSetting)
             : (session.scans_p2 ?? scanCountSetting);
@@ -627,7 +628,7 @@ const GameControls: React.FC<GameControlsProps> = (props) => {
                 }
                 return;
             }
-            if (window.confirm('기권하시겠습니까? (스테이지 실패)')) {
+            if (window.confirm('경기를 포기하시겠습니까?')) {
                 onAction({ type: 'RESIGN_GAME', payload: { gameId } } as ServerAction);
             }
         };
@@ -685,8 +686,10 @@ const GameControls: React.FC<GameControlsProps> = (props) => {
         const isHiddenMode = session.isSinglePlayer && hiddenCountSetting > 0;
         const isMissileMode = session.isSinglePlayer && missileCountSetting > 0;
         const p1Id = session.player1.id;
-        const myHiddenUsed = currentUser.id === p1Id ? (session.hidden_stones_used_p1 ?? 0) : (session.hidden_stones_used_p2 ?? 0);
-        const hiddenLeft = Math.max(0, hiddenCountSetting - myHiddenUsed);
+        // 히든 아이템 (스캔 아이템처럼 개수 기반)
+        const hiddenLeft = currentUser.id === p1Id 
+            ? (session.hidden_stones_p1 ?? hiddenCountSetting)
+            : (session.hidden_stones_p2 ?? hiddenCountSetting);
         const myScansLeft = currentUser.id === p1Id ? (session.scans_p1 ?? scanCountSetting) : (session.scans_p2 ?? scanCountSetting);
         const myMissilesLeft = currentUser.id === p1Id ? (session.missiles_p1 ?? missileCountSetting) : (session.missiles_p2 ?? missileCountSetting);
 

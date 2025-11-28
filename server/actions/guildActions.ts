@@ -77,7 +77,8 @@ export const handleGuildAction = async (volatileState: VolatileState, action: Se
 
     switch (type) {
         case 'CREATE_GUILD': {
-            const { name, description, isPublic } = payload;
+            try {
+                const { name, description, isPublic, joinType } = payload;
             
             // Validate name
             if (!name || typeof name !== 'string') {
@@ -209,10 +210,15 @@ export const handleGuildAction = async (volatileState: VolatileState, action: Se
             const { broadcastUserUpdate } = await import('../socket.js');
             broadcastUserUpdate(user, ['guildId', 'diamonds']);
             
-            return { clientResponse: { guild: newGuild, updatedUser: user } };
+                return { clientResponse: { guild: newGuild, updatedUser: user } };
+            } catch (error: any) {
+                console.error('[CREATE_GUILD] 오류:', error);
+                return { error: error.message || '길드 창설에 실패했습니다.' };
+            }
         }
         
         case 'JOIN_GUILD': {
+            try {
             const { guildId } = payload;
             const guild = guilds[guildId];
 
@@ -271,9 +277,85 @@ export const handleGuildAction = async (volatileState: VolatileState, action: Se
 
             // WebSocket?�로 ?�용???�데?�트 브로?�캐?�트 (최적?�된 ?�수 ?�용)
             const { broadcastUserUpdate } = await import('../socket.js');
-            broadcastUserUpdate(user, ['guildId', 'guildApplications']);
-            
-            return { clientResponse: { updatedUser: user } };
+                broadcastUserUpdate(user, ['guildId', 'guildApplications']);
+                
+                return { clientResponse: { updatedUser: user } };
+            } catch (error: any) {
+                console.error('[JOIN_GUILD] 오류:', error);
+                return { error: error.message || '길드 가입에 실패했습니다.' };
+            }
+        }
+        
+        case 'LIST_GUILDS': {
+            try {
+                const { searchQuery, limit } = payload;
+                const query = searchQuery?.trim() || '';
+                const limitNum = limit || 100;
+                
+                // Prisma를 통해 길드 목록 조회
+                const dbGuilds = await guildRepo.listGuilds(query, limitNum);
+                
+                // KV store의 길드 데이터와 병합
+                const resultGuilds = await Promise.all(
+                    dbGuilds.map(async (dbGuild) => {
+                        const kvGuild = guilds[dbGuild.id];
+                        if (kvGuild) {
+                            // KV store에 있으면 KV 데이터 사용
+                            return {
+                                id: kvGuild.id,
+                                name: kvGuild.name,
+                                description: kvGuild.description || undefined,
+                                icon: kvGuild.icon?.startsWith('/images/guild/icon') 
+                                    ? kvGuild.icon.replace('/images/guild/icon', '/images/guild/profile/icon')
+                                    : (kvGuild.icon || '/images/guild/profile/icon1.png'),
+                                level: kvGuild.level,
+                                memberCount: kvGuild.members?.length || 0,
+                                memberLimit: kvGuild.memberLimit || 30,
+                                isPublic: kvGuild.isPublic !== false,
+                            };
+                        } else {
+                            // KV store에 없으면 DB 데이터 사용
+                            const dbIcon = dbGuild.emblem || '/images/guild/profile/icon1.png';
+                            const dbSettings = (dbGuild.settings as any) || {};
+                            const dbIsPublic = dbSettings.isPublic !== undefined ? dbSettings.isPublic : true;
+                            
+                            return {
+                                id: dbGuild.id,
+                                name: dbGuild.name,
+                                description: dbGuild.description || undefined,
+                                icon: dbIcon.startsWith('/images/guild/icon') 
+                                    ? dbIcon.replace('/images/guild/icon', '/images/guild/profile/icon')
+                                    : dbIcon,
+                                level: dbGuild.level,
+                                memberCount: dbGuild.memberCount,
+                                memberLimit: 30,
+                                isPublic: dbIsPublic,
+                            };
+                        }
+                    })
+                );
+                
+                // 공개 길드만 필터링
+                const filteredGuilds = resultGuilds.filter(g => g.isPublic !== false);
+                
+                // 정렬: 레벨 내림차순, 이름 오름차순
+                filteredGuilds.sort((a, b) => {
+                    if (b.level !== a.level) return b.level - a.level;
+                    return a.name.localeCompare(b.name);
+                });
+                
+                return { 
+                    clientResponse: { 
+                        guilds: filteredGuilds,
+                        total: filteredGuilds.length
+                    } 
+                };
+            } catch (error: any) {
+                console.error('[LIST_GUILDS] 오류:', error);
+                return { 
+                    error: error.message || '길드 목록을 불러오는데 실패했습니다.' 
+                };
+            }
         }
 
         case 'GUILD_CANCEL_APPLICATION': {

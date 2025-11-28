@@ -134,7 +134,7 @@ const TowerControls: React.FC<TowerControlsProps> = ({ session, onAction, curren
     };
 
     const handleForfeit = () => {
-        if (window.confirm('현재 층을 포기하고 로비로 돌아가시겠습니까?')) {
+        if (window.confirm('경기를 포기하시겠습니까?')) {
             window.location.hash = '#/tower';
         }
     };
@@ -176,8 +176,8 @@ const TowerControls: React.FC<TowerControlsProps> = ({ session, onAction, curren
     // 히든 아이템 (21층 이상, 최대 2개) - 로비 인벤토리와 동기화
     const hiddenCount = showMissileAndHidden ? getItemCount('히든') || getItemCount('hidden') : 0;
     const hiddenMaxCount = 2;
-    const myHiddenUsed = session.hidden_stones_used_p1 ?? 0;
-    const hiddenLeft = Math.max(0, hiddenCount - myHiddenUsed);
+    // 히든 아이템 (스캔 아이템처럼 개수 기반)
+    const hiddenLeft = session.hidden_stones_p1 ?? hiddenCount;
     const hiddenDisabled = !isMyTurn || gameStatus !== 'playing' || hiddenLeft <= 0;
     
     const handleUseHidden = () => {
