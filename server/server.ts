@@ -412,6 +412,17 @@ const startServer = async () => {
         console.log(`[Server] Server listening on port ${port}`);
         console.log(`[Server] Process PID: ${process.pid}`);
         console.log(`[Server] Node version: ${process.version}`);
+        
+        // 즉시 메모리 사용량 로그 출력 (크래시 진단용)
+        const initialMemUsage = process.memoryUsage();
+        const initialMemMB = {
+            rss: Math.round(initialMemUsage.rss / 1024 / 1024),
+            heapTotal: Math.round(initialMemUsage.heapTotal / 1024 / 1024),
+            heapUsed: Math.round(initialMemUsage.heapUsed / 1024 / 1024),
+            external: Math.round(initialMemUsage.external / 1024 / 1024)
+        };
+        console.log(`[Server] Initial memory usage: RSS=${initialMemMB.rss}MB, Heap=${initialMemMB.heapUsed}/${initialMemMB.heapTotal}MB, External=${initialMemMB.external}MB`);
+        
         isServerReady = true;
         console.log('[Server] Server is ready and accepting connections');
         console.log(`[Server] Railway environment: ${process.env.RAILWAY_ENVIRONMENT || 'not set'}`);
