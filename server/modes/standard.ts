@@ -270,6 +270,19 @@ const handleStandardAction = async (volatileState: types.VolatileState, game: ty
 
             const { x, y, isHidden, boardState: clientBoardState, moveHistory: clientMoveHistory } = payload;
             
+            // 치명적 버그 방지: 패 위치(-1, -1)에 돌을 놓으려는 시도 차단
+            if (x === -1 || y === -1) {
+                console.error(`[handleStandardAction] CRITICAL BUG PREVENTION: Attempted to place stone at pass position (${x}, ${y}), gameId=${game.id}, isSinglePlayer=${game.isSinglePlayer}, gameCategory=${game.gameCategory}`);
+                return { error: '패 위치에는 돌을 놓을 수 없습니다. 패를 하려면 PASS_TURN 액션을 사용하세요.' };
+            }
+            
+            // 치명적 버그 방지: 보드 범위를 벗어나는 위치에 돌을 놓으려는 시도 차단
+            const boardSize = game.settings.boardSize;
+            if (x < 0 || x >= boardSize || y < 0 || y >= boardSize) {
+                console.error(`[handleStandardAction] CRITICAL BUG PREVENTION: Attempted to place stone out of bounds (${x}, ${y}), boardSize=${boardSize}, gameId=${game.id}, isSinglePlayer=${game.isSinglePlayer}, gameCategory=${game.gameCategory}`);
+                return { error: `보드 범위를 벗어난 위치입니다. (${x}, ${y})는 유효하지 않습니다.` };
+            }
+            
             const opponentPlayerEnum = myPlayerEnum === types.Player.Black ? types.Player.White : (myPlayerEnum === types.Player.White ? types.Player.Black : types.Player.None);
             
             // 싱글플레이 모드에서는 서버의 실제 boardState를 기준으로 체크 (클라이언트 boardState를 신뢰하지 않음)
@@ -277,8 +290,8 @@ const handleStandardAction = async (volatileState: types.VolatileState, game: ty
             let serverBoardState = game.boardState;
             let serverMoveHistory = game.moveHistory;
             
-            if (game.isSinglePlayer) {
-                // 싱글플레이에서는 서버의 실제 boardState를 사용
+            if (game.isSinglePlayer || game.gameCategory === 'tower') {
+                // 싱글플레이 또는 도전의 탑에서는 서버의 실제 boardState를 사용
                 const { getLiveGame } = await import('../db.js');
                 const freshGame = await getLiveGame(game.id);
                 if (freshGame) {
@@ -287,6 +300,7 @@ const handleStandardAction = async (volatileState: types.VolatileState, game: ty
                 }
             }
             
+            // 범위 체크 후에만 boardState에 접근
             const stoneAtTarget = serverBoardState[y][x];
             
             // 싱글플레이 모드에서 AI가 둔 자리 체크 (서버 boardState 기준) - 반드시 먼저 체크
@@ -431,7 +445,17 @@ const handleStandardAction = async (volatileState: types.VolatileState, game: ty
             }
 
             if (!result.isValid) {
-                return { error: `Invalid move: ${result.reason}` };
+                // 착수금지 이유에 따른 명확한 에러 메시지
+                let errorMessage = '착수할 수 없는 위치입니다.';
+                if (result.reason === 'ko') {
+                    errorMessage = '패 모양입니다. 바로 다시 따낼 수 없습니다.';
+                } else if (result.reason === 'suicide') {
+                    errorMessage = '자충수입니다. 자신의 돌이 죽는 수는 둘 수 없습니다.';
+                } else if (result.reason === 'occupied') {
+                    errorMessage = '이미 돌이 놓인 자리입니다.';
+                }
+                console.error(`[handleStandardAction] Invalid move at (${x}, ${y}), reason=${result.reason}, gameId=${game.id}, isSinglePlayer=${game.isSinglePlayer}, gameCategory=${game.gameCategory}`);
+                return { error: errorMessage };
             }
             
             const contributingHiddenStones: { point: types.Point, player: types.Player }[] = [];

@@ -21,16 +21,51 @@ export function processMoveClient(
     move: { x: number, y: number, player: Player },
     koInfo: { point: Point; turn: number } | null,
     moveHistoryLength: number,
-    options?: { ignoreSuicide?: boolean }
+    options?: { ignoreSuicide?: boolean, isSinglePlayer?: boolean, opponentPlayer?: Player }
 ): ProcessMoveResult {
     const { x, y, player } = move;
     const boardSize = boardState.length;
     const opponent = player === Player.Black ? Player.White : Player.Black;
 
-    if (y < 0 || y >= boardSize || x < 0 || x >= boardSize || boardState[y][x] !== Player.None) {
+    // 치명적 버그 방지: 패 위치(-1, -1)에 돌을 놓으려는 시도 차단
+    if (x === -1 || y === -1) {
+        console.error(`[processMoveClient] CRITICAL BUG PREVENTION: Attempted to place stone at pass position (${x}, ${y}), player=${player}`);
+        return { isValid: false, reason: 'occupied', newBoardState: boardState, capturedStones: [], newKoInfo: koInfo };
+    }
+
+    // 치명적 버그 방지: 보드 범위를 벗어나는 위치에 돌을 놓으려는 시도 차단
+    if (y < 0 || y >= boardSize || x < 0 || x >= boardSize) {
+        console.error(`[processMoveClient] CRITICAL BUG PREVENTION: Attempted to place stone out of bounds (${x}, ${y}), boardSize=${boardSize}, player=${player}`);
+        return { isValid: false, reason: 'occupied', newBoardState: boardState, capturedStones: [], newKoInfo: koInfo };
+    }
+
+    // 치명적 버그 방지: 자신의 돌 위에 착점하는 것을 최우선으로 차단
+    const stoneAtPosition = boardState[y][x];
+    if (stoneAtPosition === player) {
+        console.error(`[processMoveClient] CRITICAL BUG PREVENTION: Attempted to place stone on own stone at (${x}, ${y}), player=${player}, boardState[${y}][${x}]=${stoneAtPosition}`);
         return { isValid: false, reason: 'occupied', newBoardState: boardState, capturedStones: [], newKoInfo: koInfo };
     }
     
+    // 싱글플레이 모드에서 상대방(AI) 돌 위에 놓는 것을 차단
+    if (options?.isSinglePlayer && options?.opponentPlayer) {
+        if (stoneAtPosition === options.opponentPlayer) {
+            console.error(`[processMoveClient] CRITICAL BUG PREVENTION: Attempted to place stone on opponent (AI) stone in single player mode at (${x}, ${y}), player=${player}, opponent=${options.opponentPlayer}, boardState[${y}][${x}]=${stoneAtPosition}`);
+            return { isValid: false, reason: 'occupied', newBoardState: boardState, capturedStones: [], newKoInfo: koInfo };
+        }
+    }
+
+    // PVP 모드에서도 상대방 돌 위에 착점하는 것을 명시적으로 차단
+    if (!options?.isSinglePlayer && stoneAtPosition === opponent) {
+        console.error(`[processMoveClient] CRITICAL BUG PREVENTION: Attempted to place stone on opponent stone in PVP mode at (${x}, ${y}), player=${player}, opponent=${opponent}, boardState[${y}][${x}]=${stoneAtPosition}`);
+        return { isValid: false, reason: 'occupied', newBoardState: boardState, capturedStones: [], newKoInfo: koInfo };
+    }
+
+    // 일반적인 빈 칸 체크 (모든 경우에 적용)
+    if (stoneAtPosition !== Player.None) {
+        return { isValid: false, reason: 'occupied', newBoardState: boardState, capturedStones: [], newKoInfo: koInfo };
+    }
+    
+    // 코 금지 체크
     if (koInfo && koInfo.point.x === x && koInfo.point.y === y && koInfo.turn === moveHistoryLength) {
         return { isValid: false, reason: 'ko', newBoardState: boardState, capturedStones: [], newKoInfo: koInfo };
     }

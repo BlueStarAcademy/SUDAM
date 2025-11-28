@@ -386,40 +386,55 @@ const Game: React.FC<GameComponentProps> = ({ session }) => {
                     return;
                 }
                 
-                // 클라이언트에서 move 처리 (검증 없이 무조건 실행)
+                // 치명적 버그 방지: 패 위치(-1, -1)에 돌을 놓으려는 시도 차단
+                if (x === -1 || y === -1) {
+                    console.error(`[Game] ${isTower ? 'Tower' : 'Single player'} game - CRITICAL BUG PREVENTION: Attempted to place stone at pass position (${x}, ${y})`);
+                    // TODO: 에러 메시지를 사용자에게 표시
+                    return;
+                }
+
+                // 치명적 버그 방지: 보드 범위를 벗어나는 위치에 돌을 놓으려는 시도 차단
+                const boardSize = session.settings.boardSize;
+                if (x < 0 || x >= boardSize || y < 0 || y >= boardSize) {
+                    console.error(`[Game] ${isTower ? 'Tower' : 'Single player'} game - CRITICAL BUG PREVENTION: Attempted to place stone out of bounds (${x}, ${y}), boardSize=${boardSize}`);
+                    // TODO: 에러 메시지를 사용자에게 표시
+                    return;
+                }
+
+                // 싱글플레이/도전의 탑에서 AI 돌 위에 착점하는 것 차단
+                const opponentPlayerEnum = myPlayerEnum === Player.Black ? Player.White : Player.Black;
+                const stoneAtTarget = boardStateToUse[y][x];
+                if ((isSinglePlayer || isTower) && stoneAtTarget === opponentPlayerEnum) {
+                    console.error(`[Game] ${isTower ? 'Tower' : 'Single player'} game - CRITICAL BUG PREVENTION: Attempted to place stone on AI stone at (${x}, ${y})`);
+                    // TODO: 에러 메시지를 사용자에게 표시
+                    return;
+                }
+
+                // 클라이언트에서 move 처리 (바둑 규칙 검증 적용)
                 let moveResult;
                 try {
                     moveResult = processMoveClient(
                         boardStateToUse,
                         { x, y, player: myPlayerEnum },
                         session.koInfo,
-                        session.moveHistory?.length || 0
+                        session.moveHistory?.length || 0,
+                        {
+                            ignoreSuicide: false,
+                            isSinglePlayer: isSinglePlayer || isTower,
+                            opponentPlayer: (isSinglePlayer || isTower) ? opponentPlayerEnum : undefined
+                        }
                     );
                 } catch (e) {
-                    console.warn(`[Game] ${isTower ? 'Tower' : 'Single player'} game - processMoveClient error, forcing move:`, e);
-                    // 에러가 발생해도 강제로 돌을 놓음 (조작 허용)
-                    const forcedBoardState = JSON.parse(JSON.stringify(boardStateToUse));
-                    forcedBoardState[y][x] = myPlayerEnum;
-                    moveResult = {
-                        isValid: true,
-                        newBoardState: forcedBoardState,
-                        capturedStones: [],
-                        newKoInfo: session.koInfo
-                    };
+                    console.error(`[Game] ${isTower ? 'Tower' : 'Single player'} game - processMoveClient error:`, e);
+                    // TODO: 에러 메시지를 사용자에게 표시
+                    return;
                 }
                 
-                // 검증 실패해도 무조건 돌을 놓음 (조작 허용)
+                // 검증 실패 시 돌을 놓지 않음 (바둑 규칙 준수)
                 if (!moveResult.isValid) {
-                    console.log(`[Game] ${isTower ? 'Tower' : 'Single player'} game - Invalid move but forcing (cheating allowed):`, moveResult.reason);
-                    // 강제로 돌을 놓음
-                    const forcedBoardState = JSON.parse(JSON.stringify(boardStateToUse));
-                    forcedBoardState[y][x] = myPlayerEnum;
-                    moveResult = {
-                        isValid: true,
-                        newBoardState: forcedBoardState,
-                        capturedStones: [],
-                        newKoInfo: session.koInfo
-                    };
+                    console.error(`[Game] ${isTower ? 'Tower' : 'Single player'} game - Invalid move blocked:`, moveResult.reason);
+                    // TODO: 에러 메시지를 사용자에게 표시 (코 금지, 자충수, 이미 돌이 놓인 자리 등)
+                    return;
                 }
                 
                 // 게임 상태 업데이트 (handlers를 통해, 서버로 전송하지 않음)
