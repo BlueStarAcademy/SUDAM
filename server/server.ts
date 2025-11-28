@@ -321,7 +321,13 @@ const startServer = async () => {
         console.log(`[Server] Server listening on port ${port}`);
         
         // KataGo 엔진 초기화 (서버 시작 시 미리 준비)
-        await initializeKataGo();
+        try {
+            await initializeKataGo();
+        } catch (error: any) {
+            console.error('[Server] Failed to initialize KataGo during server startup:', error);
+            console.error('[Server] Server will continue without KataGo pre-initialization');
+            // 서버는 계속 실행 (KataGo 초기화 실패는 치명적이지 않음)
+        }
     });
 
     const processActiveTournamentSimulations = async () => {
@@ -2230,6 +2236,25 @@ const startServer = async () => {
     });
 
 };
+
+// 전역 에러 핸들러 추가 (처리되지 않은 Promise rejection 및 예외 처리)
+process.on('unhandledRejection', (reason: any, promise: Promise<any>) => {
+    console.error('[Server] Unhandled Rejection at:', promise);
+    console.error('[Server] Reason:', reason);
+    // 프로세스를 종료하지 않고 로그만 남김 (Railway에서 자동 재시작 방지)
+});
+
+process.on('uncaughtException', (error: Error) => {
+    console.error('[Server] Uncaught Exception:', error);
+    console.error('[Server] Stack trace:', error.stack);
+    // 치명적인 에러인 경우에만 프로세스 종료
+    // Railway 환경에서는 자동 재시작되므로 종료하지 않음
+    if (process.env.RAILWAY_ENVIRONMENT) {
+        console.error('[Server] Railway environment detected. Process will be restarted by Railway.');
+    } else {
+        process.exit(1);
+    }
+});
 
 // Start server with error handling
 startServer().catch((error) => {
