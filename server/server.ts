@@ -2586,24 +2586,8 @@ process.on('SIGINT', () => {
 // beforeExit 핸들러 제거 - 이 핸들러는 프로세스 종료를 방해할 수 있음
 // Railway는 정상적인 종료 시그널(SIGTERM)을 보내므로 beforeExit 핸들러가 필요 없음
 
-// 메모리 사용량 모니터링 (주기적으로 로그)
-if (process.env.RAILWAY_ENVIRONMENT) {
-    setInterval(() => {
-        const memUsage = process.memoryUsage();
-        const memUsageMB = {
-            rss: Math.round(memUsage.rss / 1024 / 1024),
-            heapTotal: Math.round(memUsage.heapTotal / 1024 / 1024),
-            heapUsed: Math.round(memUsage.heapUsed / 1024 / 1024),
-            external: Math.round(memUsage.external / 1024 / 1024)
-        };
-        console.log(`[Server] Memory usage: RSS=${memUsageMB.rss}MB, Heap=${memUsageMB.heapUsed}/${memUsageMB.heapTotal}MB`);
-        
-        // 메모리 사용량이 너무 높으면 경고
-        if (memUsageMB.rss > 500) {
-            console.warn(`[Server] WARNING: High memory usage detected: ${memUsageMB.rss}MB`);
-        }
-    }, 60000); // 1분마다
-}
+// 메모리 사용량 모니터링은 메인 루프에서 처리됨 (중복 방지)
+// 메인 루프에서 5분마다 메모리 사용량을 로그로 출력하므로 여기서는 제거
 
 // Start server with error handling
 startServer().catch((error) => {
