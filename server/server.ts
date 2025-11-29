@@ -2569,23 +2569,8 @@ process.on('SIGINT', () => {
     console.log('[Server] SIGINT received. This is normal for Railway deployments.');
 });
 
-// 프로세스가 종료되려고 할 때 감지 및 방지
-process.on('beforeExit', (code) => {
-    console.error(`[Server] Process about to exit with code: ${code}`);
-    console.error(`[Server] BeforeExit time: ${new Date().toISOString()}`);
-    console.error(`[Server] Attempting to prevent exit...`);
-    
-    // Railway 환경에서는 프로세스 종료를 방지
-    if (process.env.RAILWAY_ENVIRONMENT) {
-        console.error(`[Server] Railway environment detected. Preventing exit to avoid restart loop.`);
-        // 프로세스를 종료하지 않고 계속 실행
-        // beforeExit 이벤트에서 아무것도 하지 않으면 프로세스가 종료되지 않음
-        // 하지만 이벤트 루프가 비어있으면 종료되므로, keep-alive 추가
-        setInterval(() => {
-            // 이벤트 루프를 활성 상태로 유지
-        }, 1000);
-    }
-});
+// beforeExit 핸들러 제거 - 이 핸들러는 프로세스 종료를 방해할 수 있음
+// Railway는 정상적인 종료 시그널(SIGTERM)을 보내므로 beforeExit 핸들러가 필요 없음
 
 // 메모리 사용량 모니터링 (주기적으로 로그)
 if (process.env.RAILWAY_ENVIRONMENT) {
@@ -2611,35 +2596,11 @@ startServer().catch((error) => {
     console.error('[Server] Fatal error during startup:', error);
     console.error('[Server] Stack trace:', error.stack);
     
-    // Railway 환경에서는 프로세스를 종료하지 않고 재시도
-    if (process.env.RAILWAY_ENVIRONMENT) {
-        console.error('[Server] Railway environment detected. Will retry instead of exiting...');
-        // 10초 후 재시도
-        setTimeout(() => {
-            console.log('[Server] Retrying server startup...');
-            startServer().catch((retryError) => {
-                console.error('[Server] Retry failed:', retryError);
-                // 재시도 실패 시에도 프로세스를 종료하지 않음
-                // Railway가 자동으로 재시작하는 것을 방지
-            });
-        }, 10000);
-    } else {
-        process.exit(1);
-    }
+    // Railway 환경에서도 치명적 오류는 프로세스를 종료하여 Railway가 재시작하도록 함
+    // Railway는 자동으로 컨테이너를 재시작하므로, 무한 재시도 루프를 만들지 않음
+    console.error('[Server] Exiting process to allow Railway to restart...');
+    process.exit(1);
 });
 
-// 프로세스가 종료되지 않도록 강제 keep-alive (Railway 환경)
-if (process.env.RAILWAY_ENVIRONMENT) {
-    // 이벤트 루프가 비어있어도 프로세스가 종료되지 않도록 함
-    const keepAliveInterval = setInterval(() => {
-        // 아무 작업도 하지 않지만 이벤트 루프를 활성 상태로 유지
-        if (Math.floor(process.uptime()) % 60 === 0 && process.uptime() > 0) {
-            console.log(`[Server] Keep-alive: Process still running (uptime: ${Math.round(process.uptime())}s)`);
-        }
-    }, 1000);
-    
-    // 프로세스 종료 시 interval 정리
-    process.on('exit', () => {
-        clearInterval(keepAliveInterval);
-    });
-}
+// Keep-alive는 startServer 내부의 server.listen 콜백에서 이미 처리됨
+// 여기서는 추가 keep-alive가 필요 없음
