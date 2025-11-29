@@ -148,8 +148,10 @@ const startServer = async () => {
     }
     
     // --- Initialize Database on Start ---
+    let dbInitialized = false;
     try {
         await db.initializeDatabase();
+        dbInitialized = true;
     } catch (err: any) {
         console.error("Error during server startup:", err);
         
@@ -176,36 +178,69 @@ const startServer = async () => {
             console.error("[Server] postgresql://user:password@host:port/database");
         }
         
-        // Railway 환경에서는 프로세스를 종료하지 않고 계속 재시도하도록 할 수도 있지만,
-        // 현재는 명시적으로 종료하여 Railway가 재시작하도록 함
-        (process as any).exit(1);
+        // Railway 환경에서는 데이터베이스 연결 실패해도 서버를 계속 실행
+        // 헬스체크에서 데이터베이스 상태를 확인하고, 백그라운드에서 재시도
+        if (process.env.RAILWAY_ENVIRONMENT) {
+            console.error("[Server] Railway environment detected. Continuing server startup despite database error.");
+            console.error("[Server] Server will continue running and retry database connection in background.");
+            console.error("[Server] Health check will report database status.");
+            
+            // 백그라운드에서 데이터베이스 연결 재시도
+            (async () => {
+                let retries = 10;
+                while (retries > 0 && !dbInitialized) {
+                    await new Promise(resolve => setTimeout(resolve, 10000)); // 10초 대기
+                    try {
+                        await db.initializeDatabase();
+                        dbInitialized = true;
+                        console.log("[Server] Database connection established after retry!");
+                    } catch (retryError: any) {
+                        retries--;
+                        console.warn(`[Server] Database retry failed (${10 - retries}/10):`, retryError.message);
+                    }
+                }
+            })();
+        } else {
+            // 로컬 환경에서는 즉시 종료
+            (process as any).exit(1);
+        }
     }
 
     // Fetch all users from DB (optimized: without equipment/inventory to reduce memory usage)
-    const { listUsers } = await import('./prisma/userService.js');
-    const allDbUsers = await listUsers({ includeEquipment: false, includeInventory: false });
-    const coreStats = Object.values(CoreStat) as CoreStat[];
-    let usersUpdatedCount = 0;
+    // 데이터베이스가 초기화되지 않은 경우 스킵
+    if (dbInitialized) {
+        try {
+            const { listUsers } = await import('./prisma/userService.js');
+            const allDbUsers = await listUsers({ includeEquipment: false, includeInventory: false });
+            const coreStats = Object.values(CoreStat) as CoreStat[];
+            let usersUpdatedCount = 0;
 
-    // First, run the migration logic to ensure all users have correct base stats
-    for (const user of allDbUsers) {
-        const defaultBaseStats = createDefaultBaseStats();
-        let needsUpdate = false;
+            // First, run the migration logic to ensure all users have correct base stats
+            for (const user of allDbUsers) {
+                const defaultBaseStats = createDefaultBaseStats();
+                let needsUpdate = false;
 
-        // More robust check: if baseStats is missing, or any stat is not a number or is less than 100
-        if (!user.baseStats || coreStats.some(stat => typeof user.baseStats?.[stat] !== 'number' || user.baseStats[stat] < 100)) {
-            user.baseStats = defaultBaseStats;
-            needsUpdate = true;
+                // More robust check: if baseStats is missing, or any stat is not a number or is less than 100
+                if (!user.baseStats || coreStats.some(stat => typeof user.baseStats?.[stat] !== 'number' || user.baseStats[stat] < 100)) {
+                    user.baseStats = defaultBaseStats;
+                    needsUpdate = true;
+                }
+                
+                if (needsUpdate) {
+                    console.log(`[Server Startup] Updating base stats for user: ${user.nickname}`);
+                    await db.updateUser(user);
+                    usersUpdatedCount++;
+                }
+            }
+
+            console.log(`[Server Startup] Base stats update complete. ${usersUpdatedCount} user(s) had their base stats updated.`);
+        } catch (error: any) {
+            console.error('[Server Startup] Failed to fetch/update users:', error.message);
+            console.error('[Server Startup] Continuing server startup despite user update error...');
         }
-        
-        if (needsUpdate) {
-            console.log(`[Server Startup] Updating base stats for user: ${user.nickname}`);
-            await db.updateUser(user);
-            usersUpdatedCount++;
-        }
+    } else {
+        console.warn('[Server Startup] Database not initialized. Skipping user updates. Will retry when database is available.');
     }
-
-    console.log(`[Server Startup] Base stats update complete. ${usersUpdatedCount} user(s) had their base stats updated.`);
 
     // --- 1회성 작업들 (환경 변수로 제어) ---
     // 필요시에만 주석을 해제하여 실행하세요.
@@ -312,11 +347,28 @@ const startServer = async () => {
     
     // Health check endpoint (server 생성 직후 정의하여 클로저로 접근 가능)
     // Railway 크래시 루프 방지를 위해 항상 200 반환
-    app.get('/api/health', (req, res) => {
+    app.get('/api/health', async (req, res) => {
         // Health Check 로그 (간소화하여 성능 영향 최소화)
         const startTime = Date.now();
         
         try {
+            // 데이터베이스 연결 상태 확인 (비동기, 타임아웃 2초)
+            let dbStatus = 'unknown';
+            try {
+                const dbCheckPromise = (async () => {
+                    const { prismaClient } = await import('./prismaClient.js');
+                    await prismaClient.$queryRaw`SELECT 1`;
+                    return 'connected';
+                })();
+                const timeoutPromise = new Promise((_, reject) => 
+                    setTimeout(() => reject(new Error('timeout')), 2000)
+                );
+                await Promise.race([dbCheckPromise, timeoutPromise]);
+                dbStatus = 'connected';
+            } catch (dbError) {
+                dbStatus = 'disconnected';
+            }
+            
             // 서버가 완전히 준비되지 않았어도 헬스체크는 성공으로 반환
             // Railway가 헬스체크 실패로 인해 무한 재시작하는 것을 방지
             const serverStatus = {
@@ -325,6 +377,7 @@ const startServer = async () => {
                 uptime: process.uptime(),
                 listening: server?.listening || false,
                 ready: isServerReady,
+                database: dbStatus,
                 pid: process.pid
             };
             
@@ -334,8 +387,8 @@ const startServer = async () => {
             
             // Health Check 성공 로그 (5초마다 한 번만 출력하여 로그 스팸 방지)
             const elapsed = Date.now() - startTime;
-            if (elapsed > 100 || !serverStatus.listening) {
-                console.log(`[Health Check] ${serverStatus.status} (${elapsed}ms, listening: ${serverStatus.listening}, ready: ${serverStatus.ready})`);
+            if (elapsed > 100 || !serverStatus.listening || dbStatus === 'disconnected') {
+                console.log(`[Health Check] ${serverStatus.status} (${elapsed}ms, listening: ${serverStatus.listening}, ready: ${serverStatus.ready}, db: ${dbStatus})`);
             }
         } catch (error) {
             console.error('[Health Check] Error:', error);
