@@ -332,10 +332,13 @@ const startServer = async () => {
             // 서버가 시작 중이어도 재시작하지 않도록 함
             res.status(200).json(serverStatus);
             
-            // Health Check 성공 로그 (5초마다 한 번만 출력하여 로그 스팸 방지)
+            // Health Check 로그 (첫 번째 요청과 느린 요청만 출력)
             const elapsed = Date.now() - startTime;
-            if (elapsed > 100 || !serverStatus.listening) {
-                console.log(`[Health Check] ${serverStatus.status} (${elapsed}ms, listening: ${serverStatus.listening}, ready: ${serverStatus.ready})`);
+            const isFirstCheck = !(global as any).healthCheckCount;
+            (global as any).healthCheckCount = ((global as any).healthCheckCount || 0) + 1;
+            
+            if (isFirstCheck || elapsed > 100 || !serverStatus.listening || (global as any).healthCheckCount % 10 === 0) {
+                console.log(`[Health Check] ${serverStatus.status} (${elapsed}ms, listening: ${serverStatus.listening}, ready: ${serverStatus.ready}, count: ${(global as any).healthCheckCount})`);
             }
         } catch (error) {
             console.error('[Health Check] Error:', error);
@@ -437,6 +440,9 @@ const startServer = async () => {
         isServerReady = true;
         console.log('[Server] Server is ready and accepting connections');
         console.log(`[Server] Railway environment: ${process.env.RAILWAY_ENVIRONMENT || 'not set'}`);
+        
+        // 서버 시작 후 즉시 health check 로그 출력 (Railway health check 확인용)
+        console.log('[Server] Health check endpoint is available at /api/health');
         
         // Keep-alive: 주기적으로 로그를 출력하여 프로세스가 살아있음을 확인
         // Railway가 프로세스를 종료하지 않도록 하기 위함
@@ -1118,7 +1124,15 @@ const startServer = async () => {
     };
 
     // --- Main Game Loop ---
-    scheduleMainLoop(1000);
+    // 서버가 리스닝을 시작한 후 메인 루프 시작
+    console.log('[Server] Starting main game loop...');
+    try {
+        scheduleMainLoop(1000);
+        console.log('[Server] Main game loop scheduled successfully');
+    } catch (error) {
+        console.error('[Server] Failed to start main game loop:', error);
+        // 메인 루프 시작 실패는 치명적이지 않음 (서버는 계속 실행)
+    }
     
     // --- API Endpoints ---
     // Health check endpoint는 server 생성 직후에 정의됨 (위 참조)
