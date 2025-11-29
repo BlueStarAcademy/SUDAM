@@ -9,6 +9,8 @@ RUN apk add --no-cache python3 make g++
 
 FROM base AS deps
 # Install dependencies first (supports npm ci cache)
+# Suppress npm update notices
+RUN npm config set update-notifier false
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
@@ -23,6 +25,9 @@ RUN npm ci
 FROM build-deps AS build
 # Override NODE_ENV to ensure devDependencies are installed
 ENV NODE_ENV=development
+
+# Suppress npm update notices
+RUN npm config set update-notifier false
 
 # Copy all source code first
 COPY . .
