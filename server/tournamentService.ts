@@ -1,7 +1,7 @@
 import { TournamentState, PlayerForTournament, CoreStat, CommentaryLine, Match, User, Round, TournamentType, TournamentSimulationStatus } from '../types/index.js';
 import { calculateTotalStats } from './statService.js';
 import { randomUUID } from 'crypto';
-import { TOURNAMENT_DEFINITIONS, NEIGHBORHOOD_MATCH_REWARDS, NATIONAL_MATCH_REWARDS, WORLD_MATCH_REWARDS } from '../constants';
+import { TOURNAMENT_DEFINITIONS, NEIGHBORHOOD_MATCH_REWARDS, NATIONAL_MATCH_REWARDS, WORLD_MATCH_REWARDS, DUNGEON_STAGE_BOT_STATS, DUNGEON_TYPE_MULTIPLIER } from '../constants';
 
 const EARLY_GAME_DURATION = 15;
 const MID_GAME_DURATION = 20;
@@ -136,14 +136,41 @@ const simulateAndFinishMatch = (match: Match, players: PlayerForTournament[], us
     const p1 = players.find(p => p.id === match.players[0]!.id)!;
     const p2 = players.find(p => p.id === match.players[1]!.id)!;
     
-    // 유저가 참가하지 않는 경기인 경우, 유저의 능력치를 originalStats로 복구
-    if (userId && !match.isUserMatch) {
-        const userPlayer = players.find(p => p.id === userId);
-        if (userPlayer && userPlayer.originalStats) {
-            userPlayer.stats = JSON.parse(JSON.stringify(userPlayer.originalStats));
+    // 봇들 간 경기인 경우: 시뮬레이션 없이 랜덤으로 결과 결정
+    if (!match.isUserMatch) {
+        // 유저의 능력치를 originalStats로 복구 (봇 경기 중 유저 능력치 변경 방지)
+        if (userId) {
+            const userPlayer = players.find(p => p.id === userId);
+            if (userPlayer && userPlayer.originalStats) {
+                userPlayer.stats = JSON.parse(JSON.stringify(userPlayer.originalStats));
+            }
         }
+        
+        // 랜덤으로 승자 결정 (50:50 확률)
+        const winner = Math.random() < 0.5 ? p1 : p2;
+        match.winner = winner;
+        match.isFinished = true;
+        
+        // 랜덤 점수 생성 (45:55 ~ 55:45 범위)
+        const scoreDiff = (Math.random() - 0.5) * 10; // -5 ~ +5
+        const p1Percent = 50 + scoreDiff;
+        const p2Percent = 100 - p1Percent;
+        match.finalScore = { player1: p1Percent, player2: p2Percent };
+        
+        // 승자 업데이트
+        if (winner.id === p1.id) {
+            p1.wins++;
+            p2.losses++;
+        } else {
+            p2.wins++;
+            p1.losses++;
+        }
+        
+        match.commentary = [{text: `${winner.nickname} 선수가 승리했습니다.`, phase: 'end', isRandomEvent: false}];
+        return;
     }
     
+    // 유저 경기인 경우: 기존 시뮬레이션 로직 실행
     // Reset stats to original values before starting the match simulation
     if (p1.originalStats) {
         p1.stats = JSON.parse(JSON.stringify(p1.originalStats));
@@ -180,6 +207,15 @@ const simulateAndFinishMatch = (match: Match, players: PlayerForTournament[], us
     const totalScore = p1CumulativeScore + p2CumulativeScore;
     const p1Percent = totalScore > 0 ? (p1CumulativeScore / totalScore) * 100 : 50;
     match.finalScore = { player1: p1Percent, player2: 100 - p1Percent };
+
+    // 승자 업데이트 (유저 경기)
+    if (winner.id === p1.id) {
+        p1.wins++;
+        p2.losses++;
+    } else {
+        p2.wins++;
+        p1.losses++;
+    }
 
     match.commentary = [{text: "경기가 자동으로 진행되었습니다.", phase: 'end', isRandomEvent: false}];
 };
@@ -1657,5 +1693,131 @@ export const calculateRanks = (tournament: TournamentState): { id: string, nickn
         rankedPlayers.sort((a,b) => a.rank - b.rank);
     }
     return rankedPlayers;
+};
+
+// === 던전 시스템 함수 ===
+
+/**
+ * 던전 단계별 봇 생성
+ * @param stage 단계 (1~10)
+ * @param dungeonType 던전 타입 (neighborhood/national/world)
+ * @param botId 봇 ID
+ * @param botName 봇 이름
+ * @param botAvatar 봇 아바타
+ * @param botBorder 봇 테두리
+ * @returns PlayerForTournament 객체
+ */
+export const createDungeonStageBot = (
+    stage: number,
+    dungeonType: TournamentType,
+    botId: string,
+    botName: string,
+    botAvatar: { id: string },
+    botBorder: { id: string }
+): PlayerForTournament => {
+    // 단계별 능력치 범위 가져오기 (stage가 유효한지 확인)
+    if (!stage || stage < 1 || stage > 10) {
+        console.warn(`[createDungeonStageBot] Invalid stage: ${stage}, using stage 1 as fallback`);
+        stage = 1;
+    }
+    
+    const stageStats = DUNGEON_STAGE_BOT_STATS[stage] || DUNGEON_STAGE_BOT_STATS[1];
+    
+    if (!stageStats) {
+        console.error(`[createDungeonStageBot] No stats found for stage ${stage}, using stage 1 stats`);
+        const fallbackStats = DUNGEON_STAGE_BOT_STATS[1];
+        if (!fallbackStats) {
+            throw new Error(`[createDungeonStageBot] No stats found for stage 1, check DUNGEON_STAGE_BOT_STATS configuration`);
+        }
+    }
+    
+    console.log(`[createDungeonStageBot] Creating bot for stage ${stage}, stats range: ${stageStats.minStat}-${stageStats.maxStat}`);
+    
+    // 각 능력치를 독립적으로 단계별 범위에서 생성 (던전 타입 배율 없이 1.0으로 통일)
+    const baseStats: Record<CoreStat, number> = {} as any;
+    
+    // 각 능력치를 minStat~maxStat 범위에서 랜덤 생성
+    for (const stat of Object.values(CoreStat)) {
+        const baseValue = Math.floor(Math.random() * (stageStats.maxStat - stageStats.minStat + 1)) + stageStats.minStat;
+        baseStats[stat] = baseValue;
+    }
+    
+    console.log(`[createDungeonStageBot] Bot ${botName} (stage ${stage}) created with stats:`, baseStats);
+    
+    // 컨디션 랜덤 설정 (40~100)
+    const condition = Math.floor(Math.random() * 61) + 40;
+    
+    // PlayerForTournament 객체 생성
+    const bot: PlayerForTournament = {
+        id: botId,
+        nickname: botName,
+        avatarId: botAvatar.id,
+        borderId: botBorder.id,
+        league: 'Sprout' as any, // 던전에서는 리그 정보가 필요 없음
+        stats: baseStats,
+        originalStats: JSON.parse(JSON.stringify(baseStats)),
+        condition,
+        wins: 0,
+        losses: 0,
+    };
+    
+    return bot;
+};
+
+/**
+ * 던전 단계 시뮬레이션 (유저 vs 봇)
+ * @param user 유저 PlayerForTournament
+ * @param bot 봇 PlayerForTournament
+ * @returns 시뮬레이션 결과 (승자, 점수차이 등)
+ */
+export const simulateDungeonStage = (
+    user: PlayerForTournament,
+    bot: PlayerForTournament
+): { winner: PlayerForTournament; scoreDiff: number; userPercent: number; botPercent: number } => {
+    // 능력치를 원래 값으로 리셋
+    if (user.originalStats) {
+        user.stats = JSON.parse(JSON.stringify(user.originalStats));
+    }
+    if (bot.originalStats) {
+        bot.stats = JSON.parse(JSON.stringify(bot.originalStats));
+    }
+    
+    let userCumulativeScore = 0;
+    let botCumulativeScore = 0;
+    
+    // 각 단계별로 능력치 계산
+    for (let t = 1; t <= TOTAL_GAME_DURATION; t++) {
+        const phase = getPhase(t);
+        userCumulativeScore += calculatePower(user, phase);
+        botCumulativeScore += calculatePower(bot, phase);
+    }
+    
+    // 승자 결정
+    const totalScore = userCumulativeScore + botCumulativeScore;
+    const userPercent = totalScore > 0 ? (userCumulativeScore / totalScore) * 100 : 50;
+    const botPercent = 100 - userPercent;
+    
+    const diffPercent = Math.abs(userPercent - 50) * 2;
+    const scoreDiff = (diffPercent / 2);
+    const roundedDiff = Math.round(scoreDiff);
+    const finalDiff = roundedDiff + 0.5;
+    
+    let winner: PlayerForTournament;
+    if (finalDiff < 0.5) {
+        // 거의 비김 - 랜덤으로 결정
+        winner = Math.random() < 0.5 ? user : bot;
+    } else {
+        winner = userPercent > 50 ? user : bot;
+    }
+    
+    // 점수차이 계산 (랭킹 정렬용)
+    const actualScoreDiff = winner.id === user.id ? finalDiff : -finalDiff;
+    
+    return {
+        winner,
+        scoreDiff: actualScoreDiff,
+        userPercent,
+        botPercent,
+    };
 };
 

@@ -263,6 +263,10 @@ export type ServerAction =
     | { type: 'BUY_CONDITION_POTION', payload: { potionType: 'small' | 'medium' | 'large'; quantity: number } }
     | { type: 'ENTER_TOURNAMENT_VIEW', payload?: never }
     | { type: 'LEAVE_TOURNAMENT_VIEW', payload?: never }
+    // Dungeon
+    | { type: 'START_DUNGEON_STAGE', payload: { dungeonType: TournamentType; stage: number } }
+    | { type: 'COMPLETE_DUNGEON_STAGE', payload: { dungeonType: TournamentType; stage: number } }
+    | { type: 'CLAIM_DUNGEON_REWARD', payload: { dungeonType: TournamentType; stage: number } }
     // Single Player
     | { type: 'START_SINGLE_PLAYER_GAME', payload: { stageId: string } }
     | { type: 'CONFIRM_SINGLE_PLAYER_GAME_START', payload: { gameId: string } }

@@ -17,8 +17,11 @@ const ChampionshipHelpModal: React.FC<ChampionshipHelpModalProps> = ({ onClose, 
                         <div className="flex-1">
                             <h3 className="font-bold text-lg text-yellow-300 mb-2">챔피언십 개요</h3>
                             <p className="text-sm mb-2">
-                                매주 월요일 0시(한국시간)에 시작되어 일주일간 진행되는 토너먼트입니다. 
-                                실력에 따라 동네바둑리그, 전국바둑대회, 월드챔피언십 중 하나에 참가할 수 있습니다.
+                                챔피언십은 던전 시스템으로 운영됩니다. 각 경기장(동네바둑리그, 전국바둑대회, 월드챔피언십)마다 1단계부터 10단계까지의 단계가 있으며, 
+                                각 단계에서 봇들과 리그/토너먼트를 진행하여 순위를 결정합니다.
+                            </p>
+                            <p className="text-sm mb-2">
+                                <strong className="text-yellow-400">다음 단계 언락 조건:</strong> 해당 단계에서 3등 이상 달성 시 다음 단계가 열립니다.
                             </p>
                         </div>
                     </div>
@@ -28,9 +31,12 @@ const ChampionshipHelpModal: React.FC<ChampionshipHelpModalProps> = ({ onClose, 
                         <div className="flex-1">
                             <h3 className="font-bold text-lg text-yellow-300 mb-2">동네바둑리그</h3>
                             <ul className="list-disc list-inside space-y-1 text-sm">
-                                <li>6명의 플레이어가 풀리그 방식으로 진행</li>
+                                <li>골드 획득이 가능한 던전입니다</li>
+                                <li>각 단계에서 6명의 플레이어(유저 + 5봇)가 풀리그 방식으로 진행</li>
                                 <li>5회차로 나누어 진행, 각 회차마다 다른 상대와 경기</li>
-                                <li>승리 횟수에 따라 순위 결정</li>
+                                <li>승리 횟수에 따라 순위 결정 (1등~6등)</li>
+                                <li>순위에 따라 골드 꾸러미 보상 지급</li>
+                                <li><strong className="text-yellow-400">3등 이상 달성 시 다음 단계 언락</strong></li>
                             </ul>
                         </div>
                     </div>
@@ -40,8 +46,11 @@ const ChampionshipHelpModal: React.FC<ChampionshipHelpModalProps> = ({ onClose, 
                         <div className="flex-1">
                             <h3 className="font-bold text-lg text-yellow-300 mb-2">전국바둑대회</h3>
                             <ul className="list-disc list-inside space-y-1 text-sm">
-                                <li>토너먼트 방식으로 진행 (8강, 4강, 결승)</li>
-                                <li>승리 시 다음 라운드 진출, 패배 시 탈락</li>
+                                <li>강화석(재료) 획득이 가능한 던전입니다</li>
+                                <li>각 단계에서 8명의 플레이어(유저 + 7봇)가 토너먼트 방식으로 진행</li>
+                                <li>8강, 4강, 결승으로 진행되며 승리 시 다음 라운드 진출, 패배 시 탈락</li>
+                                <li>최종 순위에 따라 재료 상자 보상 지급</li>
+                                <li><strong className="text-yellow-400">3등 이상 달성 시 다음 단계 언락</strong></li>
                             </ul>
                         </div>
                     </div>
@@ -51,8 +60,11 @@ const ChampionshipHelpModal: React.FC<ChampionshipHelpModalProps> = ({ onClose, 
                         <div className="flex-1">
                             <h3 className="font-bold text-lg text-yellow-300 mb-2">월드챔피언십</h3>
                             <ul className="list-disc list-inside space-y-1 text-sm">
-                                <li>토너먼트 방식으로 진행 (8강, 4강, 결승)</li>
-                                <li>승리 시 다음 라운드 진출, 패배 시 탈락</li>
+                                <li>장비 상자 및 변경권 획득이 가능한 던전입니다</li>
+                                <li>각 단계에서 16명의 플레이어(유저 + 15봇)가 토너먼트 방식으로 진행</li>
+                                <li>16강, 8강, 4강, 결승으로 진행되며 승리 시 다음 라운드 진출, 패배 시 탈락</li>
+                                <li>최종 순위에 따라 다이아 꾸러미 보상 지급</li>
+                                <li><strong className="text-yellow-400">3등 이상 달성 시 다음 단계 언락</strong></li>
                             </ul>
                         </div>
                     </div>
@@ -83,9 +95,12 @@ const ChampionshipHelpModal: React.FC<ChampionshipHelpModalProps> = ({ onClose, 
                                 <div>
                                     <h4 className="font-semibold text-yellow-200 mb-1">보상</h4>
                                     <ul className="list-disc list-inside space-y-1 ml-2">
-                                        <li>경기 결과에 따라 챔피언십 점수 획득</li>
-                                        <li>주간 순위에 따라 추가 보상</li>
-                                        <li>토너먼트 우승 시 특별 보상</li>
+                                        <li><strong className="text-yellow-300">기본 보상:</strong> 각 경기마다 승/패에 따라 골드, 강화석, 장비상자가 자동으로 지급됩니다</li>
+                                        <li><strong className="text-yellow-300">순위 보상:</strong> 토너먼트 완료 시 최종 순위에 따라 추가 보상이 지급됩니다</li>
+                                        <li><strong className="text-yellow-300">동네바둑리그:</strong> 골드 꾸러미 (순위가 높을수록 더 많은 골드)</li>
+                                        <li><strong className="text-yellow-300">전국바둑대회:</strong> 재료 상자 (순위가 높을수록 더 높은 등급의 재료 상자)</li>
+                                        <li><strong className="text-yellow-300">월드챔피언십:</strong> 다이아 꾸러미 (순위가 높을수록 더 많은 다이아 꾸러미)</li>
+                                        <li><strong className="text-yellow-300">일일 점수:</strong> 단계별 기본 점수와 순위 보너스를 합산하여 챔피언십 점수 획득</li>
                                     </ul>
                                 </div>
                             </div>

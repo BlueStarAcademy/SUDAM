@@ -5,11 +5,11 @@
     "dockerfilePath": "Dockerfile.backend"
   },
   "deploy": {
-    "startCommand": "npm run railway:start",
-    "restartPolicyType": "NEVER",
+    "startCommand": "npm run start-server",
+    "restartPolicyType": "ON_FAILURE",
     "healthcheckPath": "/api/health",
-    "healthcheckTimeout": 60,
-    "healthcheckInterval": 120
+    "healthcheckTimeout": 30,
+    "healthcheckInterval": 60
   }
 }
 

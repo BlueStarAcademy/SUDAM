@@ -22,12 +22,13 @@ const getDatabaseUrl = () => {
   // Railway는 연결 수 제한이 있으므로 적절히 설정
   const isRailway = url.includes('railway') || process.env.RAILWAY_ENVIRONMENT;
   // Railway DB는 네트워크 지연이 있으므로 연결 풀을 적절히 설정
-  // 연결 수를 늘려서 동시 요청 처리 능력 향상
-  const connectionLimit = isRailway ? '30' : '50'; // Railway: 30개, 로컬: 50개 연결
-  const poolTimeout = isRailway ? '30' : '20'; // Railway: 30초, 로컬: 20초 대기 시간
-  const connectTimeout = isRailway ? '15' : '10'; // Railway: 15초, 로컬: 10초 타임아웃
+  // 연결 수를 늘려서 동시 요청 처리 능력 향상 (1000명 동시 접속 대응)
+  // 1000명 동시 접속 시 WebSocket 초기 상태 로드로 인한 동시 쿼리 증가 고려
+  const connectionLimit = isRailway ? '100' : '150'; // Railway: 100개, 로컬: 150개 연결 (1000명 대응)
+  const poolTimeout = isRailway ? '60' : '40'; // Railway: 60초, 로컬: 40초 대기 시간 (증가)
+  const connectTimeout = isRailway ? '20' : '15'; // Railway: 20초, 로컬: 15초 타임아웃 (증가)
   // statement_cache_size를 0으로 설정하면 매번 쿼리를 파싱하므로, 캐시 활성화
-  const statementCacheSize = '200'; // 쿼리 캐시 크기 증가
+  const statementCacheSize = '500'; // 쿼리 캐시 크기 증가 (1000명 대응)
   return `${url}${separator}connection_limit=${connectionLimit}&pool_timeout=${poolTimeout}&connect_timeout=${connectTimeout}&statement_cache_size=${statementCacheSize}`;
 };
 

@@ -119,13 +119,16 @@ const GameModals: React.FC<GameModalsProps> = (props) => {
         <>
             {renderModals()}
             {content && (
-                <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50">
-                    <div className="bg-gray-800 rounded-xl shadow-2xl w-full max-w-sm p-6 border border-gray-700">
-                        <h2 className="text-xl font-bold text-center mb-4">{content.title}</h2>
-                        <p className="text-center text-gray-300 mb-6">{content.message}</p>
-                        <div className="flex gap-4 mt-4">
-                            <Button onClick={onHideConfirmModal} colorScheme="gray" className="w-full">취소</Button>
-                            <Button onClick={() => { onHideConfirmModal(); content.onConfirm(); }} colorScheme="red" className="w-full">{content.confirmText}</Button>
+                <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 pointer-events-auto">
+                    {/* 바둑판 패널 중앙에 모달 배치 */}
+                    <div className="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2">
+                        <div className="bg-gray-800 rounded-xl shadow-2xl w-full max-w-sm p-6 border border-gray-700">
+                            <h2 className="text-xl font-bold text-center mb-4">{content.title}</h2>
+                            <p className="text-center text-gray-300 mb-6">{content.message}</p>
+                            <div className="flex gap-4 mt-4">
+                                <Button onClick={onHideConfirmModal} colorScheme="gray" className="w-full">취소</Button>
+                                <Button onClick={() => { onHideConfirmModal(); content.onConfirm(); }} colorScheme="red" className="w-full">{content.confirmText}</Button>
+                            </div>
                         </div>
                     </div>
                 </div>

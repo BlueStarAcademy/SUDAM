@@ -354,19 +354,36 @@ export const updateDiceGoState = (game: types.LiveGameSession, now: number) => {
             }
             break;
         case 'dice_rolling': {
+            // turnDeadline이 없으면 설정 (게임 로드 시나 상태 불일치 시 대비)
+            if (!game.turnDeadline) {
+                console.log(`[updateDiceGoState] Setting turnDeadline for dice_rolling: gameId=${game.id}, currentPlayer=${game.currentPlayer}`);
+                game.turnDeadline = now + DICE_GO_MAIN_ROLL_TIME * 1000;
+                game.turnStartTime = now;
+            }
+            
             // AI 턴일 때는 타임아웃 체크를 건너뛰기
             const isAiTurn = game.isAiGame && game.currentPlayer !== types.Player.None && 
                             (game.currentPlayer === types.Player.Black ? game.blackPlayerId === aiUserId : game.whitePlayerId === aiUserId);
             
+            // 타임아웃 체크 및 자동 주사위 굴리기
             if (game.turnDeadline && now > game.turnDeadline && !isAiTurn) {
                 const timedOutPlayerId = game.currentPlayer === types.Player.Black ? game.blackPlayerId! : game.whitePlayerId!;
+                const timeOver = now - game.turnDeadline;
+                console.log(`[updateDiceGoState] Timeout detected: gameId=${game.id}, timedOutPlayerId=${timedOutPlayerId}, timeOver=${timeOver}ms`);
+                
                 const gameEnded = handleTimeoutFoul(game, timedOutPlayerId, now);
-                if (gameEnded) return;
+                if (gameEnded) {
+                    console.log(`[updateDiceGoState] Game ended due to timeout foul limit`);
+                    return;
+                }
 
+                // 타임아웃 시 자동으로 주사위 굴리기
                 const dice1 = Math.floor(Math.random() * 6) + 1;
                 const logic = getGoLogic(game);
                 const liberties = logic.getAllLibertiesOfPlayer(types.Player.White, game.boardState);
                 const isOvershot = liberties.length > 0 && dice1 > liberties.length;
+                
+                console.log(`[updateDiceGoState] Auto-rolling dice due to timeout: dice1=${dice1}, isOvershot=${isOvershot}, liberties=${liberties.length}`);
                 
                 game.animation = { type: 'dice_roll_main', dice: { dice1, dice2: 0, dice3: 0 }, startTime: now, duration: 1500 };
                 game.gameStatus = 'dice_rolling_animating';
@@ -375,7 +392,9 @@ export const updateDiceGoState = (game: types.LiveGameSession, now: number) => {
                 game.dice = undefined;
     
                 game.stonesToPlace = isOvershot ? -1 : dice1;
-                if (game.diceRollHistory) game.diceRollHistory[timedOutPlayerId].push(dice1);
+                if (game.diceRollHistory && game.diceRollHistory[timedOutPlayerId]) {
+                    game.diceRollHistory[timedOutPlayerId].push(dice1);
+                }
             }
             break;
         }
@@ -530,7 +549,15 @@ export const handleDiceGoAction = async (volatileState: types.VolatileState, gam
              return {};
         }
         case 'DICE_ROLL': {
-            if (game.gameStatus !== 'dice_rolling' || !isMyTurn) return { error: 'Not your turn to roll.' };
+            console.log(`[handleDiceGoAction] DICE_ROLL received: gameStatus=${game.gameStatus}, isMyTurn=${isMyTurn}, currentPlayer=${game.currentPlayer}, myPlayerEnum=${myPlayerEnum}, userId=${user.id}`);
+            if (game.gameStatus !== 'dice_rolling') {
+                console.error(`[handleDiceGoAction] DICE_ROLL failed: gameStatus is ${game.gameStatus}, expected dice_rolling`);
+                return { error: `Not in dice rolling phase. Current status: ${game.gameStatus}` };
+            }
+            if (!isMyTurn) {
+                console.error(`[handleDiceGoAction] DICE_ROLL failed: not my turn. currentPlayer=${game.currentPlayer}, myPlayerEnum=${myPlayerEnum}, userId=${user.id}`);
+                return { error: 'Not your turn to roll.' };
+            }
             const { itemType } = payload as { itemType?: 'odd' | 'even' };
             let dice1: number;
             

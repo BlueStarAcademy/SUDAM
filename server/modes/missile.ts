@@ -160,8 +160,6 @@ export const updateMissileState = (game: types.LiveGameSession, now: number): bo
         return true; // 게임 상태가 변경되었음을 반환
     }
     
-    return false; // 게임 상태가 변경되지 않았음을 반환
-
     // 애니메이션 처리
     if (game.gameStatus === 'missile_animating') {
         // animation이 null인데 gameStatus가 여전히 missile_animating인 경우 정리
@@ -395,6 +393,7 @@ export const updateMissileState = (game: types.LiveGameSession, now: number): bo
                 return true;
             }
             
+            // 애니메이션이 아직 진행 중인 경우 (아무것도 하지 않음)
             // 애니메이션이 너무 오래 지속된 경우 강제로 정리 (서버 재시작 등으로 인한 문제 방지)
             const MAX_ANIMATION_DURATION = 10000; // 10초
             if (elapsed > MAX_ANIMATION_DURATION) {
@@ -459,6 +458,10 @@ export const updateMissileState = (game: types.LiveGameSession, now: number): bo
                 game.itemUseDeadline = undefined;
                 return true;
             }
+            
+            // 애니메이션이 아직 진행 중인 경우 (elapsed < duration && elapsed <= duration + 1000 && elapsed <= MAX_ANIMATION_DURATION)
+            // 아무것도 하지 않고 false 반환 (게임 상태 변경 없음)
+            return false;
         } else {
             // 미사일 애니메이션이 아닌 경우, 상태가 잘못된 것일 수 있음
             if (game.animation) {
@@ -469,6 +472,9 @@ export const updateMissileState = (game: types.LiveGameSession, now: number): bo
             return true;
         }
     }
+    
+    // 게임 상태가 변경되지 않았음을 반환
+    return false;
 };
 
 export const handleMissileAction = (game: types.LiveGameSession, action: types.ServerAction & { userId: string }, user: types.User): HandleActionResult | null => {

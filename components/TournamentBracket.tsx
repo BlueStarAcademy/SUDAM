@@ -1304,7 +1304,21 @@ const FinalRewardPanel: React.FC<{ tournamentState: TournamentState; currentUser
     const handleClaim = () => {
         if (canClaimReward) {
             audioService.claimReward();
-            onAction({ type: 'CLAIM_TOURNAMENT_REWARD', payload: { tournamentType: type } });
+            // 던전 모드인지 확인 (currentStageAttempt가 있으면 던전 모드)
+            const isDungeonMode = tournamentState.currentStageAttempt !== undefined && tournamentState.currentStageAttempt !== null;
+            if (isDungeonMode && tournamentState.currentStageAttempt) {
+                // 던전 모드: COMPLETE_DUNGEON_STAGE 액션 호출
+                onAction({ 
+                    type: 'COMPLETE_DUNGEON_STAGE', 
+                    payload: { 
+                        dungeonType: type, 
+                        stage: tournamentState.currentStageAttempt 
+                    } 
+                });
+            } else {
+                // 일반 토너먼트 모드: CLAIM_TOURNAMENT_REWARD 액션 호출
+                onAction({ type: 'CLAIM_TOURNAMENT_REWARD', payload: { tournamentType: type } });
+            }
         }
     };
     
@@ -1399,8 +1413,83 @@ const FinalRewardPanel: React.FC<{ tournamentState: TournamentState; currentUser
                 </div>
             )}
             
-            {/* 최종 순위 보상 (경기 종료 후 또는 보상 수령 후에도 표시) - 가로 막대 형태 */}
-            {((isTournamentFullyComplete || isUserEliminated || isClaimed) && reward) && (
+            {/* 던전 모드 순위 보상 표시 */}
+            {((isTournamentFullyComplete || isUserEliminated || isClaimed) && tournamentState.currentStageAttempt && (() => {
+                const { DUNGEON_RANK_REWARDS } = require('../constants/tournaments');
+                const dungeonRankReward = DUNGEON_RANK_REWARDS?.[type]?.[tournamentState.currentStageAttempt];
+                if (dungeonRankReward) {
+                    // 순위 계산 (wins/losses 기준, 모든 라운드의 경기 결과 확인)
+                    const playerWins: Record<string, number> = {};
+                    const playerLosses: Record<string, number> = {};
+                    tournamentState.players.forEach(p => { 
+                        playerWins[p.id] = 0; 
+                        playerLosses[p.id] = 0;
+                    });
+                    
+                    // 모든 라운드의 모든 경기 결과 확인
+                    tournamentState.rounds.forEach(round => {
+                        if (round.matches) {
+                            round.matches.forEach(m => {
+                                if (m.isFinished && m.winner) {
+                                    playerWins[m.winner.id] = (playerWins[m.winner.id] || 0) + 1;
+                                    const loser = m.players.find(p => p && p.id !== m.winner?.id);
+                                    if (loser) {
+                                        playerLosses[loser.id] = (playerLosses[loser.id] || 0) + 1;
+                                    }
+                                }
+                            });
+                        }
+                    });
+                    
+                    // 순위 정렬: 승수 → 패수 → 승률
+                    const sortedPlayers = [...tournamentState.players].sort((a, b) => {
+                        if (playerWins[b.id] !== playerWins[a.id]) {
+                            return playerWins[b.id] - playerWins[a.id];
+                        }
+                        if (playerLosses[a.id] !== playerLosses[b.id]) {
+                            return playerLosses[a.id] - playerLosses[b.id];
+                        }
+                        const aWinRate = (playerWins[a.id] + playerLosses[a.id]) > 0 ? playerWins[a.id] / (playerWins[a.id] + playerLosses[a.id]) : 0;
+                        const bWinRate = (playerWins[b.id] + playerLosses[b.id]) > 0 ? playerWins[b.id] / (playerWins[b.id] + playerLosses[b.id]) : 0;
+                        return bWinRate - aWinRate;
+                    });
+                    
+                    const userRank = sortedPlayers.findIndex(p => p.id === currentUser.id) + 1;
+                    const rankReward = dungeonRankReward[userRank];
+                    if (rankReward && rankReward.items) {
+                        return (
+                            <div className="mt-2 pt-2 border-t border-gray-700">
+                                <div className="text-xs font-semibold text-gray-300 mb-1 text-center">순위 보상 ({userRank}위)</div>
+                                <div className="flex flex-col gap-1">
+                                    {rankReward.items.map((item: any, index: number) => {
+                                        const itemName = 'itemId' in item ? item.itemId : (item as any).name;
+                                        const itemTemplate = CONSUMABLE_ITEMS.find(i => i.name === itemName);
+                                        const imageUrl = itemTemplate?.image || '';
+                                        const isGold = itemName.includes('골드');
+                                        const isDiamond = itemName.includes('다이아');
+                                        const bgColor = isGold ? 'bg-yellow-900/30' : isDiamond ? 'bg-blue-900/30' : 'bg-purple-900/30';
+                                        const borderColor = isGold ? 'border-yellow-700/50' : isDiamond ? 'border-blue-700/50' : 'border-purple-700/50';
+                                        const textColor = isGold ? 'text-yellow-300' : isDiamond ? 'text-blue-300' : 'text-purple-300';
+                                        
+                                        return (
+                                            <div key={index} className={`flex items-center gap-1.5 ${bgColor} px-1.5 py-1 rounded-lg border ${borderColor} ${isClaimed ? 'opacity-75' : ''}`}>
+                                                <img src={imageUrl} alt={itemName} className="w-5 h-5 flex-shrink-0" loading="lazy" decoding="async" />
+                                                <div className="flex-1 min-w-0">
+                                                    <div className={`text-xs font-semibold ${textColor} truncate`}>{itemName} x{item.quantity}</div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        );
+                    }
+                }
+                return null;
+            })())}
+            
+            {/* 최종 순위 보상 (일반 토너먼트 모드, 경기 종료 후 또는 보상 수령 후에도 표시) - 가로 막대 형태 */}
+            {((isTournamentFullyComplete || isUserEliminated || isClaimed) && reward && !tournamentState.currentStageAttempt) && (
                 <div className="mt-2 pt-2 border-t border-gray-700">
                     <div className="text-xs font-semibold text-gray-300 mb-1 text-center">최종 순위 보상</div>
                     <div className="flex flex-col gap-1">
@@ -1445,8 +1534,8 @@ const FinalRewardPanel: React.FC<{ tournamentState: TournamentState; currentUser
             
             {/* 하단 보상받기 버튼 영역 */}
             <div className="flex-shrink-0 pt-1.5 border-t border-gray-700 mt-1.5">
-                {/* 경기 종료 후 보상받기 버튼 */}
-                {(isTournamentFullyComplete || isUserEliminated) && reward && (
+                {/* 경기 종료 후 보상받기 버튼 (던전 모드 또는 일반 토너먼트 모드) */}
+                {(isTournamentFullyComplete || isUserEliminated) && (reward || tournamentState.currentStageAttempt) && (
                     <>
                         {isClaimed ? (
                             <button
@@ -2396,6 +2485,22 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = (props) => {
         );
     }
     
+    // 던전 모드 확인 (currentStageAttempt가 있으면 던전 모드)
+    const isDungeonMode = tournament.currentStageAttempt !== undefined && tournament.currentStageAttempt !== null;
+    
+    // 던전 완료 시 보상 받기 핸들러
+    const handleCompleteDungeon = () => {
+        if (tournament.currentStageAttempt) {
+            onAction({ 
+                type: 'COMPLETE_DUNGEON_STAGE', 
+                payload: { 
+                    dungeonType: tournament.type, 
+                    stage: tournament.currentStageAttempt 
+                } 
+            });
+        }
+    };
+    
     // 클라이언트에서 시뮬레이션 실행
     const simulatedTournament = useTournamentSimulation(tournament, currentUser);
     const displayTournament = simulatedTournament || tournament;
@@ -2504,9 +2609,13 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = (props) => {
             }
         }
         
-        // round_complete 상태로 변경되었을 때 자동으로 다음 경기 시작
-        if (status === 'round_complete' && prevStatus !== 'round_complete') {
-            console.log('[TournamentBracket] round_complete 상태 감지, 다음 경기 확인 중...');
+        // round_complete 또는 bracket_ready 상태로 변경되었을 때 자동으로 다음 경기 시작
+        // 시뮬레이션 경기 완료 후 bracket_ready로 변경되면 자동 시작
+        const shouldAutoStart = (status === 'round_complete' && prevStatus !== 'round_complete') ||
+                                (status === 'bracket_ready' && prevStatus === 'round_complete');
+        
+        if (shouldAutoStart) {
+            console.log('[TournamentBracket] 자동 시작 조건 감지, 다음 경기 확인 중...', { status, prevStatus });
             
             // 기존 타이머가 있으면 정리
             if (autoNextTimerRef.current) {
@@ -2592,8 +2701,8 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = (props) => {
             }
         }
         
-        // 상태가 변경되면 카운트다운 취소
-        if (status !== 'round_complete' && autoNextTimerRef.current) {
+        // 상태가 변경되면 카운트다운 취소 (round_complete나 bracket_ready가 아닌 경우)
+        if (status !== 'round_complete' && status !== 'bracket_ready' && autoNextTimerRef.current) {
             clearInterval(autoNextTimerRef.current);
             autoNextTimerRef.current = null;
             setAutoNextCountdown(null);

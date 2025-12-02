@@ -11,6 +11,7 @@ import PointsInfoPanel from './PointsInfoPanel.js';
 import Button from './Button.js';
 import { calculateUserEffects } from '../services/effectService.js';
 import ChampionshipHelpModal from './ChampionshipHelpModal.js';
+import ChampionshipRankingPanel from './ChampionshipRankingPanel.js';
 
 const stringToSeed = (str: string): number => {
     let hash = 0;
@@ -28,7 +29,52 @@ const seededRandom = (seed: number): number => {
     return x - Math.floor(x);
 };
 
-const WeeklyCompetitorsPanel: React.FC<{ setHasRankChanged: (changed: boolean) => void }> = ({ setHasRankChanged }) => {
+// WeeklyCompetitorsPanel 제거됨 - 던전 시스템으로 변경
+const DungeonStageSelector: React.FC<{ dungeonType: TournamentType; currentUser: UserWithStatus; onSelectStage: (stage: number) => void }> = ({ dungeonType, currentUser, onSelectStage }) => {
+    const dungeonProgress = currentUser?.dungeonProgress?.[dungeonType] || {
+        currentStage: 0,
+        unlockedStages: [1],
+        stageResults: {},
+        dailyStageAttempts: {},
+    };
+    
+    return (
+        <div className="bg-gray-800 rounded-lg p-4 flex flex-col shadow-lg h-full min-h-0">
+            <h2 className="text-xl font-bold mb-3 border-b border-gray-700 pb-2 flex-shrink-0">
+                {TOURNAMENT_DEFINITIONS[dungeonType].name} 단계 선택
+            </h2>
+            <div className="grid grid-cols-5 gap-2 overflow-y-auto flex-grow min-h-0">
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(stage => {
+                    const isUnlocked = dungeonProgress.unlockedStages.includes(stage);
+                    const isCleared = dungeonProgress.stageResults[stage]?.cleared || false;
+                    const isCurrentMax = stage === dungeonProgress.currentStage + 1;
+                    
+                    return (
+                        <button
+                            key={stage}
+                            onClick={() => isUnlocked && onSelectStage(stage)}
+                            disabled={!isUnlocked}
+                            className={`p-3 rounded-lg text-center transition-all ${
+                                isUnlocked
+                                    ? isCurrentMax
+                                        ? 'bg-purple-600 hover:bg-purple-700 cursor-pointer'
+                                        : isCleared
+                                        ? 'bg-green-800/50 hover:bg-green-700/50 cursor-pointer'
+                                        : 'bg-gray-700 hover:bg-gray-600 cursor-pointer'
+                                    : 'bg-gray-900/50 cursor-not-allowed opacity-50'
+                            }`}
+                        >
+                            <div className="font-bold text-lg">{stage}단계</div>
+                            {isCleared && <div className="text-xs text-green-400">✓</div>}
+                        </button>
+                    );
+                })}
+            </div>
+        </div>
+    );
+};
+
+const WeeklyCompetitorsPanel_DEPRECATED: React.FC<{ setHasRankChanged: (changed: boolean) => void }> = ({ setHasRankChanged }) => {
     const { currentUserWithStatus, allUsers, handlers } = useAppContext();
     const prevRankRef = useRef<number | null>(null);
     const [timeLeft, setTimeLeft] = useState('');
@@ -264,8 +310,6 @@ const RankItem: React.FC<RankItemProps> = ({ user, rank, isMyRankDisplay }) => {
     const finalClass = `${baseClass} ${isMyRankDisplay ? myRankClass : (isCurrentUserInList ? highlightClass : defaultClass)} p-1.5 lg:p-2 ${isClickable ? 'cursor-pointer hover:bg-gray-700/50' : ''}`;
     const avatarUrl = AVATAR_POOL.find(a => a.id === user.avatarId)?.url;
     const borderUrl = BORDER_POOL.find(b => b.id === user.borderId)?.url;
-    const leagueInfo = LEAGUE_DATA.find(l => l.tier === user.league);
-    const tierImage = leagueInfo?.icon;
 
     return (
         <li
@@ -276,7 +320,6 @@ const RankItem: React.FC<RankItemProps> = ({ user, rank, isMyRankDisplay }) => {
             <div className="w-12 text-center flex-shrink-0 flex flex-col items-center justify-center">
                 {rankDisplay}
             </div>
-            {tierImage && <img src={tierImage} alt={user.league} className="w-8 h-8 mr-2 flex-shrink-0" title={user.league} />}
             <Avatar userId={user.id} userName={user.nickname} size={32} avatarUrl={avatarUrl} borderUrl={borderUrl} />
             <div className="ml-2 lg:ml-3 flex-grow overflow-hidden">
                 <p className="font-semibold text-sm truncate">{user.nickname}</p>
@@ -286,91 +329,11 @@ const RankItem: React.FC<RankItemProps> = ({ user, rank, isMyRankDisplay }) => {
     );
 };
 
-const ChampionshipRankingPanel: React.FC<{ compactTierIcons?: boolean }> = ({ compactTierIcons = false }) => {
-    const { currentUserWithStatus, allUsers, handlers } = useAppContext();
-    const [selectedTier, setSelectedTier] = useState<LeagueTier>(LEAGUE_DATA[0].tier);
-    const [isLeagueTierInfoModalOpen, setIsLeagueTierInfoModalOpen] = useState(false);
-
-    useEffect(() => {
-        if (currentUserWithStatus?.league) {
-            setSelectedTier(currentUserWithStatus.league);
-        }
-    }, [currentUserWithStatus?.league]);
-
-    const sortedUsers = useMemo(() => {
-        if (!currentUserWithStatus) return [];
-        return [...allUsers]
-            .filter(u => u.league === selectedTier && typeof (u.cumulativeTournamentScore ?? 0) === 'number')
-            .sort((a, b) => (b.cumulativeTournamentScore || 0) - (a.cumulativeTournamentScore || 0));
-    }, [allUsers, selectedTier, currentUserWithStatus]);
-    
-    const myOwnLeagueData = useMemo(() => {
-        if (!currentUserWithStatus) return { rank: -1, user: null };
-        const usersInMyLeague = [...allUsers]
-            .filter(u => u.league === currentUserWithStatus.league && typeof (u.cumulativeTournamentScore ?? 0) === 'number')
-            .sort((a, b) => (b.cumulativeTournamentScore || 0) - (a.cumulativeTournamentScore || 0));
-        const myRankIndex = usersInMyLeague.findIndex(u => u.id === currentUserWithStatus.id);
-        return {
-            rank: myRankIndex !== -1 ? myRankIndex + 1 : -1,
-            user: myRankIndex !== -1 ? usersInMyLeague[myRankIndex] : null
-        };
-    }, [allUsers, currentUserWithStatus]);
-    
-    if (!currentUserWithStatus) {
-        return (
-             <div className="bg-gray-800 rounded-lg p-4 flex flex-col shadow-lg h-full min-h-0 items-center justify-center text-gray-500">
-                랭킹 정보를 불러오는 중...
-            </div>
-        );
-    }
-
-    const topUsers = sortedUsers.slice(0, 100);
-
-    return (
-        <div className="bg-gray-800 rounded-lg p-4 flex flex-col shadow-lg h-full min-h-0">
-            {isLeagueTierInfoModalOpen && <LeagueTierInfoModal onClose={() => setIsLeagueTierInfoModalOpen(false)} />}
-            <div className="flex justify-between items-center mb-3 border-b border-gray-700 pb-2 flex-shrink-0">
-                <h2 className="text-xl font-bold">챔피언십 랭킹</h2>
-                <button 
-                    onClick={() => setIsLeagueTierInfoModalOpen(true)}
-                    className="text-xs bg-gray-600 hover:bg-gray-500 text-white font-bold px-2 py-1 rounded-md transition-colors"
-                >
-                    티어 안내
-                </button>
-            </div>
-            <div className={`flex flex-wrap justify-start bg-gray-900/50 p-1 rounded-lg mb-3 flex-shrink-0 ${compactTierIcons ? 'gap-0.5' : 'gap-1'} tier-tabs-container`}>
-                {LEAGUE_DATA.map(league => (
-                    <button
-                        key={league.tier}
-                        onClick={() => setSelectedTier(league.tier)}
-                        className={`p-0.5 rounded-md transition-all duration-200 flex-shrink-0 ${compactTierIcons ? 'min-w-[30px]' : ''} ${selectedTier === league.tier ? 'bg-purple-600 ring-2 ring-purple-400' : 'hover:bg-gray-600'}`}
-                        title={league.name}
-                    >
-                        <img
-                            src={league.icon}
-                            alt={league.name}
-                            className={compactTierIcons ? 'w-6 h-6 sm:w-7 sm:h-7' : 'w-8 h-8'}
-                        />
-                    </button>
-                ))}
-            </div>
-            {myOwnLeagueData.user && (
-              <div className="flex-shrink-0 mb-3">
-                  <RankItem user={myOwnLeagueData.user} rank={myOwnLeagueData.rank} isMyRankDisplay={true} />
-              </div>
-            )}
-            <ul key={selectedTier} className="space-y-2 overflow-y-auto pr-2 flex-grow min-h-0">
-                 {topUsers.length > 0 ? topUsers.map((user, index) => <RankItem key={user.id} user={user} rank={index + 1} isMyRankDisplay={false} />) : (
-                    <p className="text-center text-gray-500 pt-8">{selectedTier} 리그에 랭크된 유저가 없습니다.</p>
-                 )}
-            </ul>
-        </div>
-    );
-};
+// ChampionshipRankingPanel은 별도 파일에서 import
 
 const TournamentCard: React.FC<{ 
     type: TournamentType; 
-    onClick: () => void;
+    onClick: (stage?: number) => void;
     onContinue: () => void;
     inProgress: TournamentState | null;
     currentUser: UserWithStatus;
@@ -408,24 +371,59 @@ const TournamentCard: React.FC<{
     const rewardClaimed = currentUser[rewardClaimedKey as keyof UserWithStatus] as boolean | undefined;
     const hasUnclaimedReward = hasResultToView && !rewardClaimed;
 
-    let buttonText = '참가하기';
-    let action = onClick;
-
-    if (inProgress) {
-        if (isSimulationInProgress) {
-            buttonText = '이어서 보기';
-        } else if (hasResultToView) {
-            buttonText = '결과 보기';
-        } else if (isReadyToContinue) {
-            buttonText = '계속하기';
+    // 던전 진행 상태 확인
+    const dungeonProgress = currentUser?.dungeonProgress?.[type] || {
+        currentStage: 0,
+        unlockedStages: [1],
+        stageResults: {},
+        dailyStageAttempts: {},
+    };
+    
+    // 도전 가능한 최고 단계 계산 (언락된 단계 중 가장 높은 단계)
+    const maxUnlockedStage = useMemo(() => {
+        return dungeonProgress.unlockedStages.length > 0 
+            ? Math.max(...dungeonProgress.unlockedStages) 
+            : 1;
+    }, [dungeonProgress.unlockedStages]);
+    
+    const [selectedStage, setSelectedStage] = useState(maxUnlockedStage);
+    
+    // maxUnlockedStage가 변경되면 selectedStage도 업데이트
+    useEffect(() => {
+        setSelectedStage(maxUnlockedStage);
+    }, [maxUnlockedStage]);
+    
+    // 던전 타입에 따른 입장 텍스트
+    const getEntryText = () => {
+        switch (type) {
+            case 'neighborhood':
+                return '리그 입장';
+            case 'national':
+                return '대회 입장';
+            case 'world':
+                return '대회 입장';
+            default:
+                return '입장';
         }
-        action = onContinue;
+    };
+    
+    let buttonText = getEntryText();
+    
+    // 던전 모드인지 확인 (currentStageAttempt가 있으면 던전 모드)
+    const isDungeonMode = inProgress && inProgress.currentStageAttempt !== undefined && inProgress.currentStageAttempt !== null;
+    
+    // 던전 진행 중인 경우
+    if (isDungeonMode) {
+        if (inProgress.status === 'complete' || inProgress.status === 'eliminated') {
+            buttonText = '결과 보기';
+        } else {
+            buttonText = '이어서 보기';
+        }
     }
     
     return (
         <div 
-            className="group bg-gray-800 rounded-lg p-2 sm:p-3 flex flex-col text-center transition-all transform hover:-translate-y-1 shadow-lg hover:shadow-purple-500/30 cursor-pointer h-full relative"
-            onClick={action}
+            className="group bg-gray-800 rounded-lg p-2 sm:p-3 flex flex-col text-center transition-all transform hover:-translate-y-1 shadow-lg hover:shadow-purple-500/30 h-full relative"
         >
             {/* 보상 미수령 표시: 붉은 점 */}
             {hasUnclaimedReward && (
@@ -433,12 +431,63 @@ const TournamentCard: React.FC<{
             )}
             <div className="flex justify-between items-center mb-1.5 sm:mb-2">
                 <h2 className="text-xs sm:text-sm lg:text-lg font-bold">{definition.name}</h2>
-                <span className="text-[10px] sm:text-xs text-gray-400">입장({availableEntries}/1)</span>
+                {dungeonProgress.currentStage > 0 && (
+                    <span className="text-[10px] sm:text-xs text-yellow-400">최고 {dungeonProgress.currentStage}단계</span>
+                )}
             </div>
             <div className="w-full aspect-video bg-gray-700 rounded-md flex items-center justify-center text-gray-500 overflow-hidden relative flex-grow">
                 <img src={definition.image} alt={definition.name} className="w-full h-full object-cover" />
             </div>
-            <span className="font-bold text-[10px] sm:text-xs lg:text-sm mt-1.5 sm:mt-2 text-yellow-300">{buttonText} &rarr;</span>
+            
+            {/* 단계 선택 드롭다운 - 던전 모드가 아닐 때만 표시 */}
+            {!isDungeonMode && (
+                <div className="mt-1.5 sm:mt-2 relative">
+                    <div className="flex gap-1 items-center">
+                        <select
+                            value={selectedStage}
+                            onChange={(e) => {
+                                setSelectedStage(Number(e.target.value));
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                            className="flex-1 text-[10px] sm:text-xs bg-gray-700 text-white px-2 py-1 rounded border border-gray-600 focus:outline-none focus:border-purple-500"
+                        >
+                            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(stage => {
+                                const isUnlocked = dungeonProgress.unlockedStages.includes(stage);
+                                const isCleared = dungeonProgress.stageResults[stage]?.cleared || false;
+                                return (
+                                    <option 
+                                        key={stage} 
+                                        value={stage}
+                                        disabled={!isUnlocked}
+                                        className={!isUnlocked ? 'text-gray-500' : isCleared ? 'text-green-400' : ''}
+                                    >
+                                        {stage}단계 {isCleared ? '✓' : ''} {!isUnlocked ? '(잠김)' : ''}
+                                    </option>
+                                );
+                            })}
+                        </select>
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onClick(selectedStage);
+                            }}
+                            className="font-bold text-[10px] sm:text-xs lg:text-sm px-2 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded transition-colors"
+                        >
+                            {buttonText} &rarr;
+                        </button>
+                    </div>
+                </div>
+            )}
+            
+            {/* 던전 진행 중인 경우 기존 버튼 */}
+            {isDungeonMode && (
+                <span 
+                    className="font-bold text-[10px] sm:text-xs lg:text-sm mt-1.5 sm:mt-2 text-yellow-300 cursor-pointer"
+                    onClick={onContinue}
+                >
+                    {buttonText} &rarr;
+                </span>
+            )}
         </div>
     );
 };
@@ -560,7 +609,7 @@ const EquipmentSlotDisplay: React.FC<{ slot: EquipmentSlot; item?: InventoryItem
                         ★{item.stars}
                     </div>
                 )}
-                {item.image && <img src={item.image} alt={item.name} className="absolute object-contain p-1.5" style={{ width: '80%', height: '80%', left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }} />}
+                {item.image && <img src={item.image} alt={item.name} className="absolute object-contain p-2" style={{ width: '70%', height: '70%', left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }} />}
             </div>
         );
     } else {
@@ -599,9 +648,31 @@ const TournamentLobby: React.FC = () => {
     const nationalState = filterInProgress(currentUserWithStatus.lastNationalTournament);
     const worldState = filterInProgress(currentUserWithStatus.lastWorldTournament);
 
-    const handleEnterArena = useCallback(async (type: TournamentType) => {
-        await handlers.handleAction({ type: 'START_TOURNAMENT_SESSION', payload: { type: type } });
-        window.location.hash = `#/tournament/${type}`;
+    const handleEnterArena = useCallback(async (type: TournamentType, stage?: number) => {
+        console.log('[TournamentLobby] handleEnterArena called:', { type, stage, stageType: typeof stage });
+        
+        if (stage !== undefined && stage !== null && typeof stage === 'number' && stage >= 1 && stage <= 10) {
+            // 던전 단계 시작
+            const actionPayload = { dungeonType: type, stage };
+            console.log('[TournamentLobby] Starting dungeon stage with payload:', actionPayload);
+            try {
+                const result = await handlers.handleAction({ type: 'START_DUNGEON_STAGE', payload: actionPayload });
+                console.log('[TournamentLobby] START_DUNGEON_STAGE result:', result);
+                if (result && 'error' in result) {
+                    console.error('[TournamentLobby] START_DUNGEON_STAGE returned error:', result.error);
+                    return;
+                }
+                window.location.hash = `#/tournament/${type}`;
+            } catch (error) {
+                console.error('[TournamentLobby] Failed to start dungeon stage:', error);
+                throw error;
+            }
+        } else {
+            console.log('[TournamentLobby] Starting regular tournament session (no stage provided)');
+            // 기존 토너먼트 세션 시작 (호환성 유지)
+            await handlers.handleAction({ type: 'START_TOURNAMENT_SESSION', payload: { type: type } });
+            window.location.hash = `#/tournament/${type}`;
+        }
     }, [handlers]);
 
     const handleContinueTournament = useCallback(async (type: TournamentType) => {
@@ -667,74 +738,89 @@ const TournamentLobby: React.FC = () => {
             <div className={`${isMobile ? '' : 'flex-1'} flex flex-col lg:flex-row gap-6 min-h-0 ${isMobile ? '' : 'overflow-hidden'}`}>
                 <main className="flex-grow flex flex-col gap-6 min-h-0 overflow-hidden">
                     <div className="grid grid-cols-3 gap-2 sm:gap-3 lg:gap-4 flex-shrink-0">
-                        <TournamentCard type="neighborhood" onClick={() => handleEnterArena('neighborhood')} onContinue={() => handleContinueTournament('neighborhood')} inProgress={neighborhoodState || null} currentUser={currentUserWithStatus} />
-                        <TournamentCard type="national" onClick={() => handleEnterArena('national')} onContinue={() => handleContinueTournament('national')} inProgress={nationalState || null} currentUser={currentUserWithStatus} />
-                        <TournamentCard type="world" onClick={() => handleEnterArena('world')} onContinue={() => handleContinueTournament('world')} inProgress={worldState || null} currentUser={currentUserWithStatus} />
+                        <TournamentCard type="neighborhood" onClick={(stage) => handleEnterArena('neighborhood', stage)} onContinue={() => handleContinueTournament('neighborhood')} inProgress={neighborhoodState || null} currentUser={currentUserWithStatus} />
+                        <TournamentCard type="national" onClick={(stage) => handleEnterArena('national', stage)} onContinue={() => handleContinueTournament('national')} inProgress={nationalState || null} currentUser={currentUserWithStatus} />
+                        <TournamentCard type="world" onClick={(stage) => handleEnterArena('world', stage)} onContinue={() => handleContinueTournament('world')} inProgress={worldState || null} currentUser={currentUserWithStatus} />
                     </div>
                     
-                    {/* 데스크톱: 채팅창 / 장착장비+능력치 / 일일 획득 가능점수 패널 - 1x3 배열 */}
-                    {/* 모바일: 장착장비+일일획득점수 한 줄, 그 아래 채팅 */}
-                    <div className={`flex-1 flex flex-col lg:grid lg:grid-cols-12 gap-3 sm:gap-4 lg:gap-6 min-h-0 ${isMobile ? 'overflow-y-auto' : 'overflow-hidden'}`}>
-                        {/* 모바일: 장착 장비 + 일일 획득 가능점수 패널을 한 줄에 */}
-                        <div className="lg:hidden grid grid-cols-2 gap-3 sm:gap-4 flex-shrink-0">
-                            {/* 장착 장비 패널 (모바일) */}
-                            <div className="bg-gray-800/50 rounded-lg p-2 sm:p-3 shadow-lg min-h-0 flex flex-col overflow-hidden">
-                                <div className="flex flex-col gap-2 h-full min-h-0">
-                                    {/* 장착 장비 섹션 */}
-                                    <div className="flex flex-col gap-2 flex-shrink-0">
-                                        <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
-                                            {(['fan', 'top', 'bottom', 'board', 'bowl', 'stones'] as EquipmentSlot[]).map(slot => {
-                                                const item = getItemForSlot(slot);
-                                                return (
-                                                    <div key={slot} className="w-full">
-                                                        <EquipmentSlotDisplay
-                                                            slot={slot}
-                                                            item={item}
-                                                            onClick={() => item && handlers.openViewingItem(item, true)}
-                                                        />
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                        <div className="flex flex-col gap-1">
-                                            <Button 
-                                                onClick={handlers.openEquipmentEffectsModal} 
-                                                colorScheme="blue" 
-                                                className={`${isMobile ? '!text-[9px]' : '!text-[10px] sm:!text-xs'} w-full ${isMobile ? '!py-0.5 !px-1.5' : '!py-1 !px-2'}`}
-                                            >
-                                                장비 효과 보기
-                                            </Button>
-                                            <div>
-                                                <select
-                                                    value={selectedPreset}
-                                                    onChange={handlePresetChange}
-                                                    className={`bg-gray-700 border border-gray-600 ${isMobile ? 'text-[9px] p-0.5' : 'text-[10px] sm:text-xs p-1 sm:p-1.5'} rounded-md focus:ring-purple-500 focus:border-purple-500 w-full text-gray-200`}
-                                                >
-                                                    {presets && presets.map((preset, index) => (
-                                                        <option key={index} value={index}>{preset.name}</option>
-                                                    ))}
-                                                </select>
-                                            </div>
-                                        </div>
+                    {/* 모바일: 장착 장비 + 능력치 + 일일 획득 가능점수 패널 */}
+                    <div className="lg:hidden grid grid-cols-2 gap-3 sm:gap-4 flex-shrink-0">
+                        {/* 장착 장비 + 능력치 패널 (모바일) */}
+                        <div className="bg-gray-800/50 rounded-lg p-2 sm:p-3 shadow-lg min-h-0 flex flex-col overflow-hidden">
+                            <div className="flex flex-col gap-2 h-full min-h-0">
+                                {/* 장착 장비 섹션 */}
+                                <div className="flex flex-col gap-2 flex-shrink-0">
+                                    <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
+                                        {(['fan', 'top', 'bottom', 'board', 'bowl', 'stones'] as EquipmentSlot[]).map(slot => {
+                                            const item = getItemForSlot(slot);
+                                            return (
+                                                <div key={slot} className="w-full">
+                                                    <EquipmentSlotDisplay
+                                                        slot={slot}
+                                                        item={item}
+                                                        onClick={() => item && handlers.openViewingItem(item, true)}
+                                                    />
+                                                </div>
+                                            );
+                                        })}
                                     </div>
-                                    
-                                    {/* 능력치 섹션 */}
-                                    <div className="flex flex-col gap-2 flex-1 min-h-0">
-                                        <div className="flex-1 min-h-0">
-                                            <StatsDisplayPanel currentUser={currentUserWithStatus} isMobile={isMobile} />
+                                    <div className="flex flex-col gap-1">
+                                        <Button 
+                                            onClick={handlers.openEquipmentEffectsModal} 
+                                            colorScheme="blue" 
+                                            className={`${isMobile ? '!text-[9px]' : '!text-[10px] sm:!text-xs'} w-full ${isMobile ? '!py-0.5 !px-1.5' : '!py-1 !px-2'}`}
+                                        >
+                                            장비 효과 보기
+                                        </Button>
+                                        <div>
+                                            <select
+                                                value={selectedPreset}
+                                                onChange={handlePresetChange}
+                                                className={`bg-gray-700 border border-gray-600 ${isMobile ? 'text-[9px] p-0.5' : 'text-[10px] sm:text-xs p-1 sm:p-1.5'} rounded-md focus:ring-purple-500 focus:border-purple-500 w-full text-gray-200`}
+                                            >
+                                                {presets && presets.map((preset, index) => (
+                                                    <option key={index} value={index}>{preset.name}</option>
+                                                ))}
+                                            </select>
                                         </div>
                                     </div>
                                 </div>
-                            </div>
-                            
-                            {/* 일일 획득 가능점수 패널 (모바일) */}
-                            <div className="flex flex-col min-h-0 overflow-hidden">
-                                <PointsInfoPanel />
+                                
+                                {/* 능력치 섹션 */}
+                                <div className="flex flex-col gap-2 flex-1 min-h-0">
+                                    <div className="flex-1 min-h-0">
+                                        <StatsDisplayPanel currentUser={currentUserWithStatus} isMobile={isMobile} />
+                                    </div>
+                                </div>
                             </div>
                         </div>
                         
-                        {/* 채팅창 - 모바일에서는 아래에, 데스크톱에서는 왼쪽에 */}
-                        <div className={`flex-1 lg:col-span-6 bg-gray-800/50 rounded-lg shadow-lg min-h-0 flex flex-col overflow-hidden ${isMobile ? 'min-h-[300px]' : ''}`}>
+                        {/* 일일 획득 가능점수 패널 (모바일) */}
+                        <div className="flex flex-col min-h-0 overflow-hidden">
+                            <PointsInfoPanel />
+                        </div>
+                    </div>
+                    
+                    {/* 채팅창 - 모바일에서는 아래에 */}
+                    <div className={`lg:hidden flex-1 bg-gray-800/50 rounded-lg shadow-lg min-h-0 flex flex-col overflow-hidden min-h-[300px]`}>
+                        <ChatWindow
+                            messages={waitingRoomChats.global || []}
+                            mode="global"
+                            onAction={handlers.handleAction}
+                            onViewUser={handlers.openViewingUser}
+                            locationPrefix="[챔피언십]"
+                        />
+                    </div>
+                    
+                    {/* 데스크톱: 일일 획득 가능점수 / 채팅창 가로 배치 */}
+                    <div className="hidden lg:flex flex-1 flex-row gap-3 sm:gap-4 lg:gap-6 min-h-0 overflow-hidden">
+                        {/* 일일 획득 가능점수 패널 (데스크톱) */}
+                        <div className="w-80 flex-shrink-0 flex flex-col min-h-0 overflow-hidden">
+                            <PointsInfoPanel />
+                        </div>
+                        
+                        {/* 채팅창 (데스크톱) */}
+                        <div className="flex-1 bg-gray-800/50 rounded-lg shadow-lg min-h-0 flex flex-col overflow-hidden">
                             <ChatWindow
                                 messages={waitingRoomChats.global || []}
                                 mode="global"
@@ -743,12 +829,16 @@ const TournamentLobby: React.FC = () => {
                                 locationPrefix="[챔피언십]"
                             />
                         </div>
-                        
-                        {/* 데스크톱: 장착 장비 + 능력치 패널 (세로 배치) */}
-                        <div className="hidden lg:flex col-span-3 bg-gray-800/50 rounded-lg p-4 shadow-lg min-h-0 flex-col overflow-hidden">
-                            <div className="flex flex-col gap-4 h-full min-h-0">
+                    </div>
+                </main>
+                 <aside className="hidden lg:flex flex-col lg:w-[500px] flex-shrink-0 gap-4 min-h-0 overflow-hidden">
+                    {/* 상단: 장비+능력치 패널 + 퀵메뉴 */}
+                    <div className="flex-shrink-0 flex flex-row gap-3 items-stretch">
+                        {/* 장비 + 능력치 패널 */}
+                        <div className="flex-1 min-w-0 bg-gray-800/50 rounded-lg p-4 shadow-lg">
+                            <div className="flex flex-col gap-3">
                                 {/* 장착 장비 섹션 */}
-                                <div className="flex flex-col gap-3 flex-shrink-0">
+                                <div className="flex flex-col gap-2.5">
                                     <div className="grid grid-cols-3 gap-2">
                                         {(['fan', 'top', 'bottom', 'board', 'bowl', 'stones'] as EquipmentSlot[]).map(slot => {
                                             const item = getItemForSlot(slot);
@@ -767,7 +857,7 @@ const TournamentLobby: React.FC = () => {
                                         <Button 
                                             onClick={handlers.openEquipmentEffectsModal} 
                                             colorScheme="blue" 
-                                            className="!text-xs w-full"
+                                            className="!text-xs w-full !py-1.5"
                                         >
                                             장비 효과 보기
                                         </Button>
@@ -786,29 +876,18 @@ const TournamentLobby: React.FC = () => {
                                 </div>
                                 
                                 {/* 능력치 섹션 */}
-                                <div className="flex flex-col gap-3 flex-1 min-h-0">
-                                    <div className="flex-1 min-h-0">
-                                        <StatsDisplayPanel currentUser={currentUserWithStatus} />
-                                    </div>
+                                <div className="flex flex-col gap-2">
+                                    <StatsDisplayPanel currentUser={currentUserWithStatus} />
                                 </div>
                             </div>
                         </div>
-                        
-                        {/* 데스크톱: 일일 획득 가능점수 패널 */}
-                        <div className="hidden lg:flex col-span-3 flex flex-col min-h-0 overflow-hidden">
-                            <PointsInfoPanel />
-                        </div>
-                    </div>
-                </main>
-                 <aside className="hidden lg:flex flex-col lg:w-[560px] flex-shrink-0 gap-6 min-h-0 overflow-hidden">
-                    <div className="flex-1 flex flex-row gap-4 items-stretch min-h-0 overflow-hidden">
-                        <div className="flex-1 min-w-0 min-h-0 overflow-hidden">
-                            <WeeklyCompetitorsPanel setHasRankChanged={setHasRankChanged}/>
-                        </div>
+                        {/* 퀵메뉴 - 장비 패널과 높이 맞춤 */}
                         <div className="w-24 flex-shrink-0">
-                            <QuickAccessSidebar fillHeight={true} />
+                            <QuickAccessSidebar fillHeight={true} compact={true} />
                         </div>
                     </div>
+                    
+                    {/* 하단: 챔피언십 랭킹 */}
                     <div className="flex-1 min-h-0 overflow-hidden">
                         <ChampionshipRankingPanel />
                     </div>
@@ -828,13 +907,9 @@ const TournamentLobby: React.FC = () => {
                             <div className="flex-shrink-0 p-1.5 sm:p-2 bg-gray-900/50 rounded-lg border border-gray-700">
                                 <QuickAccessSidebar mobile={true} />
                             </div>
-                            {/* Weekly Competitors Panel */}
-                            <div className="h-[250px] sm:h-[300px] min-h-[250px] sm:min-h-[300px] bg-gray-900/50 rounded-lg border border-gray-700 overflow-hidden">
-                                <WeeklyCompetitorsPanel setHasRankChanged={setHasRankChanged}/>
-                            </div>
                             {/* Championship Ranking Panel */}
                             <div className="flex-1 min-h-[250px] sm:min-h-[300px] bg-gray-900/50 rounded-lg border border-gray-700 overflow-hidden">
-                                <ChampionshipRankingPanel compactTierIcons={isMobileSidebarOpen} />
+                                <ChampionshipRankingPanel />
                             </div>
                         </div>
                     </div>

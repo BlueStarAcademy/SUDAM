@@ -146,24 +146,52 @@ const ensureAdminAccount = async () => {
     }
 };
 
+// 데이터베이스 연결 상태 확인 함수
+// isInitialized가 false여도 실제 연결을 시도하여 확인
+export const isDatabaseConnected = async (): Promise<boolean> => {
+    try {
+        const prisma = (await import('./prismaClient.js')).default;
+        await Promise.race([
+            prisma.$queryRaw`SELECT 1`,
+            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000))
+        ]);
+        // 연결 성공 시 isInitialized 업데이트 (Railway 환경에서 재연결 시)
+        if (!isInitialized) {
+            console.log('[DB] Database connection established! Marking as initialized.');
+            isInitialized = true;
+        }
+        return true;
+    } catch (error: any) {
+        // 연결 실패 시 isInitialized를 false로 설정하지 않음 (이전에 초기화되었을 수 있음)
+        // 단지 현재 연결이 안 되는 것일 수 있으므로
+        return false;
+    }
+};
+
 export const initializeDatabase = async () => {
     if (isInitialized) return;
     
     // 데이터베이스 연결 확인 및 재시도
     // Railway 환경에서는 데이터베이스가 시작되는 데 시간이 걸릴 수 있으므로 재시도 횟수와 간격 증가
     const isRailway = process.env.RAILWAY_ENVIRONMENT || process.env.DATABASE_URL?.includes('railway');
-    const maxRetries = isRailway ? 10 : 3; // Railway: 10회, 로컬: 3회
-    const retryDelay = isRailway ? 5000 : 2000; // Railway: 5초, 로컬: 2초
+    const maxRetries = isRailway ? 5 : 3; // Railway: 5회로 감소 (빠른 실패)
+    const retryDelay = isRailway ? 3000 : 2000; // Railway: 3초, 로컬: 2초
+    const connectionTimeout = 5000; // 연결 타임아웃 5초
     let retries = maxRetries;
     let lastError: any = null;
     
-    console.log(`[DB] Initializing database connection (max retries: ${maxRetries}, delay: ${retryDelay}ms)...`);
+    console.log(`[DB] Initializing database connection (max retries: ${maxRetries}, delay: ${retryDelay}ms, timeout: ${connectionTimeout}ms)...`);
     
     while (retries > 0) {
         try {
-            // 먼저 간단한 연결 테스트
+            // 연결 타임아웃 추가
             const prisma = (await import('./prismaClient.js')).default;
-            await prisma.$queryRaw`SELECT 1`;
+            const queryPromise = prisma.$queryRaw`SELECT 1`;
+            const timeoutPromise = new Promise((_, reject) => {
+                setTimeout(() => reject(new Error('Database connection timeout')), connectionTimeout);
+            });
+            
+            await Promise.race([queryPromise, timeoutPromise]);
             
             const existingUsers = await listUsers();
             if (existingUsers.length === 0) {
@@ -181,7 +209,8 @@ export const initializeDatabase = async () => {
             
             // Prisma 연결 오류인 경우
             if (error.code === 'P1001' || error.message?.includes("Can't reach database server") || 
-                error.message?.includes('connection') || error.code?.startsWith('P')) {
+                error.message?.includes('connection') || error.code?.startsWith('P') ||
+                error.message?.includes('timeout')) {
                 console.warn(`[DB] Database connection failed (attempt ${maxRetries - retries}/${maxRetries}). Retries left: ${retries}`);
                 if (retries > 0) {
                     console.log(`[DB] Waiting ${retryDelay}ms before retry...`);
@@ -190,7 +219,16 @@ export const initializeDatabase = async () => {
                 }
             }
             
-            // 다른 오류는 즉시 throw
+            // Railway 환경에서는 연결 실패해도 에러를 throw하지 않음
+            // 서버가 계속 실행되도록 함
+            if (isRailway) {
+                console.error(`[DB] Failed to connect to database after ${maxRetries} attempts. Server will continue without database.`);
+                console.error(`[DB] Database will be retried in background.`);
+                // isInitialized는 false로 유지하여 나중에 재시도 가능
+                return; // 에러를 throw하지 않고 반환
+            }
+            
+            // 로컬 환경에서는 에러 throw
             throw error;
         }
     }

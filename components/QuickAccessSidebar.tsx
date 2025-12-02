@@ -28,7 +28,9 @@ const QuickAccessSidebar: React.FC<QuickAccessSidebarProps> = ({ mobile = false,
     
     const containerClass = mobile 
         ? "flex justify-around items-center gap-2"
-        : `bg-panel rounded-lg p-${compact ? 1 : 2} flex flex-col justify-around gap-${compact ? 1 : 2} ${fillHeight ? 'h-full' : ''}`;
+        : compact
+        ? `bg-panel rounded-lg p-1 flex flex-col justify-around gap-1 ${fillHeight ? 'h-full' : ''}`
+        : `bg-panel rounded-lg p-2 flex flex-col justify-around gap-2 ${fillHeight ? 'h-full' : ''}`;
     
     const buttonClass = mobile
         ? "flex flex-col items-center justify-center p-1 rounded-md w-14 h-14 bg-gray-700/50 hover:bg-gray-600/50"

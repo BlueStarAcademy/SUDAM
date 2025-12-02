@@ -43,7 +43,7 @@ const getGameStatusText = (session: LiveGameSession): string => {
         return message;
     }
 
-    const lastMoveInHistory = moveHistory.length > 0 ? moveHistory[moveHistory.length - 1] : null;
+    const lastMoveInHistory = moveHistory && moveHistory.length > 0 ? moveHistory[moveHistory.length - 1] : null;
     
     // 싱글플레이어 게임에서는 통과 기능이 없으므로 통과 텍스트를 표시하지 않음
     const isSinglePlayer = session.isSinglePlayer || session.gameCategory === 'singleplayer';

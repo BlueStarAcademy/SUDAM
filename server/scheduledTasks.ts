@@ -2,7 +2,7 @@
 
 import * as db from './db.js';
 import * as types from '../types/index.js';
-import type { WeeklyCompetitor } from '../types/index.js';
+import type { WeeklyCompetitor, InventoryItem } from '../types/index.js';
 import { RANKING_TIERS, SEASONAL_TIER_REWARDS, BORDER_POOL, LEAGUE_DATA, LEAGUE_WEEKLY_REWARDS, SPECIAL_GAME_MODES, PLAYFUL_GAME_MODES, SEASONAL_TIER_BORDERS, DAILY_QUESTS, WEEKLY_QUESTS, MONTHLY_QUESTS, TOURNAMENT_DEFINITIONS, BOT_NAMES, AVATAR_POOL } from '../constants';
 import { randomUUID } from 'crypto';
 import { getKSTDate, getCurrentSeason, getPreviousSeason, SeasonInfo, isDifferentWeekKST, isSameDayKST, getStartOfDayKST, isDifferentDayKST, isDifferentMonthKST, getKSTDay, getKSTHours, getKSTMinutes, getKSTFullYear, getKSTMonth, getKSTDate_UTC } from '../utils/timeUtils.js';
@@ -196,8 +196,11 @@ export const processRankingRewards = async (volatileState: types.VolatileState):
 // 월요일 0시에 티어변동 후 새로운 경쟁상대를 매칭하고 모든 점수를 리셋하는 함수
 // 주의: 이 함수는 processWeeklyLeagueUpdates 이후에 호출되어야 함 (티어변동 후 새로운 경쟁상대 매칭)
 // force: true로 호출되면 월요일 0시 체크를 건너뛰고 강제 실행
+// 경쟁상대 시스템 제거됨 - 던전 시스템으로 변경
 export async function processWeeklyResetAndRematch(force: boolean = false): Promise<void> {
-    const now = Date.now();
+    // 던전 시스템으로 변경되어 더 이상 사용되지 않음
+    console.log('[WeeklyReset] processWeeklyResetAndRematch is deprecated - dungeon system replaced weekly competitors');
+    return;
     const kstDay = getKSTDay(now);
     const kstHours = getKSTHours(now);
     const kstMinutes = getKSTMinutes(now);
@@ -443,18 +446,12 @@ export async function resetAllChampionshipScoresToZero(): Promise<void> {
     console.log(`[OneTimeReset] Reset championship scores to 0 for ${updatedCount} users (total users: ${allUsers.length})`);
 }
 
+// 경쟁상대 시스템 제거됨 - 던전 시스템으로 변경
 export async function processWeeklyLeagueUpdates(user: types.User): Promise<types.User> {
-    if (!isDifferentWeekKST(user.lastLeagueUpdate ?? undefined, Date.now())) {
-        return user; // Not a new week, no update needed
-    }
-
-    // 로그 제거 (과도한 로깅 방지)
-
-    if (!user.weeklyCompetitors || user.weeklyCompetitors.length === 0) {
-        // 로그 제거 (과도한 로깅 방지)
-        user.lastLeagueUpdate = Date.now();
-        return user;
-    }
+    // 던전 시스템으로 변경되어 더 이상 사용되지 않음
+    // 호환성을 위해 user를 그대로 반환
+    user.lastLeagueUpdate = Date.now();
+    return user;
     
     const now = Date.now();
     const allUsers = await db.getAllUsers();
@@ -619,13 +616,11 @@ ${year}년 ${month}월 ${week}주차 주간 경쟁 결과, 이번주 경쟁 상�
     return user;
 }
 
+// 경쟁상대 시스템 제거됨 - 던전 시스템으로 변경
 export async function updateWeeklyCompetitorsIfNeeded(user: types.User, allUsers?: types.User[]): Promise<types.User> {
-    const now = Date.now();
-    if (!isDifferentWeekKST(user.lastWeeklyCompetitorsUpdate ?? undefined, now)) {
-        return user; // No update needed
-    }
-
-    console.log(`[LeagueUpdate] Updating weekly competitors for ${user.nickname}`);
+    // 던전 시스템으로 변경되어 더 이상 사용되지 않음
+    // 호환성을 위해 user를 그대로 반환
+    return user;
 
     // Find 15 other users in the same league (DB 쿼리로 최적화)
     let potentialCompetitors: types.User[];
@@ -882,11 +877,12 @@ function getBotScoreForDate(botId: string, date: Date): number {
     return Math.floor((randomVal % 50)) + 1; // 1~50점
 }
 
+// 경쟁상대 시스템 제거됨 - 던전 시스템으로 변경
 // 봇 점수 업데이트 함수 (매일 1~50점 추가)
 export async function updateBotLeagueScores(user: types.User, forceUpdate: boolean = false): Promise<types.User> {
-    if (!user.weeklyCompetitors || user.weeklyCompetitors.length === 0) {
-        return user;
-    }
+    // 던전 시스템으로 변경되어 더 이상 사용되지 않음
+    // 호환성을 위해 user를 그대로 반환
+    return user;
     
     const now = Date.now();
     const todayStart = getStartOfDayKST(now);
@@ -1096,93 +1092,130 @@ export async function recoverAllBotScores(forceDays?: number): Promise<void> {
     console.log(`[OneTimeRecover] Recovered bot scores for ${updatedCount} users. Total bots recovered: ${totalBotsRecovered}`);
 }
 
+// 경쟁상대 시스템 제거됨 - 던전 시스템으로 변경
 // 1회성: 어제 점수가 0으로 되어있는 봇 점수를 즉시 수정하는 함수
 export async function fixBotYesterdayScores(): Promise<void> {
-    console.log(`[OneTimeFix] Fixing bot yesterday scores for all users...`);
-    const allUsers = await db.getAllUsers();
+    // 던전 시스템으로 변경되어 더 이상 사용되지 않음
+    console.log('[OneTimeFix] fixBotYesterdayScores is deprecated - dungeon system replaced weekly competitors');
+    return;
+    const { listUsers } = await import('./prisma/userService.js');
     const now = Date.now();
     const todayStart = getStartOfDayKST(now);
     let updatedCount = 0;
     let totalBotsFixed = 0;
     
-    for (const user of allUsers) {
-        if (!user.weeklyCompetitors || user.weeklyCompetitors.length === 0) {
-            continue;
-        }
+    try {
+        // 모든 유저를 한 번에 가져오되, equipment/inventory 제외하여 메모리 절약
+        const allUsers = await listUsers({ includeEquipment: false, includeInventory: false });
+        console.log(`[OneTimeFix] Loaded ${allUsers.length} users for processing`);
         
-        if (!user.weeklyCompetitorsBotScores) {
-            continue;
-        }
+        // 배치 처리: 한 번에 50명씩 처리하여 메모리 사용량 제한
+        const BATCH_SIZE = 50;
         
-        const updatedUser = JSON.parse(JSON.stringify(user));
-        let hasChanges = false;
-        
-        for (const competitor of updatedUser.weeklyCompetitors) {
-            if (!competitor.id.startsWith('bot-')) {
-                continue;
-            }
+        for (let i = 0; i < allUsers.length; i += BATCH_SIZE) {
+            const batch = allUsers.slice(i, i + BATCH_SIZE);
             
-            const botId = competitor.id;
-            const botScoreData = updatedUser.weeklyCompetitorsBotScores[botId];
-            
-            if (!botScoreData) {
-                continue;
-            }
-            
-            const currentScore = botScoreData.score || 0;
-            const yesterdayScore = botScoreData.yesterdayScore ?? 0;
-            const lastUpdate = botScoreData.lastUpdate || 0;
-            const lastUpdateDay = getStartOfDayKST(lastUpdate);
-            
-            // 어제 점수가 0이고 현재 점수가 0보다 크면 수정 필요
-            // 또는 어제 점수가 없고 현재 점수가 있으면 수정 필요
-            if (currentScore > 0 && (yesterdayScore === 0 || yesterdayScore === undefined)) {
-                // 경쟁상대 업데이트일부터 어제까지의 점수를 계산하여 어제 점수로 설정
-                const competitorsUpdateDay = user.lastWeeklyCompetitorsUpdate 
-                    ? getStartOfDayKST(user.lastWeeklyCompetitorsUpdate)
-                    : todayStart;
-                
-                // 어제 날짜 시작 타임스탬프
-                const yesterdayStart = todayStart - (24 * 60 * 60 * 1000);
-                
-                // 경쟁상대 업데이트일부터 어제까지의 점수 계산
-                let yesterdayTotal = 0;
-                for (let dayOffset = 0; ; dayOffset++) {
-                    const targetDate = new Date(competitorsUpdateDay + (dayOffset * 24 * 60 * 60 * 1000));
-                    const targetDayStart = getStartOfDayKST(targetDate.getTime());
-                    
-                    if (targetDayStart >= todayStart) {
-                        break; // 오늘 이후는 제외
+            // 배치 처리
+            await Promise.allSettled(batch.map(async (user) => {
+                try {
+                    if (!user.weeklyCompetitors || user.weeklyCompetitors.length === 0) {
+                        return;
                     }
                     
-                    const dailyGain = getBotScoreForDate(botId, targetDate);
-                    yesterdayTotal += dailyGain;
+                    if (!user.weeklyCompetitorsBotScores) {
+                        return;
+                    }
+                    
+                    const updatedUser = JSON.parse(JSON.stringify(user));
+                    let hasChanges = false;
+                    
+                    for (const competitor of updatedUser.weeklyCompetitors) {
+                        if (!competitor.id.startsWith('bot-')) {
+                            continue;
+                        }
+                        
+                        const botId = competitor.id;
+                        const botScoreData = updatedUser.weeklyCompetitorsBotScores[botId];
+                        
+                        if (!botScoreData) {
+                            continue;
+                        }
+                        
+                        const currentScore = botScoreData.score || 0;
+                        const yesterdayScore = botScoreData.yesterdayScore ?? 0;
+                        const lastUpdate = botScoreData.lastUpdate || 0;
+                        const lastUpdateDay = getStartOfDayKST(lastUpdate);
+                        
+                        // 어제 점수가 0이고 현재 점수가 0보다 크면 수정 필요
+                        // 또는 어제 점수가 없고 현재 점수가 있으면 수정 필요
+                        if (currentScore > 0 && (yesterdayScore === 0 || yesterdayScore === undefined)) {
+                            // 경쟁상대 업데이트일부터 어제까지의 점수를 계산하여 어제 점수로 설정
+                            const competitorsUpdateDay = user.lastWeeklyCompetitorsUpdate 
+                                ? getStartOfDayKST(user.lastWeeklyCompetitorsUpdate)
+                                : todayStart;
+                            
+                            // 어제 날짜 시작 타임스탬프
+                            const yesterdayStart = todayStart - (24 * 60 * 60 * 1000);
+                            
+                            // 경쟁상대 업데이트일부터 어제까지의 점수 계산
+                            let yesterdayTotal = 0;
+                            for (let dayOffset = 0; ; dayOffset++) {
+                                const targetDate = new Date(competitorsUpdateDay + (dayOffset * 24 * 60 * 60 * 1000));
+                                const targetDayStart = getStartOfDayKST(targetDate.getTime());
+                                
+                                if (targetDayStart >= todayStart) {
+                                    break; // 오늘 이후는 제외
+                                }
+                                
+                                const dailyGain = getBotScoreForDate(botId, targetDate);
+                                yesterdayTotal += dailyGain;
+                            }
+                            
+                            // 현재 점수에서 오늘 점수를 빼면 어제 점수 (더 정확한 방법)
+                            const todayGain = getBotScoreForDate(botId, new Date(todayStart));
+                            const calculatedYesterdayScore = Math.max(0, currentScore - todayGain);
+                            
+                            // 계산된 어제 점수와 누적 어제 점수 중 더 정확한 값 사용
+                            // (현재 점수가 정확하다면 currentScore - todayGain이 더 정확할 수 있음)
+                            const fixedYesterdayScore = Math.max(yesterdayTotal, calculatedYesterdayScore);
+                            
+                            updatedUser.weeklyCompetitorsBotScores[botId] = {
+                                score: currentScore,
+                                lastUpdate: lastUpdate || now,
+                                yesterdayScore: fixedYesterdayScore
+                            };
+                            
+                            hasChanges = true;
+                            totalBotsFixed++;
+                            // 로그 스팸 방지: 배치당 최대 10개만 로그
+                            if (totalBotsFixed <= 10) {
+                                console.log(`[OneTimeFix] Fixed bot ${botId} (${competitor.nickname || 'Unknown'}) for user ${user.nickname}: yesterdayScore ${yesterdayScore} -> ${fixedYesterdayScore}`);
+                            }
+                        }
+                    }
+                    
+                    if (hasChanges) {
+                        await db.updateUser(updatedUser);
+                        updatedCount++;
+                    }
+                } catch (userError: any) {
+                    console.warn(`[OneTimeFix] Failed to fix bot scores for user ${user.id}:`, userError?.message);
                 }
-                
-                // 현재 점수에서 오늘 점수를 빼면 어제 점수 (더 정확한 방법)
-                const todayGain = getBotScoreForDate(botId, new Date(todayStart));
-                const calculatedYesterdayScore = Math.max(0, currentScore - todayGain);
-                
-                // 계산된 어제 점수와 누적 어제 점수 중 더 정확한 값 사용
-                // (현재 점수가 정확하다면 currentScore - todayGain이 더 정확할 수 있음)
-                const fixedYesterdayScore = Math.max(yesterdayTotal, calculatedYesterdayScore);
-                
-                updatedUser.weeklyCompetitorsBotScores[botId] = {
-                    score: currentScore,
-                    lastUpdate: lastUpdate || now,
-                    yesterdayScore: fixedYesterdayScore
-                };
-                
-                hasChanges = true;
-                totalBotsFixed++;
-                console.log(`[OneTimeFix] Fixed bot ${botId} (${competitor.nickname || 'Unknown'}) for user ${user.nickname}: yesterdayScore ${yesterdayScore} -> ${fixedYesterdayScore} (currentScore: ${currentScore}, calculated: ${calculatedYesterdayScore}, accumulated: ${yesterdayTotal})`);
+            }));
+            
+            // 배치 간 짧은 대기 (메모리 정리 시간 확보)
+            if (i + BATCH_SIZE < allUsers.length) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+            
+            // 진행 상황 로그 (10배치마다)
+            if ((i / BATCH_SIZE) % 10 === 0) {
+                console.log(`[OneTimeFix] Progress: ${Math.min(i + BATCH_SIZE, allUsers.length)}/${allUsers.length} users processed`);
             }
         }
-        
-        if (hasChanges) {
-            await db.updateUser(updatedUser);
-            updatedCount++;
-        }
+    } catch (error: any) {
+        console.error(`[OneTimeFix] Error loading users:`, error?.message);
+        throw error;
     }
     
     console.log(`[OneTimeFix] Fixed yesterday scores for ${updatedCount} users. Total bots fixed: ${totalBotsFixed}`);
@@ -1272,14 +1305,122 @@ export async function processDailyRankings(): Promise<void> {
             score: entry.score
         }));
     
-    // 챔피언십 랭킹 계산 (누적 점수 기준) - 모든 사용자 포함 (누적 점수가 0이어도 포함)
+    // 챔피언십 랭킹 계산 (던전 시스템: 각 던전 타입별 최고 클리어 단계 기준)
+    // 0시에만 업데이트 (하루에 한 번 고정)
+    // isMidnight는 이미 위에서 선언됨 (1229번째 줄)
+    
+    const calculateChampionshipRanking = (dungeonType: 'neighborhood' | 'national' | 'world') => {
+        return allUsers
+            .filter(user => {
+                if (!user || !user.id) return false;
+                // 해당 던전 타입의 진행 상태가 있는 유저만 필터링
+                if (!user.dungeonProgress || !user.dungeonProgress[dungeonType]) return false;
+                const progress = user.dungeonProgress[dungeonType];
+                return progress && progress.currentStage > 0;
+            })
+            .map(user => {
+                const progress = user.dungeonProgress![dungeonType];
+                let maxStage = progress.currentStage || 0;
+                let maxScoreDiff = -Infinity;
+                
+                // 같은 단계면 점수차이 큰 순서
+                for (const [stage, result] of Object.entries(progress.stageResults || {})) {
+                    const res = result as any;
+                    if (res.cleared && parseInt(stage) === maxStage) {
+                        if (res.scoreDiff > maxScoreDiff) {
+                            maxScoreDiff = res.scoreDiff;
+                        }
+                    }
+                }
+                
+                // 6가지 능력치 합계 계산
+                let totalAbility = 0;
+                if (user.baseStats) {
+                    totalAbility = Object.values(user.baseStats).reduce((sum: number, stat: any) => sum + (stat || 0), 0);
+                }
+                
+                return {
+                    user,
+                    maxStage,
+                    maxScoreDiff: maxScoreDiff === -Infinity ? 0 : maxScoreDiff,
+                    totalAbility
+                };
+            })
+            .sort((a, b) => {
+                // 1순위: 최고 클리어 단계 (높은 순서)
+                if (a.maxStage !== b.maxStage) {
+                    return b.maxStage - a.maxStage;
+                }
+                // 2순위: 같은 단계면 점수차이 큰 순서
+                if (a.maxScoreDiff !== b.maxScoreDiff) {
+                    return b.maxScoreDiff - a.maxScoreDiff;
+                }
+                // 3순위: 능력치 합계 (높은 순서)
+                return b.totalAbility - a.totalAbility;
+            })
+            .map((entry, index) => ({
+                userId: entry.user.id,
+                rank: index + 1,
+                maxStage: entry.maxStage,
+                maxScoreDiff: entry.maxScoreDiff,
+                totalAbility: entry.totalAbility
+            }));
+    };
+    
+    const neighborhoodRankings = calculateChampionshipRanking('neighborhood');
+    const nationalRankings = calculateChampionshipRanking('national');
+    const worldRankings = calculateChampionshipRanking('world');
+    
+    // 기존 호환성을 위한 전체 챔피언십 랭킹 (모든 던전 타입 통합)
     const championshipRankings = allUsers
-        .filter(user => user && user.id)
-        .map(user => ({
-            user,
-            score: user.cumulativeTournamentScore || 0
-        }))
-        .sort((a, b) => b.score - a.score)
+        .filter(user => {
+            if (!user || !user.id) return false;
+            if (!user.dungeonProgress) return false;
+            return Object.values(user.dungeonProgress || {}).some((progress: any) => progress && progress.currentStage > 0);
+        })
+        .map(user => {
+            let maxStage = 0;
+            let maxScoreDiff = -Infinity;
+            let totalAbility = 0;
+            
+            for (const progress of Object.values(user.dungeonProgress)) {
+                const prog = progress as any;
+                if (prog.currentStage > maxStage) {
+                    maxStage = prog.currentStage;
+                }
+                for (const [stage, result] of Object.entries(prog.stageResults || {})) {
+                    const res = result as any;
+                    if (res.cleared && parseInt(stage) === maxStage) {
+                        if (res.scoreDiff > maxScoreDiff) {
+                            maxScoreDiff = res.scoreDiff;
+                        }
+                    }
+                }
+            }
+            
+            if (user.baseStats) {
+                totalAbility = Object.values(user.baseStats).reduce((sum: number, stat: any) => sum + (stat || 0), 0);
+            }
+            
+            const rankingScore = (maxStage * 1000000) + (Math.max(0, maxScoreDiff) * 1000) + totalAbility;
+            
+            return {
+                user,
+                score: rankingScore,
+                maxStage,
+                maxScoreDiff,
+                totalAbility
+            };
+        })
+        .sort((a, b) => {
+            if (a.maxStage !== b.maxStage) {
+                return b.maxStage - a.maxStage;
+            }
+            if (a.maxScoreDiff !== b.maxScoreDiff) {
+                return b.maxScoreDiff - a.maxScoreDiff;
+            }
+            return b.totalAbility - a.totalAbility;
+        })
         .map((entry, index) => ({
             userId: entry.user.id,
             rank: index + 1,
@@ -1338,9 +1479,85 @@ export async function processDailyRankings(): Promise<void> {
             };
         }
         
-        // 챔피언십 순위 저장 (누적 점수 기준 - 모든 사용자에게 저장)
+        // 던전 일일 점수 리셋 (매일 0시)
+        if (updatedUser.dailyDungeonScore !== undefined) {
+            updatedUser.dailyDungeonScore = 0;
+        }
+        
+        // 던전 일일 시도 횟수 리셋
+        if (updatedUser.dungeonProgress) {
+            for (const dungeonType of ['neighborhood', 'national', 'world'] as const) {
+                const progress = updatedUser.dungeonProgress?.[dungeonType];
+                if (progress && progress.dailyStageAttempts) {
+                    progress.dailyStageAttempts = {};
+                }
+            }
+        }
+        
+        // 챔피언십 순위 저장 (던전 시스템: 각 던전 타입별 최고 클리어 단계 기준)
+        // 0시에만 업데이트 (하루에 한 번 고정)
+        if (isMidnight) {
+            if (!updatedUser.dailyRankings.championship) {
+                updatedUser.dailyRankings.championship = {};
+            }
+            
+            // 동네바둑리그 랭킹 저장
+            const neighborhoodRank = neighborhoodRankings.findIndex(r => r.userId === user.id);
+            if (neighborhoodRank !== -1) {
+                const rankData = neighborhoodRankings[neighborhoodRank];
+                updatedUser.dailyRankings.championship.neighborhood = {
+                    rank: rankData.rank,
+                    maxStage: rankData.maxStage,
+                    maxScoreDiff: rankData.maxScoreDiff,
+                    totalAbility: rankData.totalAbility,
+                    lastUpdated: now
+                };
+            }
+            
+            // 전국바둑대회 랭킹 저장
+            const nationalRank = nationalRankings.findIndex(r => r.userId === user.id);
+            if (nationalRank !== -1) {
+                const rankData = nationalRankings[nationalRank];
+                updatedUser.dailyRankings.championship.national = {
+                    rank: rankData.rank,
+                    maxStage: rankData.maxStage,
+                    maxScoreDiff: rankData.maxScoreDiff,
+                    totalAbility: rankData.totalAbility,
+                    lastUpdated: now
+                };
+            }
+            
+            // 월드챔피언십 랭킹 저장
+            const worldRank = worldRankings.findIndex(r => r.userId === user.id);
+            if (worldRank !== -1) {
+                const rankData = worldRankings[worldRank];
+                updatedUser.dailyRankings.championship.world = {
+                    rank: rankData.rank,
+                    maxStage: rankData.maxStage,
+                    maxScoreDiff: rankData.maxScoreDiff,
+                    totalAbility: rankData.totalAbility,
+                    lastUpdated: now
+                };
+            }
+        }
+        
+        // 기존 호환성을 위한 전체 챔피언십 랭킹 (보너스 점수 계산용)
         const championshipRank = championshipRankings.findIndex(r => r.userId === user.id);
+        // 던전 시스템에서는 cumulativeTournamentScore를 사용 (누적 점수)
         const currentScore = user.cumulativeTournamentScore || 0;
+        
+        // 일일 던전 점수에 순위별 보너스 적용
+        let finalDailyScore = user.dailyDungeonScore || 0;
+        if (finalDailyScore > 0 && championshipRank !== -1) {
+            const { DUNGEON_RANK_SCORE_BONUS, DUNGEON_DEFAULT_SCORE_BONUS } = await import('../constants/tournaments.js');
+            const rank = championshipRank + 1;
+            const bonusMultiplier = DUNGEON_RANK_SCORE_BONUS[rank] || DUNGEON_DEFAULT_SCORE_BONUS;
+            const bonusScore = Math.floor(finalDailyScore * bonusMultiplier);
+            finalDailyScore += bonusScore;
+            
+            // 보너스 점수를 cumulativeTournamentScore에도 추가
+            updatedUser.cumulativeTournamentScore = (updatedUser.cumulativeTournamentScore || 0) + bonusScore;
+        }
         
         // 월요일 0시인 경우: yesterdayTournamentScore를 현재 누적 점수로 설정하여 변화없음으로 시작
         // 월요일이 아닌 경우: 어제 점수를 저장 (0시 직전의 점수)
@@ -1350,7 +1567,7 @@ export async function processDailyRankings(): Promise<void> {
             updatedUser.yesterdayTournamentScore = currentScore;
             updatedUser.dailyRankings.championship = {
                 rank: championshipRank !== -1 ? championshipRank + 1 : allUsers.length,
-                score: currentScore, // 누적 점수는 업데이트된 상태이지만, 변화표는 변화없음으로 시작
+                score: updatedUser.cumulativeTournamentScore || 0, // 보너스 적용 후 누적 점수
                 lastUpdated: now
             };
         } else {
@@ -1362,14 +1579,14 @@ export async function processDailyRankings(): Promise<void> {
             if (championshipRank !== -1) {
                 updatedUser.dailyRankings.championship = {
                     rank: championshipRank + 1,
-                    score: currentScore, // 현재 점수로 업데이트
+                    score: updatedUser.cumulativeTournamentScore || 0, // 보너스 적용 후 누적 점수
                     lastUpdated: now
                 };
             } else {
                 // 랭킹에 없는 경우에도 0점으로 기록 (누적 점수가 없는 신규 사용자 등)
                 updatedUser.dailyRankings.championship = {
                     rank: allUsers.length, // 마지막 순위
-                    score: currentScore,
+                    score: updatedUser.cumulativeTournamentScore || 0,
                     lastUpdated: now
                 };
             }
@@ -1381,6 +1598,9 @@ export async function processDailyRankings(): Promise<void> {
     lastDailyRankingUpdateTimestamp = now;
     console.log(`[DailyRanking] Updated daily rankings for ${allUsers.length} users, updated bot scores for ${botsUpdated} users`);
     
+    // 순위별 보상 배율 적용 (전날 랭킹 기준으로 보상 지급)
+    await processDungeonRankingRewards(championshipRankings, now);
+    
     // 랭킹 캐시 무효화 (새로운 랭킹이 계산되었으므로)
     try {
         const { invalidateRankingCache } = await import('./rankingCache.js');
@@ -1388,6 +1608,157 @@ export async function processDailyRankings(): Promise<void> {
     } catch (error) {
         console.error('[DailyRanking] Failed to invalidate ranking cache:', error);
     }
+}
+
+// 던전 순위별 보상 배율 적용 (매일 0시에 전날 랭킹 기준으로 보상 지급)
+async function processDungeonRankingRewards(
+    championshipRankings: Array<{ userId: string; rank: number; score: number }>,
+    now: number
+): Promise<void> {
+    console.log(`[DungeonRankingRewards] Processing ranking rewards for ${championshipRankings.length} users`);
+    
+    const { DUNGEON_RANK_REWARD_MULTIPLIER, DUNGEON_DEFAULT_REWARD_MULTIPLIER } = await import('../constants/tournaments.js');
+    const { addItemsToInventory, createItemInstancesFromReward } = await import('../utils/inventoryUtils.js');
+    const { SHOP_ITEMS } = await import('./shop.js');
+    
+    let rewardsDistributed = 0;
+    
+    for (const ranking of championshipRankings) {
+        const user = await db.getUser(ranking.userId);
+        if (!user || !user.dungeonProgress) continue;
+        
+        const rank = ranking.rank;
+        const multiplier = DUNGEON_RANK_REWARD_MULTIPLIER[rank] || DUNGEON_DEFAULT_REWARD_MULTIPLIER;
+        
+        // 배율이 1.0이면 보상 지급 안 함 (기본 보상만 받음)
+        if (multiplier <= 1.0) continue;
+        
+        // 전날 클리어한 모든 단계에 대해 추가 보상 계산
+        const additionalRewards: { gold?: number; materials?: Record<string, number>; equipmentBoxes?: Record<string, number>; changeTickets?: number } = {};
+        
+        for (const dungeonType of ['neighborhood', 'national', 'world'] as const) {
+            const progress = user.dungeonProgress?.[dungeonType];
+            if (!progress) continue;
+            
+            // 전날 클리어한 단계 찾기 (stageResults에서 cleared가 true인 것들)
+            for (const [stageStr, result] of Object.entries(progress.stageResults || {})) {
+                const stage = parseInt(stageStr);
+                const res = result as any;
+                
+                // 전날 클리어한 단계인지 확인 (clearTime이 어제인지 체크)
+                if (!res.cleared) continue;
+                
+                const clearTime = res.clearTime || 0;
+                const clearDate = getStartOfDayKST(clearTime);
+                const yesterdayStart = getStartOfDayKST(now - 24 * 60 * 60 * 1000);
+                
+                // 어제 클리어한 단계만 처리
+                if (clearDate !== yesterdayStart) continue;
+                
+                // 기본 보상 계산
+                if (dungeonType === 'neighborhood') {
+                    const baseGold = (await import('../constants/tournaments.js')).DUNGEON_STAGE_BASE_REWARDS_GOLD[stage] || 0;
+                    const additionalGold = Math.floor(baseGold * (multiplier - 1.0)); // 배율에서 1.0을 빼서 추가분만 계산
+                    if (additionalGold > 0) {
+                        additionalRewards.gold = (additionalRewards.gold || 0) + additionalGold;
+                    }
+                } else if (dungeonType === 'national') {
+                    const baseMaterial = (await import('../constants/tournaments.js')).DUNGEON_STAGE_BASE_REWARDS_MATERIAL[stage];
+                    if (baseMaterial) {
+                        const additionalQuantity = Math.floor(baseMaterial.quantity * (multiplier - 1.0));
+                        if (additionalQuantity > 0) {
+                            if (!additionalRewards.materials) {
+                                additionalRewards.materials = {};
+                            }
+                            additionalRewards.materials[baseMaterial.materialName] = 
+                                (additionalRewards.materials[baseMaterial.materialName] || 0) + additionalQuantity;
+                        }
+                    }
+                } else if (dungeonType === 'world') {
+                    const baseEquipment = (await import('../constants/tournaments.js')).DUNGEON_STAGE_BASE_REWARDS_EQUIPMENT[stage];
+                    if (baseEquipment) {
+                        for (const box of baseEquipment.boxes) {
+                            const additionalQuantity = Math.floor(box.quantity * (multiplier - 1.0));
+                            if (additionalQuantity > 0) {
+                                if (!additionalRewards.equipmentBoxes) {
+                                    additionalRewards.equipmentBoxes = {};
+                                }
+                                additionalRewards.equipmentBoxes[box.boxName] = 
+                                    (additionalRewards.equipmentBoxes[box.boxName] || 0) + additionalQuantity;
+                            }
+                        }
+                        const additionalTickets = Math.floor(baseEquipment.changeTickets * (multiplier - 1.0));
+                        if (additionalTickets > 0) {
+                            additionalRewards.changeTickets = (additionalRewards.changeTickets || 0) + additionalTickets;
+                        }
+                    }
+                }
+            }
+        }
+        
+        // 추가 보상 지급
+        if (Object.keys(additionalRewards).length > 0) {
+            let updatedUser = JSON.parse(JSON.stringify(user));
+            
+            // 골드 지급
+            if (additionalRewards.gold) {
+                updatedUser.gold = (updatedUser.gold || 0) + additionalRewards.gold;
+            }
+            
+            // 아이템 지급
+            const itemsToCreate: (InventoryItem | { itemId: string; quantity: number })[] = [];
+            
+            if (additionalRewards.materials) {
+                for (const [materialName, quantity] of Object.entries(additionalRewards.materials)) {
+                    itemsToCreate.push({ itemId: materialName, quantity });
+                }
+            }
+            
+            if (additionalRewards.equipmentBoxes) {
+                for (const [boxName, quantity] of Object.entries(additionalRewards.equipmentBoxes)) {
+                    const boxItemKey = Object.keys(SHOP_ITEMS).find(key => {
+                        const shopItem = SHOP_ITEMS[key as keyof typeof SHOP_ITEMS];
+                        return shopItem && (shopItem as any).name === boxName;
+                    });
+                    if (boxItemKey) {
+                        itemsToCreate.push({ itemId: boxItemKey, quantity });
+                    } else {
+                        itemsToCreate.push({ itemId: boxName, quantity });
+                    }
+                }
+            }
+            
+            if (additionalRewards.changeTickets) {
+                const changeTicketItemKey = Object.keys(SHOP_ITEMS).find(key => {
+                    const shopItem = SHOP_ITEMS[key as keyof typeof SHOP_ITEMS];
+                    return shopItem && (shopItem as any).name?.includes('변경권');
+                });
+                if (changeTicketItemKey) {
+                    itemsToCreate.push({ itemId: changeTicketItemKey, quantity: additionalRewards.changeTickets });
+                }
+            }
+            
+            // 모든 아이템을 한 번에 추가
+            if (itemsToCreate.length > 0) {
+                const itemInstances = createItemInstancesFromReward(itemsToCreate);
+                const addResult = addItemsToInventory(
+                    updatedUser.inventory || [],
+                    updatedUser.inventorySlots || { equipment: 30, consumable: 30, material: 30 },
+                    itemInstances
+                );
+                if (addResult.success) {
+                    updatedUser.inventory = addResult.updatedInventory;
+                } else {
+                    console.warn(`[DungeonRankingRewards] Failed to add items to inventory for user ${updatedUser.id}: inventory full`);
+                }
+            }
+            
+            await db.updateUser(updatedUser);
+            rewardsDistributed++;
+        }
+    }
+    
+    console.log(`[DungeonRankingRewards] Distributed ranking rewards to ${rewardsDistributed} users`);
 }
 
 // 매일 0시 KST에 일일 퀘스트 초기화 및 토너먼트 상태 리셋
@@ -1508,17 +1879,43 @@ export async function processTowerRankingRewards(): Promise<void> {
     
     const allUsers = await db.getAllUsers();
     
-    // 모든 유저를 1층으로 초기화
+    // 모든 유저를 1층으로 초기화 (한 달 내에 100층까지의 보상을 1회 수령할 수 있도록)
+    // 이전 달의 monthlyTowerFloor 값을 보상 지급에 사용하기 위해 저장
+    const userMonthlyFloors: Map<string, number> = new Map();
+    
     let resetCount = 0;
     for (const user of allUsers) {
         const previousTowerFloor = user.towerFloor ?? 0;
-        if (previousTowerFloor > 0) {
-            user.towerFloor = 1; // 모든 유저를 1층으로 초기화
+        const previousMonthlyTowerFloor = (user as any).monthlyTowerFloor ?? 0;
+        
+        // 보상 지급을 위해 이전 달의 monthlyTowerFloor 값 저장
+        if (previousMonthlyTowerFloor > 0) {
+            userMonthlyFloors.set(user.id, previousMonthlyTowerFloor);
+        }
+        
+        let needsUpdate = false;
+        
+        // towerFloor를 1층으로 초기화 (모든 유저를 1층부터 다시 도전하도록)
+        // 이전 층수가 1이 아니거나 없거나, lastTowerClearTime이 설정되어 있으면 초기화
+        if (previousTowerFloor !== 1 || user.lastTowerClearTime !== undefined) {
+            user.towerFloor = 1;
             user.lastTowerClearTime = undefined; // 클리어 시간 초기화
+            needsUpdate = true;
+        }
+        
+        // monthlyTowerFloor도 0으로 초기화 (새로운 달 시작, 한 달 내에 100층까지의 보상을 1회 수령)
+        if (previousMonthlyTowerFloor !== 0) {
+            (user as any).monthlyTowerFloor = 0;
+            needsUpdate = true;
+        }
+        
+        // 변경사항이 있으면 DB에 저장
+        if (needsUpdate) {
+            await db.updateUser(user);
             resetCount++;
         }
     }
-    console.log(`[TowerRankingReward] Reset ${resetCount} users' towerFloor to 1`);
+    console.log(`[TowerRankingReward] Reset ${resetCount} users' towerFloor to 1 and monthlyTowerFloor to 0`);
     
     // 최고 층수 기반 보상 정의
     const getRewardForFloor = (floor: number): { gold: number; diamonds: number; items: { itemId: string; quantity: number }[] } | null => {
@@ -1575,32 +1972,27 @@ export async function processTowerRankingRewards(): Promise<void> {
     };
     
     // 각 사용자에게 최고 층수 기반 보상 지급
+    // 주의: 위의 루프에서 이미 모든 유저의 towerFloor와 monthlyTowerFloor가 초기화되었으므로,
+    // 여기서는 보상 지급만 처리합니다. 이전 달의 monthlyTowerFloor 값은 userMonthlyFloors에서 가져옵니다.
     let rewardCount = 0;
     for (const user of allUsers) {
-        const monthlyTowerFloor = (user as any).monthlyTowerFloor ?? 0;
+        // 이전 달의 monthlyTowerFloor 값 가져오기
+        const previousMonthlyTowerFloor = userMonthlyFloors.get(user.id) ?? 0;
         
-        // towerFloor를 1층으로 초기화 (보상 지급 여부와 관계없이)
-        user.towerFloor = 1;
-        user.lastTowerClearTime = undefined;
-        
-        if (monthlyTowerFloor < 10) {
-            // 10층 미만은 보상 없음, monthlyTowerFloor 리셋만 수행
-            (user as any).monthlyTowerFloor = 0;
-            await db.updateUser(user);
+        // 10층 미만은 보상 없음
+        if (previousMonthlyTowerFloor < 10) {
             continue;
         }
         
-        const reward = getRewardForFloor(monthlyTowerFloor);
+        const reward = getRewardForFloor(previousMonthlyTowerFloor);
         if (!reward) {
-            // 보상이 없으면 monthlyTowerFloor 리셋만 수행
-            (user as any).monthlyTowerFloor = 0;
-            await db.updateUser(user);
+            // 보상이 없으면 continue (이미 위의 루프에서 monthlyTowerFloor가 0으로 초기화됨)
             continue;
         }
         
         // 메일 생성 (5일 수령기간)
-        const mailTitle = `도전의 탑 월간 보상 (${monthlyTowerFloor}층 클리어)`;
-        const mailMessage = `한 달 동안 ${monthlyTowerFloor}층을 클리어하셨습니다.\n\n보상이 지급되었습니다. 5일 이내에 수령해주세요.`;
+        const mailTitle = `도전의 탑 월간 보상 (${previousMonthlyTowerFloor}층 클리어)`;
+        const mailMessage = `한 달 동안 ${previousMonthlyTowerFloor}층을 클리어하셨습니다.\n\n보상이 지급되었습니다. 5일 이내에 수령해주세요.`;
         
         const mail: types.Mail = {
             id: `mail-tower-monthly-${randomUUID()}`,
@@ -1621,11 +2013,8 @@ export async function processTowerRankingRewards(): Promise<void> {
         if (!user.mail) user.mail = [];
         user.mail.unshift(mail);
         
-        // monthlyTowerFloor 리셋 및 towerFloor를 1층으로 초기화
-        (user as any).monthlyTowerFloor = 0;
-        user.towerFloor = 1; // 모든 유저를 1층으로 초기화
-        user.lastTowerClearTime = undefined; // 클리어 시간 초기화
-        
+        // 이미 위의 루프에서 towerFloor와 monthlyTowerFloor가 초기화되었으므로,
+        // 여기서는 메일만 추가하고 저장
         await db.updateUser(user);
         rewardCount++;
     }

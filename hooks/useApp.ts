@@ -2928,23 +2928,15 @@ export const useApp = () => {
                                 removeFromGames(setTowerGames, towerGameSignaturesRef.current);
                             }
 
-                            if (serverGameCategory === 'singleplayer') {
+                            // 싱글플레이 또는 도전의탑 게임 삭제 시 홈 화면으로 리다이렉트
+                            if (serverGameCategory === 'singleplayer' || serverGameCategory === 'tower') {
                                 const currentHash = window.location.hash;
                                 const isGamePage = currentHash.startsWith('#/game/') && currentHash.includes(deletedGameId);
                                 if (isGamePage) {
-                                    const postGameRedirect = sessionStorage.getItem('postGameRedirect');
-                                    if (postGameRedirect) {
-                                        console.log('[WebSocket] Single player game deleted, routing to postGameRedirect:', postGameRedirect);
-                                        sessionStorage.removeItem('postGameRedirect');
-                                        setTimeout(() => {
-                                            window.location.hash = postGameRedirect;
-                                        }, 100);
-                                    } else {
-                                        console.log('[WebSocket] Single player game deleted, routing to singleplayer lobby');
-                                        setTimeout(() => {
-                                            window.location.hash = '#/singleplayer';
-                                        }, 100);
-                                    }
+                                    console.log(`[WebSocket] ${serverGameCategory === 'tower' ? 'Tower' : 'Single player'} game deleted, routing to home`);
+                                    setTimeout(() => {
+                                        window.location.hash = '#/';
+                                    }, 100);
                                 }
                             }
                             return;

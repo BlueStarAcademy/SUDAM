@@ -26,6 +26,7 @@
     "migrate:to-railway": "npx tsx --tsconfig server/tsconfig.json scripts/migrate-to-railway.ts",
     "optimize-db": "npx tsx --tsconfig server/tsconfig.json server/scripts/optimizeDatabase.ts",
     "reset-all-guilds": "npx tsx --tsconfig server/tsconfig.json server/scripts/resetAllGuilds.ts",
+    "reset-championship-data": "npx tsx --tsconfig server/tsconfig.json server/scripts/resetAllChampionshipData.ts",
     "clean-admin-guild": "npx tsx --tsconfig server/tsconfig.json server/scripts/cleanAdminGuild.ts",
       "check-admin-guild": "npx tsx --tsconfig server/tsconfig.json server/scripts/checkAdminGuild.ts",
       "test-db-performance": "npx tsx --tsconfig server/tsconfig.json server/scripts/testDbPerformance.ts",

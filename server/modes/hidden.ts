@@ -59,7 +59,8 @@ export const updateHiddenState = (game: types.LiveGameSession, now: number) => {
 
     switch (game.gameStatus) {
         case 'scanning_animating':
-            if (game.animation && now > game.animation.startTime + game.animation.duration) {
+            // 애니메이션이 없거나 시간이 지났으면 playing으로 전환
+            if (!game.animation || (game.animation && now > game.animation.startTime + game.animation.duration)) {
                 game.animation = null;
                 // After animation, the game is already in 'playing' state with timer running for the correct player.
                 // We just need to ensure the status is clean.

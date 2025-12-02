@@ -7,7 +7,12 @@ const SALT_ROUNDS = 10;
  * 비밀번호를 해싱합니다.
  */
 export const hashPassword = async (password: string): Promise<string> => {
-    return await bcrypt.hash(password, SALT_ROUNDS);
+    try {
+        return await bcrypt.hash(password, SALT_ROUNDS);
+    } catch (error: any) {
+        console.error('[PasswordUtils] Error hashing password:', error?.message || error);
+        throw new Error('비밀번호 해싱 중 오류가 발생했습니다.');
+    }
 };
 
 /**
@@ -26,7 +31,12 @@ export const verifyPassword = async (password: string, hash: string, salt?: stri
     
     // bcrypt 해시인지 확인 (항상 $2a$, $2b$, $2y$로 시작)
     if (hash.startsWith('$2a$') || hash.startsWith('$2b$') || hash.startsWith('$2y$')) {
-        return await bcrypt.compare(password, hash);
+        try {
+            return await bcrypt.compare(password, hash);
+        } catch (error: any) {
+            console.error('[PasswordUtils] Error verifying password with bcrypt:', error?.message || error);
+            return false;
+        }
     }
     
     // pbkdf2 해시인 경우 (기존 방식)

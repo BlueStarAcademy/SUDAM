@@ -104,6 +104,32 @@ export async function getAllEndedGames(): Promise<LiveGameSession[]> {
   }
 }
 
+/**
+ * 사용자 ID로 활성 게임 찾기 (로그인 최적화용)
+ */
+export async function getLiveGameByPlayerId(playerId: string): Promise<LiveGameSession | null> {
+  try {
+    // JSON 필드에서 player1.id 또는 player2.id로 검색
+    // Prisma는 JSON 필드 검색이 제한적이므로, 모든 활성 게임을 가져와서 필터링
+    // 하지만 성능을 위해 최대 100개만 조회
+    const rows = await prisma.liveGame.findMany({
+      where: { isEnded: false },
+      take: 100 // 최대 100개만 조회하여 성능 최적화
+    });
+    
+    for (const row of rows) {
+      const game = mapRowToGame(row);
+      if (game && (game.player1?.id === playerId || game.player2?.id === playerId)) {
+        return game;
+      }
+    }
+    return null;
+  } catch (error: any) {
+    console.error('[gameService] Error fetching game by player ID:', error);
+    return null;
+  }
+}
+
 export async function saveGame(game: LiveGameSession): Promise<void> {
   try {
     const { status, category, isEnded } = deriveMeta(game);

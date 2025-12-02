@@ -204,6 +204,18 @@ export type TournamentState = {
     accumulatedGold?: number; // 동네바둑리그 경기별 누적 골드
     accumulatedMaterials?: Record<string, number>; // 전국바둑대회 경기별 누적 재료 (재료명: 개수)
     accumulatedEquipmentBoxes?: Record<string, number>; // 월드챔피언십 경기별 누적 장비상자 (상자명: 개수)
+    // 던전 시스템 필드
+    currentStage?: number; // 현재 클리어한 최고 단계 (1~10)
+    unlockedStages?: number[]; // 클리어하여 언락된 단계 배열
+    stageResults?: Record<number, {
+        cleared: boolean; // 클리어 여부
+        scoreDiff: number; // 점수차이 (랭킹 정렬용)
+        clearTime: number; // 클리어 시간
+        rank?: number; // 해당 단계에서의 순위
+        dailyScore?: number; // 일일 획득 점수
+    }>;
+    dailyStageAttempts?: Record<number, number>; // 일일 단계별 시도 횟수 (리셋용)
+    currentStageAttempt?: number; // 현재 진행 중인 단계
 };
 
 export type LeagueOutcome = 'promote' | 'maintain' | 'demote';
@@ -297,11 +309,23 @@ export type User = {
   dailyWorldWins?: number;
   worldRewardClaimed?: boolean;
   lastWorldTournament?: TournamentState | null;
-  weeklyCompetitors?: WeeklyCompetitor[];
-  lastWeeklyCompetitorsUpdate?: number | null;
-  lastLeagueUpdate?: number | null;
-  weeklyCompetitorsBotScores?: Record<string, { score: number; lastUpdate: number; yesterdayScore?: number }>;
+  // 경쟁상대 관련 필드 제거됨 (weeklyCompetitors, weeklyCompetitorsBotScores 등)
+  lastLeagueUpdate?: number | null; // league는 유지 (다른 곳에서 사용 가능)
   monthlyGoldBuffExpiresAt?: number | null;
+  // 던전 진행 상태
+  dungeonProgress?: Record<TournamentType, {
+    currentStage: number; // 현재 클리어한 최고 단계 (1~10)
+    unlockedStages: number[]; // 클리어하여 언락된 단계 배열
+    stageResults: Record<number, {
+      cleared: boolean;
+      scoreDiff: number;
+      clearTime: number;
+      rank?: number;
+      dailyScore?: number;
+    }>;
+    dailyStageAttempts: Record<number, number>; // 일일 단계별 시도 횟수
+  }>;
+  dailyDungeonScore?: number; // 일일 획득 점수 (리셋용)
   mbti?: string | null;
   rejectedGameModes?: GameMode[];
   isMbtiPublic?: boolean;
@@ -324,7 +348,11 @@ export type User = {
   dailyRankings?: {
     strategic?: { rank: number; score: number; lastUpdated: number };
     playful?: { rank: number; score: number; lastUpdated: number };
-    championship?: { rank: number; score: number; lastUpdated: number };
+    championship?: {
+      neighborhood?: { rank: number; maxStage: number; maxScoreDiff: number; totalAbility: number; lastUpdated: number };
+      national?: { rank: number; maxStage: number; maxScoreDiff: number; totalAbility: number; lastUpdated: number };
+      world?: { rank: number; maxStage: number; maxScoreDiff: number; totalAbility: number; lastUpdated: number };
+    };
   };
   savedGameRecords?: GameRecord[];
   lastLoginAt?: number;

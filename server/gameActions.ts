@@ -457,6 +457,29 @@ export const handleAction = async (volatileState: VolatileState, action: ServerA
         return handleSinglePlayerAction(volatileState, action, userData);
     }
     // 타워 액션은 위에서 이미 처리됨 (중복 제거)
+    // 던전 액션은 토너먼트 액션으로 처리해야 하므로 CLAIM_ 체크보다 먼저 확인
+    if (type.startsWith('START_DUNGEON') ||
+        type.startsWith('COMPLETE_DUNGEON') ||
+        type.startsWith('CLAIM_DUNGEON') ||
+        type === 'START_DUNGEON_STAGE' ||
+        type === 'COMPLETE_DUNGEON_STAGE' ||
+        type === 'CLAIM_DUNGEON_REWARD') {
+        console.log(`[handleAction] Routing ${type} to handleTournamentAction, payload:`, JSON.stringify(payload));
+        try {
+            const result = await handleTournamentAction(volatileState, action, userData);
+            if (result) {
+                console.log(`[handleAction] handleTournamentAction returned result for ${type}:`, result.error ? `ERROR: ${result.error}` : 'SUCCESS');
+                return result;
+            } else {
+                console.error(`[handleAction] handleTournamentAction returned undefined/null for ${type}`);
+                return { error: `Failed to process ${type}. Please try again.` };
+            }
+        } catch (error: any) {
+            console.error(`[handleAction] Error in handleTournamentAction for ${type}:`, error?.message || error);
+            return { error: `서버 오류가 발생했습니다: ${error?.message || 'Unknown error'}` };
+        }
+    }
+    
     if (type.startsWith('CLAIM_') || type.startsWith('DELETE_MAIL') || type === 'DELETE_ALL_CLAIMED_MAIL' || type === 'MARK_MAIL_AS_READ') return handleRewardAction(volatileState, action, userData);
     if (type.startsWith('BUY_') || type === 'PURCHASE_ACTION_POINTS' || type === 'EXPAND_INVENTORY' || type === 'BUY_TOWER_ITEM') return handleShopAction(volatileState, action, userData);
     if (type.startsWith('TOURNAMENT') || 
@@ -470,10 +493,12 @@ export const handleAction = async (volatileState: VolatileState, action: ServerA
         type === 'USE_CONDITION_POTION' || 
         type === 'BUY_CONDITION_POTION' ||
         type === 'START_TOURNAMENT_MATCH' || 
+        type === 'START_TOURNAMENT_ROUND' ||
         type === 'ENTER_TOURNAMENT_VIEW' || 
         type === 'LEAVE_TOURNAMENT_VIEW' ||
         type === 'CLAIM_TOURNAMENT_REWARD' ||
         type === 'COMPLETE_TOURNAMENT_SIMULATION') {
+        console.log(`[handleAction] Routing ${type} to handleTournamentAction`);
         return handleTournamentAction(volatileState, action, userData);
     }
     if (['TOGGLE_EQUIP_ITEM', 'SELL_ITEM', 'ENHANCE_ITEM', 'DISASSEMBLE_ITEM', 'USE_ITEM', 'USE_ALL_ITEMS_OF_TYPE', 'CRAFT_MATERIAL', 'COMBINE_ITEMS', 'REFINE_EQUIPMENT'].includes(type)) return handleInventoryAction(volatileState, action, userData);

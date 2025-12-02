@@ -3,7 +3,7 @@ import * as db from '../db.js';
 import { type ServerAction, type User, type VolatileState, TournamentType, PlayerForTournament, InventoryItem, InventoryItemType, TournamentState, LeagueTier, CoreStat, EquipmentSlot } from '../../types/index.js';
 import { ItemGrade } from '../../types/enums.js';
 import * as types from '../../types/index.js';
-import { TOURNAMENT_DEFINITIONS, BASE_TOURNAMENT_REWARDS, CONSUMABLE_ITEMS, MATERIAL_ITEMS, TOURNAMENT_SCORE_REWARDS, BOT_NAMES, AVATAR_POOL, BORDER_POOL } from '../../constants';
+import { TOURNAMENT_DEFINITIONS, BASE_TOURNAMENT_REWARDS, CONSUMABLE_ITEMS, MATERIAL_ITEMS, TOURNAMENT_SCORE_REWARDS, BOT_NAMES, AVATAR_POOL, BORDER_POOL, DUNGEON_STAGE_BOT_STATS, DUNGEON_TYPE_MULTIPLIER, DUNGEON_RANK_REWARD_MULTIPLIER, DUNGEON_DEFAULT_REWARD_MULTIPLIER, DUNGEON_STAGE_BASE_REWARDS_GOLD, DUNGEON_STAGE_BASE_REWARDS_MATERIAL, DUNGEON_STAGE_BASE_REWARDS_EQUIPMENT, DUNGEON_STAGE_BASE_SCORE, DUNGEON_RANK_SCORE_BONUS, DUNGEON_DEFAULT_SCORE_BONUS } from '../../constants';
 import { updateQuestProgress } from '../questService.js';
 import { createItemFromTemplate, SHOP_ITEMS } from '../shop.js';
 import { isSameDayKST, getStartOfDayKST } from '../../utils/timeUtils.js';
@@ -372,14 +372,17 @@ export const startTournamentSessionForUser = async (user: User, tournamentType: 
         broadcastUserUpdate(freshUser, ['lastNeighborhoodTournament', 'lastNationalTournament', 'lastWorldTournament']);
     }
     
-    return { success: true, updatedUser };
+    return { success: true, updatedUser: freshUser };
 };
 
 export const handleTournamentAction = async (volatileState: VolatileState, action: ServerAction & { userId: string }, user: User): Promise<HandleActionResult> => {
     const { type, payload } = action;
     const now = Date.now();
 
-    switch (type) {
+    console.log(`[handleTournamentAction] Processing action: ${type}, userId: ${user.id}`);
+    
+    try {
+        switch (type) {
         case 'START_TOURNAMENT_SESSION': {
             const { type } = payload as { type: TournamentType };
             const definition = TOURNAMENT_DEFINITIONS[type];
@@ -413,7 +416,16 @@ export const handleTournamentAction = async (volatileState: VolatileState, actio
             const existingState = (user as any)[stateKey] as TournamentState | null;
 
             if (existingState) {
-                // Session exists. Update the user's stats within it before returning.
+                // 던전 모드인 경우: 기존 상태를 무시하고 항상 새로 시작 (티어 로직 잔존 방지)
+                // 던전 모드는 START_DUNGEON_STAGE 액션으로만 시작되므로, START_TOURNAMENT_SESSION에서는 무시
+                if (existingState.currentStageAttempt) {
+                    console.log(`[START_TOURNAMENT_SESSION] 던전 모드 감지 - 기존 상태 무시하고 새로 시작`);
+                    // 기존 상태를 null로 설정하여 새로 시작하도록 함
+                    (user as any)[stateKey] = null;
+                    // 계속 진행하여 새 토너먼트 생성 (일반 토너먼트 모드로)
+                } else {
+                    // 일반 토너먼트 모드: 기존 상태 재사용
+                    // Session exists. Update the user's stats within it before returning.
                 const userInTournament = existingState.players.find(p => p.id === user.id);
                 if (userInTournament) {
                     userInTournament.stats = calculateTotalStats(user);
@@ -442,22 +454,23 @@ export const handleTournamentAction = async (volatileState: VolatileState, actio
                     }
                 }
                 
-                // round_complete, bracket_ready, round_in_progress 상태는 모두 그대로 유지
-                // (뒤로가기 후 다시 들어왔을 때 나가기 직전의 상태를 보존)
-                
-                (user as any)[stateKey] = existingState; // Re-assign to mark for update
-                
-                // volatileState.activeTournaments도 DB 상태로 동기화 (뒤로가기 후 다시 들어왔을 때 상태 보존)
-                if (!volatileState.activeTournaments) volatileState.activeTournaments = {};
-                volatileState.activeTournaments[user.id] = existingState;
-                
-                // 사용자 캐시 업데이트
-                updateUserCache(user);
-                // DB 저장은 비동기로 처리하여 응답 지연 최소화
-                db.updateUser(user).catch(err => {
-                    console.error(`[TournamentActions] Failed to save user ${user.id}:`, err);
-                });
-                return { clientResponse: { redirectToTournament: type } };
+                    // round_complete, bracket_ready, round_in_progress 상태는 모두 그대로 유지
+                    // (뒤로가기 후 다시 들어왔을 때 나가기 직전의 상태를 보존)
+                    
+                    (user as any)[stateKey] = existingState; // Re-assign to mark for update
+                    
+                    // volatileState.activeTournaments도 DB 상태로 동기화 (뒤로가기 후 다시 들어왔을 때 상태 보존)
+                    if (!volatileState.activeTournaments) volatileState.activeTournaments = {};
+                    volatileState.activeTournaments[user.id] = existingState;
+                    
+                    // 사용자 캐시 업데이트
+                    updateUserCache(user);
+                    // DB 저장은 비동기로 처리하여 응답 지연 최소화
+                    db.updateUser(user).catch(err => {
+                        console.error(`[TournamentActions] Failed to save user ${user.id}:`, err);
+                    });
+                    return { clientResponse: { redirectToTournament: type } };
+                }
             }
 
             if ((user as any)[playedDateKey] && isSameDayKST((user as any)[playedDateKey], now) && !user.isAdmin) {
@@ -845,7 +858,7 @@ export const handleTournamentAction = async (volatileState: VolatileState, actio
 
             return { 
                 clientResponse: { 
-                    updatedUser,
+                    updatedUser: user,
                     redirectToTournament: tournamentType
                 } 
             };
@@ -1430,7 +1443,363 @@ export const handleTournamentAction = async (volatileState: VolatileState, actio
             // 단순히 뷰 진입/이탈을 추적하는 액션이므로 성공 응답만 반환
             return {};
 
+        case 'START_DUNGEON_STAGE': {
+            // Payload 상세 로깅
+            console.log('[START_DUNGEON_STAGE] Received payload:', JSON.stringify(payload));
+            console.log('[START_DUNGEON_STAGE] Payload type:', typeof payload);
+            console.log('[START_DUNGEON_STAGE] Payload keys:', payload ? Object.keys(payload) : 'null');
+            
+            // Payload 검증
+            if (!payload || typeof payload !== 'object') {
+                console.error('[START_DUNGEON_STAGE] Invalid payload:', payload);
+                return { error: '잘못된 요청 형식입니다.' };
+            }
+            
+            const { dungeonType, stage } = payload as { dungeonType?: TournamentType; stage?: number };
+            
+            console.log('[START_DUNGEON_STAGE] Extracted values:', { dungeonType, stage, stageType: typeof stage });
+            
+            // dungeonType 검증
+            if (!dungeonType || !['neighborhood', 'national', 'world'].includes(dungeonType)) {
+                console.error('[START_DUNGEON_STAGE] Invalid dungeonType:', dungeonType, 'Type:', typeof dungeonType);
+                return { error: `유효하지 않은 던전 타입입니다. (받은 값: ${dungeonType})` };
+            }
+            
+            // stage 검증
+            if (stage === undefined || stage === null) {
+                console.error('[START_DUNGEON_STAGE] Stage is undefined or null:', stage);
+                return { error: '단계 정보가 전달되지 않았습니다.' };
+            }
+            
+            if (typeof stage !== 'number') {
+                console.error('[START_DUNGEON_STAGE] Stage is not a number:', stage, 'Type:', typeof stage);
+                return { error: `단계 정보가 숫자가 아닙니다. (받은 값: ${stage}, 타입: ${typeof stage})` };
+            }
+            
+            if (isNaN(stage)) {
+                console.error('[START_DUNGEON_STAGE] Stage is NaN:', stage);
+                return { error: '단계 정보가 올바르지 않습니다. (NaN)' };
+            }
+            
+            if (stage < 1 || stage > 10) {
+                console.error('[START_DUNGEON_STAGE] Stage out of range:', stage);
+                return { error: `유효하지 않은 단계입니다. (1~10단계, 받은 값: ${stage})` };
+            }
+            
+            console.log('[START_DUNGEON_STAGE] Validation passed, proceeding with dungeon stage creation');
+            
+            // 던전 진행 상태 확인
+            const freshUser = await getCachedUser(user.id) || await db.getUser(user.id);
+            if (!freshUser) return { error: '사용자를 찾을 수 없습니다.' };
+            
+            if (!freshUser.dungeonProgress) {
+                freshUser.dungeonProgress = {
+                    neighborhood: { currentStage: 0, unlockedStages: [1], stageResults: {}, dailyStageAttempts: {} },
+                    national: { currentStage: 0, unlockedStages: [1], stageResults: {}, dailyStageAttempts: {} },
+                    world: { currentStage: 0, unlockedStages: [1], stageResults: {}, dailyStageAttempts: {} },
+                };
+            }
+            
+            const dungeonProgress = freshUser.dungeonProgress[dungeonType] || {
+                currentStage: 0,
+                unlockedStages: [1], // 1단계는 기본 언락
+                stageResults: {},
+                dailyStageAttempts: {},
+            };
+            
+            // 이전 단계 클리어 확인
+            if (stage > 1 && !dungeonProgress.unlockedStages.includes(stage)) {
+                return { error: `이전 단계를 먼저 클리어해야 합니다.` };
+            }
+            
+            // 일일 시도 횟수 확인 (필요시 제한)
+            const today = getStartOfDayKST(now);
+            const todayAttempts = dungeonProgress.dailyStageAttempts[stage] || 0;
+            // 일일 시도 횟수 제한은 나중에 추가 가능
+            
+            // 전체 토너먼트 생성 (유저 + 봇들)
+            const definition = TOURNAMENT_DEFINITIONS[dungeonType];
+            const neededBots = definition.players - 1; // 유저를 제외한 봇 수
+            
+            // 봇들 생성
+            const botNames = [...BOT_NAMES].sort(() => 0.5 - Math.random());
+            const botPlayers: PlayerForTournament[] = [];
+            
+            for (let i = 0; i < neededBots; i++) {
+                const botName = botNames[i % botNames.length];
+                const botAvatar = AVATAR_POOL[Math.floor(Math.random() * AVATAR_POOL.length)];
+                const botBorder = BORDER_POOL[Math.floor(Math.random() * BORDER_POOL.length)];
+                const botId = `dungeon-bot-${dungeonType}-${stage}-${i}-${Date.now()}`;
+                
+                const { createDungeonStageBot } = await import('../tournamentService.js');
+                // stage 파라미터가 제대로 전달되는지 확인 및 로깅
+                console.log(`[START_DUNGEON_STAGE] Creating bot for stage ${stage}, dungeonType: ${dungeonType}, botId: ${botId}`);
+                const bot = createDungeonStageBot(stage, dungeonType, botId, botName, botAvatar, botBorder);
+                console.log(`[START_DUNGEON_STAGE] Bot created with stats:`, Object.values(bot.stats));
+                botPlayers.push(bot);
+            }
+            
+            // 유저 PlayerForTournament 생성
+            const userStats = calculateTotalStats(freshUser);
+            const userPlayer: PlayerForTournament = {
+                id: freshUser.id,
+                nickname: freshUser.nickname,
+                avatarId: freshUser.avatarId,
+                borderId: freshUser.borderId,
+                league: freshUser.league,
+                stats: JSON.parse(JSON.stringify(userStats)), // Mutable copy
+                originalStats: userStats, // Original stats 저장
+                condition: 1000, // 컨디션은 createTournament에서 설정됨
+                wins: 0,
+                losses: 0,
+            };
+            
+            // 모든 플레이어 (유저 + 봇들)
+            const allPlayers = [userPlayer, ...botPlayers];
+            
+            // 토너먼트 생성 (기존 createTournament 함수 사용)
+            const { createTournament } = await import('../tournamentService.js');
+            const dungeonState = createTournament(dungeonType, freshUser, allPlayers);
+            
+            // 던전 전용 필드 추가
+            dungeonState.title = `${TOURNAMENT_DEFINITIONS[dungeonType].name} ${stage}단계`;
+            dungeonState.currentStageAttempt = stage;
+            
+            // 던전 상태 저장
+            let stateKey: keyof User;
+            switch (dungeonType) {
+                case 'neighborhood':
+                    stateKey = 'lastNeighborhoodTournament';
+                    break;
+                case 'national':
+                    stateKey = 'lastNationalTournament';
+                    break;
+                case 'world':
+                    stateKey = 'lastWorldTournament';
+                    break;
+                default:
+                    return { error: 'Invalid dungeon type.' };
+            }
+            
+            (freshUser as any)[stateKey] = dungeonState;
+            
+            // 일일 시도 횟수 증가
+            dungeonProgress.dailyStageAttempts[stage] = todayAttempts + 1;
+            freshUser.dungeonProgress[dungeonType] = dungeonProgress;
+            
+            await db.updateUser(freshUser);
+            updateUserCache(freshUser);
+            
+            if (!volatileState.activeTournaments) volatileState.activeTournaments = {};
+            volatileState.activeTournaments[freshUser.id] = dungeonState;
+            
+            return { clientResponse: { dungeonState, updatedUser: freshUser } };
+        }
+
+        case 'COMPLETE_DUNGEON_STAGE': {
+            const { dungeonType, stage } = payload as { dungeonType: TournamentType; stage: number };
+            
+            const freshUser = await getCachedUser(user.id) || await db.getUser(user.id);
+            if (!freshUser) return { error: '사용자를 찾을 수 없습니다.' };
+            
+            let stateKey: keyof User;
+            switch (dungeonType) {
+                case 'neighborhood':
+                    stateKey = 'lastNeighborhoodTournament';
+                    break;
+                case 'national':
+                    stateKey = 'lastNationalTournament';
+                    break;
+                case 'world':
+                    stateKey = 'lastWorldTournament';
+                    break;
+                default:
+                    return { error: 'Invalid dungeon type.' };
+            }
+            
+            const dungeonState = (freshUser as any)[stateKey] as TournamentState | null;
+            if (!dungeonState || dungeonState.currentStageAttempt !== stage) {
+                return { error: '진행 중인 던전이 없습니다.' };
+            }
+            
+            // 토너먼트가 완료되었는지 확인
+            const isTournamentComplete = dungeonState.status === 'complete' || dungeonState.status === 'eliminated';
+            if (!isTournamentComplete) {
+                return { error: '토너먼트가 아직 완료되지 않았습니다.' };
+            }
+            
+            // 던전 진행 상태 업데이트
+            if (!freshUser.dungeonProgress) {
+                freshUser.dungeonProgress = {
+                    neighborhood: { currentStage: 0, unlockedStages: [1], stageResults: {}, dailyStageAttempts: {} },
+                    national: { currentStage: 0, unlockedStages: [1], stageResults: {}, dailyStageAttempts: {} },
+                    world: { currentStage: 0, unlockedStages: [1], stageResults: {}, dailyStageAttempts: {} },
+                };
+            }
+            
+            const dungeonProgress = freshUser.dungeonProgress[dungeonType] || {
+                currentStage: 0,
+                unlockedStages: [1],
+                stageResults: {},
+                dailyStageAttempts: {},
+            };
+            
+            // 토너먼트 순위 계산
+            const userPlayer = dungeonState.players.find(p => p.id === freshUser.id);
+            if (!userPlayer) {
+                return { error: '플레이어 정보를 찾을 수 없습니다.' };
+            }
+            
+            // 순위 계산 (wins/losses 기준, 동일하면 승률 기준)
+            const rankedPlayers = [...dungeonState.players].sort((a, b) => {
+                // 1순위: 승수
+                if (b.wins !== a.wins) {
+                    return b.wins - a.wins;
+                }
+                // 2순위: 패수 (적을수록 좋음)
+                if (a.losses !== b.losses) {
+                    return a.losses - b.losses;
+                }
+                // 3순위: 승률
+                const aWinRate = (a.wins + a.losses) > 0 ? a.wins / (a.wins + a.losses) : 0;
+                const bWinRate = (b.wins + b.losses) > 0 ? b.wins / (b.wins + b.losses) : 0;
+                return bWinRate - aWinRate;
+            });
+            
+            const userRank = rankedPlayers.findIndex(p => p.id === freshUser.id) + 1;
+            const cleared = userRank <= (dungeonType === 'neighborhood' ? 6 : dungeonType === 'national' ? 8 : 16); // 모든 순위가 클리어로 간주
+            const clearTime = now;
+            
+            // 단계 결과 저장
+            if (!dungeonProgress.stageResults[stage]) {
+                dungeonProgress.stageResults[stage] = {
+                    cleared: false,
+                    scoreDiff: 0,
+                    clearTime: 0,
+                };
+            }
+            
+            // 클리어 성공 시 업데이트 및 보상 지급
+            let rewards: { gold?: number; materials?: Record<string, number>; equipmentBoxes?: Record<string, number>; changeTickets?: number } = {};
+            
+            // 기본 보상 지급 (각 경기마다 누적된 보상)
+            if (dungeonState.accumulatedGold) {
+                freshUser.gold = (freshUser.gold || 0) + dungeonState.accumulatedGold;
+            }
+            
+            // 보상 아이템 수집 (기본 보상 + 순위 보상)
+            const itemsToCreate: (InventoryItem | { itemId: string; quantity: number })[] = [];
+            
+            // 기본 보상 아이템 추가 (각 경기마다 누적된 재료/장비상자)
+            if (dungeonState.accumulatedMaterials) {
+                for (const [materialName, quantity] of Object.entries(dungeonState.accumulatedMaterials)) {
+                    itemsToCreate.push({ itemId: materialName, quantity });
+                }
+            }
+            
+            if (dungeonState.accumulatedEquipmentBoxes) {
+                for (const [boxName, quantity] of Object.entries(dungeonState.accumulatedEquipmentBoxes)) {
+                    const boxItemKey = Object.keys(SHOP_ITEMS).find(key => {
+                        const shopItem = SHOP_ITEMS[key as keyof typeof SHOP_ITEMS];
+                        return shopItem && (shopItem as any).name === boxName;
+                    });
+                    if (boxItemKey) {
+                        itemsToCreate.push({ itemId: boxItemKey, quantity });
+                    } else {
+                        itemsToCreate.push({ itemId: boxName, quantity });
+                    }
+                }
+            }
+            
+            if (cleared) {
+                dungeonProgress.stageResults[stage].cleared = true;
+                dungeonProgress.stageResults[stage].scoreDiff = 0; // 토너먼트에서는 점수차이 대신 순위 사용
+                dungeonProgress.stageResults[stage].clearTime = clearTime;
+                
+                // 현재 단계 업데이트
+                if (stage > dungeonProgress.currentStage) {
+                    dungeonProgress.currentStage = stage;
+                }
+                
+                // 다음 단계 언락 조건: 해당 단계에서 3등 이상 달성 시
+                if (userRank <= 3 && !dungeonProgress.unlockedStages.includes(stage + 1) && stage < 10) {
+                    dungeonProgress.unlockedStages.push(stage + 1);
+                    dungeonProgress.unlockedStages.sort((a, b) => a - b);
+                }
+                
+                // 일일 랭킹 점수 계산 (기본 점수만 저장, 순위 보너스는 나중에 적용)
+                const baseScore = DUNGEON_STAGE_BASE_SCORE[stage] || 0;
+                dungeonProgress.stageResults[stage].dailyScore = baseScore;
+                dungeonProgress.stageResults[stage].rank = userRank; // 순위 저장
+                
+                // 일일 던전 점수 누적
+                if (!freshUser.dailyDungeonScore) {
+                    freshUser.dailyDungeonScore = 0;
+                }
+                freshUser.dailyDungeonScore += baseScore;
+                
+                // 누적 챔피언십 점수에 추가 (홈 화면 랭킹용)
+                if (!freshUser.cumulativeTournamentScore) {
+                    freshUser.cumulativeTournamentScore = 0;
+                }
+                freshUser.cumulativeTournamentScore += baseScore;
+                
+                // 순위별 보상 지급
+                const { DUNGEON_RANK_REWARDS } = await import('../../constants/tournaments.js');
+                const rankReward = DUNGEON_RANK_REWARDS[dungeonType]?.[stage]?.[userRank];
+                if (rankReward && rankReward.items) {
+                    for (const item of rankReward.items) {
+                        // 타입 가드: InventoryItem이 아닌 경우만 처리
+                        if ('itemId' in item && item.itemId && item.quantity) {
+                            itemsToCreate.push({ itemId: item.itemId, quantity: item.quantity });
+                        }
+                    }
+                }
+            }
+            
+            // 모든 보상 아이템 지급 (기본 보상 + 순위 보상)
+            if (itemsToCreate.length > 0) {
+                const itemInstances = createItemInstancesFromReward(itemsToCreate);
+                const addResult = addItemsToInventory(
+                    freshUser.inventory || [],
+                    freshUser.inventorySlots || { equipment: 30, consumable: 30, material: 30 },
+                    itemInstances
+                );
+                if (addResult.success) {
+                    freshUser.inventory = addResult.updatedInventory;
+                } else {
+                    console.warn(`[COMPLETE_DUNGEON_STAGE] Failed to add items to inventory for user ${freshUser.id}: inventory full`);
+                }
+            }
+            
+            // 던전 상태 업데이트 (이미 complete/eliminated 상태이므로 유지)
+            
+            freshUser.dungeonProgress[dungeonType] = dungeonProgress;
+            (freshUser as any)[stateKey] = dungeonState;
+            
+            await db.updateUser(freshUser);
+            updateUserCache(freshUser);
+            
+            if (!volatileState.activeTournaments) volatileState.activeTournaments = {};
+            volatileState.activeTournaments[freshUser.id] = dungeonState;
+            
+            return { 
+                clientResponse: { 
+                    dungeonState, 
+                    cleared,
+                    userRank,
+                    rankReward: cleared ? (await import('../../constants/tournaments.js')).DUNGEON_RANK_REWARDS[dungeonType]?.[stage]?.[userRank] : undefined,
+                    updatedUser: freshUser 
+                } 
+            };
+        }
+
         default:
+            console.error(`[handleTournamentAction] Unhandled action type: ${type}`);
             return { error: `Action ${type} is not handled by tournamentActions.` };
+        }
+    } catch (error: any) {
+        console.error(`[handleTournamentAction] Exception processing ${type}:`, error?.message || error, error?.stack);
+        return { error: `서버 오류가 발생했습니다: ${error?.message || 'Unknown error'}` };
     }
 };

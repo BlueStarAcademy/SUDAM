@@ -1,7 +1,7 @@
 import * as types from '../../types/index.js';
 import * as db from '../db.js';
 import { getGoLogic, processMove } from '../goLogic.js';
-import { handleSharedAction, updateSharedGameState } from './shared.js';
+import { handleSharedAction, updateSharedGameState, handleTimeoutFoul } from './shared.js';
 import { DICE_GO_MAIN_ROLL_TIME, DICE_GO_MAIN_PLACE_TIME } from '../../constants';
 import { endGame } from '../summaryService.js';
 import { aiUserId } from '../aiPlayer.js';
@@ -144,6 +144,56 @@ export const updateThiefState = (game: types.LiveGameSession, now: number) => {
             game.preGameConfirmations = {};
             game.revealEndTime = undefined;
         }
+    } else if (game.gameStatus === 'thief_rolling') {
+        // turnDeadline이 없으면 설정 (게임 로드 시나 상태 불일치 시 대비)
+        if (!game.turnDeadline) {
+            console.log(`[updateThiefState] Setting turnDeadline for thief_rolling: gameId=${game.id}, currentPlayer=${game.currentPlayer}`);
+            game.turnDeadline = now + DICE_GO_MAIN_ROLL_TIME * 1000;
+            game.turnStartTime = now;
+        }
+        
+        // AI 턴일 때는 타임아웃 체크를 건너뛰기
+        const isAiTurn = game.isAiGame && game.currentPlayer !== types.Player.None && 
+                        (game.currentPlayer === types.Player.Black ? game.blackPlayerId === aiUserId : game.whitePlayerId === aiUserId);
+        
+        // 타임아웃 체크 및 자동 주사위 굴리기
+        if (game.turnDeadline && now > game.turnDeadline && !isAiTurn) {
+            const timedOutPlayerId = game.currentPlayer === types.Player.Black ? game.blackPlayerId! : game.whitePlayerId!;
+            const timeOver = now - game.turnDeadline;
+            console.log(`[updateThiefState] Timeout detected in thief_rolling: gameId=${game.id}, timedOutPlayerId=${timedOutPlayerId}, timeOver=${timeOver}ms`);
+            
+            const gameEnded = handleTimeoutFoul(game, timedOutPlayerId, now);
+            if (gameEnded) {
+                console.log(`[updateThiefState] Game ended due to timeout foul limit`);
+                return;
+            }
+
+            // 타임아웃 시 자동으로 주사위 굴리기
+            const myRole = timedOutPlayerId === game.thiefPlayerId ? 'thief' : 'police';
+            const dice1 = Math.floor(Math.random() * 6) + 1;
+            let dice2 = 0;
+            let stonesToPlace: number;
+            
+            if (myRole === 'police') {
+                dice2 = Math.floor(Math.random() * 6) + 1;
+                stonesToPlace = dice1 + dice2;
+            } else {
+                stonesToPlace = dice1;
+            }
+            
+            console.log(`[updateThiefState] Auto-rolling dice due to timeout: role=${myRole}, dice1=${dice1}, dice2=${dice2}, stonesToPlace=${stonesToPlace}`);
+            
+            game.animation = { type: 'dice_roll_main', dice: { dice1, dice2, dice3: 0 }, startTime: now, duration: 1500 };
+            game.gameStatus = 'thief_rolling_animating';
+            game.turnDeadline = undefined;
+            game.turnStartTime = undefined;
+            game.dice = undefined;
+            game.stonesToPlace = stonesToPlace;
+            
+            if (!game.thiefDiceRollHistory) game.thiefDiceRollHistory = { [p1Id]: [], [p2Id]: [] };
+            game.thiefDiceRollHistory[timedOutPlayerId].push(dice1);
+            if (dice2 > 0) game.thiefDiceRollHistory[timedOutPlayerId].push(dice2);
+        }
     } else if (game.gameStatus === 'thief_rolling_animating') {
         if (game.animation && game.animation.type === 'dice_roll_main' && now > game.animation.startTime + game.animation.duration) {
             game.dice = game.animation.dice;
@@ -152,6 +202,154 @@ export const updateThiefState = (game: types.LiveGameSession, now: number) => {
             game.stonesPlacedThisTurn = []; // Initialize for the new turn
             game.turnDeadline = now + DICE_GO_MAIN_PLACE_TIME * 1000;
             game.turnStartTime = now;
+        }
+    } else if (game.gameStatus === 'thief_placing') {
+        // turnDeadline이 없으면 설정 (게임 로드 시나 상태 불일치 시 대비)
+        if (!game.turnDeadline) {
+            console.log(`[updateThiefState] Setting turnDeadline for thief_placing: gameId=${game.id}, currentPlayer=${game.currentPlayer}`);
+            game.turnDeadline = now + DICE_GO_MAIN_PLACE_TIME * 1000;
+            game.turnStartTime = now;
+        }
+        
+        // AI 턴일 때는 타임아웃 체크를 건너뛰기
+        const isAiTurnPlacing = game.isAiGame && game.currentPlayer !== types.Player.None && 
+                               (game.currentPlayer === types.Player.Black ? game.blackPlayerId === aiUserId : game.whitePlayerId === aiUserId);
+        
+        // 타임아웃 체크 및 자동 착점
+        if (game.turnDeadline && now > game.turnDeadline && !isAiTurnPlacing) {
+            const timedOutPlayerId = game.currentPlayer === types.Player.Black ? game.blackPlayerId! : game.whitePlayerId!;
+            const timeOver = now - game.turnDeadline;
+            console.log(`[updateThiefState] Timeout detected in thief_placing: gameId=${game.id}, timedOutPlayerId=${timedOutPlayerId}, timeOver=${timeOver}ms`);
+            
+            const gameEnded = handleTimeoutFoul(game, timedOutPlayerId, now);
+            if (gameEnded) {
+                console.log(`[updateThiefState] Game ended due to timeout foul limit`);
+                return;
+            }
+
+            // 타임아웃 시 자동으로 랜덤 착점 (남은 돌 수만큼)
+            let stonesToPlace = game.stonesToPlace || 0;
+            const myRole = timedOutPlayerId === game.thiefPlayerId ? 'thief' : 'police';
+            let tempBoardState = JSON.parse(JSON.stringify(game.boardState));
+            let totalCapturesThisTurn = 0;
+            let lastCaptureStones: types.Point[] = [];
+    
+            while (stonesToPlace > 0) {
+                const logicForLiberty = getGoLogic({ ...game, boardState: tempBoardState });
+                let move: types.Point | null = null;
+                
+                if (myRole === 'thief') {
+                    // 도둑: 기존 돌의 활로에만 놓을 수 있음
+                    const liberties = logicForLiberty.getAllLibertiesOfPlayer(types.Player.Black, tempBoardState);
+                    const noBlackStonesOnBoard = !tempBoardState.flat().includes(types.Player.Black);
+                    const canPlaceFreely = (game.turnInRound === 1 || noBlackStonesOnBoard);
+                    
+                    if (canPlaceFreely) {
+                        // 자유롭게 놓을 수 있음
+                        const emptySpots: types.Point[] = [];
+                        for (let y = 0; y < game.settings.boardSize; y++) {
+                            for (let x = 0; x < game.settings.boardSize; x++) {
+                                if (tempBoardState[y][x] === types.Player.None) {
+                                    emptySpots.push({ x, y });
+                                }
+                            }
+                        }
+                        if (emptySpots.length > 0) {
+                            move = emptySpots[Math.floor(Math.random() * emptySpots.length)];
+                        }
+                    } else {
+                        // 활로에만 놓을 수 있음
+                        const liberties = logicForLiberty.getAllLibertiesOfPlayer(types.Player.Black, tempBoardState);
+                        if (liberties.length > 0) {
+                            move = liberties[Math.floor(Math.random() * liberties.length)];
+                        }
+                    }
+                } else {
+                    // 경찰: 흰 돌의 활로에 놓을 수 있음
+                    const liberties = logicForLiberty.getAllLibertiesOfPlayer(types.Player.White, tempBoardState);
+                    if (liberties.length > 0) {
+                        move = liberties[Math.floor(Math.random() * liberties.length)];
+                    }
+                }
+                
+                if (!move) break;
+                
+                const result = processMove(tempBoardState, { ...move, player: types.Player.Black }, game.koInfo, game.moveHistory.length, { ignoreSuicide: true });
+    
+                if (result.isValid) {
+                    tempBoardState = result.newBoardState;
+                    if (result.capturedStones.length > 0) {
+                        totalCapturesThisTurn += result.capturedStones.length;
+                        lastCaptureStones = result.capturedStones;
+                        if (!game.thiefCapturesThisRound) game.thiefCapturesThisRound = 0;
+                        game.thiefCapturesThisRound += result.capturedStones.length;
+                    }
+                    if (!game.stonesPlacedThisTurn) game.stonesPlacedThisTurn = [];
+                    game.stonesPlacedThisTurn.push(move);
+                } else {
+                    console.error(`[updateThiefState] Timeout random placement failed. Move: ${JSON.stringify(move)}, Reason: ${result.reason}`);
+                    break;
+                }
+                stonesToPlace--;
+            }
+            
+            game.boardState = tempBoardState;
+            game.stonesToPlace = stonesToPlace;
+            
+            // 턴 종료 처리 (THIEF_PLACE_STONE과 동일한 로직)
+            if (game.stonesToPlace <= 0) {
+                game.lastTurnStones = game.stonesPlacedThisTurn;
+                game.stonesPlacedThisTurn = [];
+                game.lastMove = null;
+                
+                game.turnInRound = (game.turnInRound || 0) + 1;
+                const totalTurnsInRound = 10;
+                const blackStonesLeft = game.boardState.flat().filter(s => s === types.Player.Black).length;
+                const allThievesCaptured = blackStonesLeft === 0 && myRole === 'police';
+        
+                if (game.turnInRound > totalTurnsInRound || allThievesCaptured) {
+                    const finalThiefStonesLeft = game.boardState.flat().filter(s => s === types.Player.Black).length;
+                    const capturesThisRound = game.thiefCapturesThisRound || 0;
+                    
+                    game.scores[game.thiefPlayerId!] = (game.scores[game.thiefPlayerId!] || 0) + finalThiefStonesLeft;
+                    game.scores[game.policePlayerId!] = (game.scores[game.policePlayerId!] || 0) + capturesThisRound;
+                    
+                    const p1IsThief = game.player1.id === game.thiefPlayerId;
+                    game.thiefRoundSummary = {
+                        round: game.round,
+                        isDeathmatch: !!game.isDeathmatch,
+                        player1: {
+                            id: p1Id,
+                            role: p1IsThief ? 'thief' : 'police',
+                            roundScore: p1IsThief ? finalThiefStonesLeft : capturesThisRound,
+                            cumulativeScore: game.scores[p1Id] ?? 0,
+                        },
+                        player2: {
+                            id: game.player2.id,
+                            role: !p1IsThief ? 'thief' : 'police',
+                            roundScore: !p1IsThief ? finalThiefStonesLeft : capturesThisRound,
+                            cumulativeScore: game.scores[game.player2.id] ?? 0,
+                        }
+                    };
+                    const p1Score = game.scores[p1Id]!;
+                    const p2Score = game.scores[game.player2.id]!;
+                    
+                    if ((game.round === 2 && p1Score !== p2Score) || game.isDeathmatch) {
+                        const winnerId = p1Score > p2Score ? p1Id : game.player2.id;
+                        const winnerEnum = winnerId === game.blackPlayerId ? types.Player.Black : types.Player.White;
+                        endGame(game, winnerEnum, 'total_score');
+                    } else {
+                        game.gameStatus = 'thief_round_end';
+                        game.revealEndTime = now + 20000;
+                        if(game.isAiGame) game.roundEndConfirmations = { [aiUserId]: now };
+                    }
+                } else {
+                    game.currentPlayer = game.currentPlayer === types.Player.Black ? types.Player.White : types.Player.Black;
+                    game.gameStatus = 'thief_rolling';
+                    game.turnDeadline = now + DICE_GO_MAIN_ROLL_TIME * 1000;
+                    game.turnStartTime = now;
+                }
+            }
         }
     } else if (game.gameStatus === 'thief_round_end') {
          if (game.isAiGame) {

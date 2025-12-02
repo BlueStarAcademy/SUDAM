@@ -18,47 +18,52 @@ FROM base AS build-deps
 # Install build tools for mozjpeg (imagemin-mozjpeg dependency)
 RUN apk add --no-cache wget unzip autoconf automake libtool pkgconfig nasm
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN echo "=== Installing npm dependencies (this may take a while) ===" && \
+    npm ci && \
+    echo "=== npm dependencies installed ==="
 
 FROM build-deps AS build
 # Override NODE_ENV to ensure devDependencies are installed
 ENV NODE_ENV=development
 
-# Copy all source code first
+# Copy all source code (dependencies already installed in build-deps stage)
 COPY . .
-
-# Reinstall dependencies to ensure everything is available (including vite)
-RUN npm ci
 
 # Generate Prisma client (DATABASE_URL not needed for generation, but prisma.config.ts requires it)
 ENV DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy"
-RUN npx prisma generate --schema prisma/schema.prisma
+RUN echo "=== Generating Prisma client ===" && \
+    npx prisma generate --schema prisma/schema.prisma && \
+    echo "=== Prisma client generated ==="
 
 # Build frontend - use npx to ensure vite is found
-RUN npx vite build
+RUN echo "=== Building frontend with Vite ===" && \
+    npx vite build && \
+    echo "=== Frontend build complete ==="
 
 # Download KataGo Linux binary and model
 # Use eigenavx2 build for CPU-only Railway deployment (faster than eigen)
-# Try multiple release versions in case one doesn't exist
-RUN mkdir -p /app/katago /tmp/katago_extract && \
+# Simplified download with single version and clear error messages
+RUN echo "=== Starting KataGo download ===" && \
+    mkdir -p /app/katago /tmp/katago_extract && \
     cd /tmp && \
-    (wget -q --no-check-certificate https://github.com/lightvector/KataGo/releases/download/v1.16.4/katago-v1.16.4-eigenavx2-linux-x64.zip -O katago.zip && echo "Downloaded v1.16.4" || \
-     (wget -q --no-check-certificate https://github.com/lightvector/KataGo/releases/download/v1.16.3/katago-v1.16.3-eigenavx2-linux-x64.zip -O katago.zip && echo "Downloaded v1.16.3" || \
-      (wget -q --no-check-certificate https://github.com/lightvector/KataGo/releases/download/v1.16.2/katago-v1.16.2-eigenavx2-linux-x64.zip -O katago.zip && echo "Downloaded v1.16.2" || \
-       (wget -q --no-check-certificate https://github.com/lightvector/KataGo/releases/download/v1.16.1/katago-v1.16.1-eigenavx2-linux-x64.zip -O katago.zip && echo "Downloaded v1.16.1" || \
-        wget -q --no-check-certificate https://github.com/lightvector/KataGo/releases/download/v1.16.0/katago-v1.16.0-eigenavx2-linux-x64.zip -O katago.zip && echo "Downloaded v1.16.0")))) && \
-    test -f katago.zip || (echo "ERROR: katago.zip not found" && exit 1) && \
+    echo "[1/4] Downloading KataGo binary v1.16.4..." && \
+    wget --progress=dot:giga --no-check-certificate --timeout=120 --tries=2 --read-timeout=120 --dns-timeout=20 --connect-timeout=60 \
+        https://github.com/lightvector/KataGo/releases/download/v1.16.4/katago-v1.16.4-eigenavx2-linux-x64.zip -O katago.zip && \
+    echo "[2/4] Verifying download..." && \
+    test -f katago.zip && test -s katago.zip || (echo "ERROR: katago.zip download failed or empty" && exit 1) && \
+    echo "[3/4] Extracting KataGo binary..." && \
     unzip -q katago.zip -d katago_extract || (echo "ERROR: unzip failed" && exit 1) && \
     KATAGO_BIN=$(find katago_extract -name "katago" -type f | head -1) && \
     test -n "$KATAGO_BIN" || (echo "ERROR: katago binary not found in extract" && find katago_extract -type f && exit 1) && \
     cp "$KATAGO_BIN" /app/katago/katago || (echo "ERROR: failed to copy katago" && exit 1) && \
     chmod +x /app/katago/katago || (echo "ERROR: failed to chmod katago" && exit 1) && \
+    echo "[4/4] Downloading KataGo model..." && \
     cd /app/katago && \
-    (wget -q --no-check-certificate https://media.katagotraining.org/uploaded/models/kata1-b28c512nbt-s9853922560-d5031756885.bin.gz && echo "Model downloaded successfully" || echo "WARNING: Model download failed, will be downloaded at runtime if needed") && \
+    wget --progress=dot:giga --no-check-certificate --timeout=300 --tries=2 --read-timeout=300 --dns-timeout=20 --connect-timeout=120 \
+        https://media.katagotraining.org/uploaded/models/kata1-b28c512nbt-s9853922560-d5031756885.bin.gz && \
+    test -f kata1-b28c512nbt-s9853922560-d5031756885.bin.gz || (echo "ERROR: KataGo model download failed" && exit 1) && \
+    echo "=== KataGo installation complete ===" && \
     rm -rf /tmp/katago.zip /tmp/katago_extract
-
-# Copy source code
-COPY . .
 
 FROM base AS runner
 WORKDIR /app

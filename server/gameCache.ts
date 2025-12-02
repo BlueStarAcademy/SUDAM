@@ -106,28 +106,34 @@ export function removeUserFromCache(userId: string): void {
 }
 
 /**
- * 만료된 캐시 항목 정리
+ * 만료된 캐시 항목 정리 (메모리 누수 방지 강화)
  */
 export function cleanupExpiredCache(): void {
     const now = Date.now();
+    let gamesCleaned = 0;
+    let usersCleaned = 0;
     
     // 게임 캐시 정리
     const gameCache = volatileState.gameCache;
     if (gameCache) {
-        const maxGameCacheSize = isRailway ? 30 : 100; // Railway: 100명 동시 사용자 대응을 위해 30개로 제한
+        const maxGameCacheSize = isRailway ? 200 : 500; // Railway: 200개로 증가 (더 많은 게임 지원)
+        
+        // 먼저 만료된 항목 제거
+        for (const [gameId, cached] of gameCache.entries()) {
+            if (now - cached.lastUpdated > CACHE_TTL_MS * 2) {
+                gameCache.delete(gameId);
+                gamesCleaned++;
+            }
+        }
+        
+        // 캐시 크기가 너무 크면 LRU 방식으로 오래된 항목 제거
         if (gameCache.size > maxGameCacheSize) {
-            // LRU 방식으로 오래된 항목 제거
             const sorted = Array.from(gameCache.entries())
                 .sort((a, b) => a[1].lastUpdated - b[1].lastUpdated);
             const toRemove = sorted.slice(0, gameCache.size - maxGameCacheSize);
             for (const [gameId] of toRemove) {
                 gameCache.delete(gameId);
-            }
-        }
-        
-        for (const [gameId, cached] of gameCache.entries()) {
-            if (now - cached.lastUpdated > CACHE_TTL_MS * 2) {
-                gameCache.delete(gameId);
+                gamesCleaned++;
             }
         }
     }
@@ -135,22 +141,30 @@ export function cleanupExpiredCache(): void {
     // 사용자 캐시 정리
     const userCache = volatileState.userCache;
     if (userCache) {
-        const maxUserCacheSize = isRailway ? 100 : 300; // Railway: 100명 동시 사용자 대응을 위해 100개로 제한
+        const maxUserCacheSize = isRailway ? 500 : 1000; // Railway: 500개로 증가 (더 많은 사용자 지원)
+        
+        // 먼저 만료된 항목 제거
+        for (const [userId, cached] of userCache.entries()) {
+            if (now - cached.lastUpdated > USER_CACHE_TTL_MS * 2) {
+                userCache.delete(userId);
+                usersCleaned++;
+            }
+        }
+        
+        // 캐시 크기가 너무 크면 LRU 방식으로 오래된 항목 제거
         if (userCache.size > maxUserCacheSize) {
-            // LRU 방식으로 오래된 항목 제거
             const sorted = Array.from(userCache.entries())
                 .sort((a, b) => a[1].lastUpdated - b[1].lastUpdated);
             const toRemove = sorted.slice(0, userCache.size - maxUserCacheSize);
             for (const [userId] of toRemove) {
                 userCache.delete(userId);
+                usersCleaned++;
             }
         }
-        
-        for (const [userId, cached] of userCache.entries()) {
-            if (now - cached.lastUpdated > USER_CACHE_TTL_MS * 2) {
-                userCache.delete(userId);
-            }
-        }
+    }
+    
+    if (gamesCleaned > 0 || usersCleaned > 0) {
+        console.log(`[Cache] Cleaned up ${gamesCleaned} games, ${usersCleaned} users from cache`);
     }
 }
 

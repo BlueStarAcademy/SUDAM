@@ -46,23 +46,10 @@ export const defaultStats: User['stats'] = allGameModes.reduce((acc, mode) => {
     return acc;
 }, {} as Record<GameMode, { wins: number; losses: number; rankingScore: number }>);
 
-export const createInitialBotCompetitors = (newUser: Pick<User, 'league' | 'tournamentScore'>): WeeklyCompetitor[] => {
-    const competitors: WeeklyCompetitor[] = [];
-    const botNames = [...BOT_NAMES].sort(() => 0.5 - Math.random());
-    
-    for (let i = 0; i < 15; i++) {
-        const score = newUser.tournamentScore + Math.floor((Math.random() - 0.5) * 100);
-        competitors.push({
-            id: `bot-weekly-${i}-${Date.now()}`,
-            nickname: botNames[i % botNames.length],
-            avatarId: 'bot_avatar',
-            borderId: 'default',
-            league: newUser.league,
-            initialScore: score,
-        });
-    }
-    return competitors;
-};
+// createInitialBotCompetitors 제거됨 - 던전 시스템으로 변경
+// export const createInitialBotCompetitors = (newUser: Pick<User, 'league' | 'tournamentScore'>): WeeklyCompetitor[] => {
+//     ...
+// };
 
 export const createDefaultUser = (id: string, username: string, nickname: string, isAdmin = false, kakaoId?: string): User => {
     const now = Date.now();
@@ -107,10 +94,14 @@ export const createDefaultUser = (id: string, username: string, nickname: string
         seasonHistory: {},
         tournamentScore: 0,
         league: LeagueTier.Sprout,
-        weeklyCompetitors: [],
-        weeklyCompetitorsBotScores: {},
-        lastWeeklyCompetitorsUpdate: 0,
+        // weeklyCompetitors 제거됨 - 던전 시스템으로 변경
         lastLeagueUpdate: 0,
+        // 던전 진행 상태 초기화
+        dungeonProgress: {
+            neighborhood: { currentStage: 0, unlockedStages: [1], stageResults: {}, dailyStageAttempts: {} },
+            national: { currentStage: 0, unlockedStages: [1], stageResults: {}, dailyStageAttempts: {} },
+            world: { currentStage: 0, unlockedStages: [1], stageResults: {}, dailyStageAttempts: {} },
+        },
         monthlyGoldBuffExpiresAt: 0,
         mbti: null,
         isMbtiPublic: false,
@@ -140,19 +131,8 @@ export const createDefaultUser = (id: string, username: string, nickname: string
         blacksmithXp: 0,
     };
     
-    const botCompetitors = createInitialBotCompetitors(user);
-    user.weeklyCompetitors = [
-        {
-            id: user.id,
-            nickname: user.nickname,
-            avatarId: user.avatarId,
-            borderId: user.borderId,
-            league: user.league,
-            initialScore: user.tournamentScore,
-        },
-        ...botCompetitors
-    ];
-    user.lastWeeklyCompetitorsUpdate = now;
+    // createInitialBotCompetitors 제거됨 - 던전 시스템으로 변경
+    // user.weeklyCompetitors 제거됨
     user.lastLeagueUpdate = now;
 
     return user;

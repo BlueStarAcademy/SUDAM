@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { useAppContext } from '../hooks/useAppContext.js';
-import { LeagueTier, User } from '../types.js';
-import { LEAGUE_DATA, RANKING_TIERS, AVATAR_POOL, BORDER_POOL } from '../constants';
+import { LeagueTier, User, TournamentType } from '../types.js';
+import { LEAGUE_DATA, RANKING_TIERS, AVATAR_POOL, BORDER_POOL, TOURNAMENT_DEFINITIONS } from '../constants';
 import Avatar from './Avatar.js';
 import LeagueTierInfoModal from './LeagueTierInfoModal.js';
 
@@ -34,8 +34,6 @@ const RankItem: React.FC<RankItemProps> = ({ user, rank, isMyRankDisplay }) => {
     const finalClass = `${baseClass} ${isMyRankDisplay ? myRankClass : (isCurrentUserInList ? highlightClass : defaultClass)} p-1.5 lg:p-2 ${isClickable ? 'cursor-pointer hover:bg-gray-700/50' : ''}`;
     const avatarUrl = AVATAR_POOL.find(a => a.id === user.avatarId)?.url;
     const borderUrl = BORDER_POOL.find(b => b.id === user.borderId)?.url;
-    const leagueInfo = LEAGUE_DATA.find(l => l.tier === user.league);
-    const tierImage = leagueInfo?.icon;
 
     return (
         <li
@@ -46,7 +44,6 @@ const RankItem: React.FC<RankItemProps> = ({ user, rank, isMyRankDisplay }) => {
             <div className="w-12 text-center flex-shrink-0 flex flex-col items-center justify-center">
                 {rankDisplay}
             </div>
-            {tierImage && <img src={tierImage} alt={user.league} className="w-8 h-8 mr-2 flex-shrink-0" title={user.league} />}
             <Avatar userId={user.id} userName={user.nickname} size={32} avatarUrl={avatarUrl} borderUrl={borderUrl} />
             <div className="ml-2 lg:ml-3 flex-grow overflow-hidden">
                 <p className="font-semibold text-sm truncate">{user.nickname}</p>
@@ -58,33 +55,146 @@ const RankItem: React.FC<RankItemProps> = ({ user, rank, isMyRankDisplay }) => {
 
 const ChampionshipRankingPanel: React.FC = () => {
     const { currentUserWithStatus, allUsers, handlers } = useAppContext();
-    const [selectedTier, setSelectedTier] = useState<LeagueTier>(LEAGUE_DATA[0].tier);
-    const [isLeagueTierInfoModalOpen, setIsLeagueTierInfoModalOpen] = useState(false);
-
-    useEffect(() => {
-        if (currentUserWithStatus?.league) {
-            setSelectedTier(currentUserWithStatus.league);
-        }
-    }, [currentUserWithStatus?.league]);
-
+    const [selectedTab, setSelectedTab] = useState<TournamentType>('neighborhood');
+    
+    // 선택된 탭에 따른 랭킹 데이터 가져오기 (일일 랭킹 사용)
     const sortedUsers = useMemo(() => {
         if (!currentUserWithStatus) return [];
-        return [...allUsers]
-            .filter(u => u.league === selectedTier && typeof (u.cumulativeTournamentScore ?? 0) === 'number')
-            .sort((a, b) => (b.cumulativeTournamentScore || 0) - (a.cumulativeTournamentScore || 0));
-    }, [allUsers, selectedTier, currentUserWithStatus]);
+        
+        // 일일 랭킹 데이터가 있으면 사용 (0시에 업데이트된 고정 랭킹)
+        const usersWithRanking = allUsers
+            .filter(u => {
+                if (!u.dailyRankings?.championship?.[selectedTab]) return false;
+                // 해당 던전 타입의 진행 상태가 있는 유저만 필터링
+                if (!u.dungeonProgress || !u.dungeonProgress[selectedTab]) return false;
+                const progress = u.dungeonProgress[selectedTab];
+                return progress && progress.currentStage > 0;
+            })
+            .map(u => {
+                const rankingData = u.dailyRankings!.championship![selectedTab]!;
+                return {
+                    user: u,
+                    rank: rankingData.rank,
+                    maxStage: rankingData.maxStage,
+                    maxScoreDiff: rankingData.maxScoreDiff,
+                    totalAbility: rankingData.totalAbility,
+                };
+            })
+            .sort((a, b) => {
+                // 랭킹 순서대로 정렬
+                return a.rank - b.rank;
+            })
+            .map(entry => entry.user);
+        
+        // 일일 랭킹 데이터가 없으면 실시간 계산 (마이그레이션 기간)
+        if (usersWithRanking.length === 0) {
+            return [...allUsers]
+                .filter(u => {
+                    if (!u.dungeonProgress || !u.dungeonProgress[selectedTab]) return false;
+                    const progress = u.dungeonProgress[selectedTab];
+                    return progress && progress.currentStage > 0;
+                })
+                .map(u => {
+                    const progress = u.dungeonProgress![selectedTab];
+                    let maxStage = progress.currentStage || 0;
+                    let maxScoreDiff = -Infinity;
+                    
+                    for (const [stage, result] of Object.entries(progress.stageResults || {})) {
+                        if (result.cleared && parseInt(stage) === maxStage) {
+                            if (result.scoreDiff > maxScoreDiff) {
+                                maxScoreDiff = result.scoreDiff;
+                            }
+                        }
+                    }
+                    
+                    let totalAbility = 0;
+                    if (u.baseStats) {
+                        totalAbility = Object.values(u.baseStats).reduce((sum, stat) => sum + (stat || 0), 0);
+                    }
+                    
+                    return {
+                        user: u,
+                        maxStage,
+                        maxScoreDiff: maxScoreDiff === -Infinity ? 0 : maxScoreDiff,
+                        totalAbility,
+                    };
+                })
+                .sort((a, b) => {
+                    if (a.maxStage !== b.maxStage) {
+                        return b.maxStage - a.maxStage;
+                    }
+                    if (a.maxScoreDiff !== b.maxScoreDiff) {
+                        return b.maxScoreDiff - a.maxScoreDiff;
+                    }
+                    return b.totalAbility - a.totalAbility;
+                })
+                .map(entry => entry.user);
+        }
+        
+        return usersWithRanking;
+    }, [allUsers, currentUserWithStatus, selectedTab]);
     
-    const myOwnLeagueData = useMemo(() => {
-        if (!currentUserWithStatus) return { rank: -1, user: null };
-        const usersInMyLeague = [...allUsers]
-            .filter(u => u.league === currentUserWithStatus.league && typeof (u.cumulativeTournamentScore ?? 0) === 'number')
-            .sort((a, b) => (b.cumulativeTournamentScore || 0) - (a.cumulativeTournamentScore || 0));
-        const myRankIndex = usersInMyLeague.findIndex(u => u.id === currentUserWithStatus.id);
-        return {
-            rank: myRankIndex !== -1 ? myRankIndex + 1 : -1,
-            user: myRankIndex !== -1 ? usersInMyLeague[myRankIndex] : null
+    const myOwnRankData = useMemo(() => {
+        if (!currentUserWithStatus) return { rank: -1, user: currentUserWithStatus, maxStage: 0, score: 0 };
+        
+        // 일일 랭킹 데이터 사용
+        const rankingData = currentUserWithStatus.dailyRankings?.championship?.[selectedTab];
+        let rank = -1;
+        let maxStage = 0;
+        let score = 0;
+        
+        if (rankingData) {
+            rank = rankingData.rank;
+            maxStage = rankingData.maxStage;
+            // 점수 계산: 해당 던전 타입의 단계별 점수 합산
+            const progress = currentUserWithStatus.dungeonProgress?.[selectedTab];
+            if (progress && progress.stageResults) {
+                for (const [stageStr, result] of Object.entries(progress.stageResults)) {
+                    if (result.cleared && result.dailyScore) {
+                        score += result.dailyScore;
+                    }
+                }
+            }
+        } else {
+            // 일일 랭킹 데이터가 없으면 실시간 계산
+            const myRankIndex = sortedUsers.findIndex(u => u.id === currentUserWithStatus.id);
+            if (myRankIndex !== -1) {
+                rank = myRankIndex + 1;
+                const user = sortedUsers[myRankIndex];
+                const progress = user.dungeonProgress?.[selectedTab];
+                maxStage = progress?.currentStage || 0;
+                
+                // 점수 계산
+                if (progress && progress.stageResults) {
+                    for (const [stageStr, result] of Object.entries(progress.stageResults)) {
+                        if (result.cleared && result.dailyScore) {
+                            score += result.dailyScore;
+                        }
+                    }
+                }
+            } else {
+                // 랭킹에 없으면 단계 정보만 확인
+                const progress = currentUserWithStatus.dungeonProgress?.[selectedTab];
+                maxStage = progress?.currentStage || 0;
+                
+                // 점수 계산
+                if (progress && progress.stageResults) {
+                    for (const [stageStr, result] of Object.entries(progress.stageResults)) {
+                        if (result.cleared && result.dailyScore) {
+                            score += result.dailyScore;
+                        }
+                    }
+                }
+            }
+        }
+        
+        return { 
+            rank, 
+            user: currentUserWithStatus, 
+            maxStage, 
+            score 
         };
-    }, [allUsers, currentUserWithStatus]);
+    }, [sortedUsers, currentUserWithStatus, selectedTab]);
     
     if (!currentUserWithStatus) {
         return (
@@ -123,46 +233,149 @@ const ChampionshipRankingPanel: React.FC = () => {
         };
     }, [displayCount, sortedUsers.length]);
 
-    // 티어 변경 시 displayCount 리셋
-    useEffect(() => {
-        setDisplayCount(10);
-    }, [selectedTier]);
-
     const topUsers = sortedUsers.slice(0, displayCount);
 
+    // 탭별 업데이트 시간 표시
+    const getLastUpdatedText = () => {
+        if (!currentUserWithStatus) return '';
+        const rankingData = currentUserWithStatus.dailyRankings?.championship?.[selectedTab];
+        if (rankingData && rankingData.lastUpdated) {
+            const updateDate = new Date(rankingData.lastUpdated);
+            const now = new Date();
+            const isToday = updateDate.toDateString() === now.toDateString();
+            if (isToday) {
+                return '오늘 0시 업데이트';
+            }
+            return `${updateDate.getMonth() + 1}/${updateDate.getDate()} 0시 업데이트`;
+        }
+        return '업데이트 대기 중';
+    };
+    
     return (
         <div className="bg-gray-800 rounded-lg p-4 flex flex-col shadow-lg h-full min-h-0">
-            {isLeagueTierInfoModalOpen && <LeagueTierInfoModal onClose={() => setIsLeagueTierInfoModalOpen(false)} />}
             <div className="flex justify-between items-center mb-3 border-b border-gray-700 pb-2 flex-shrink-0">
                 <h2 className="text-xl font-bold">챔피언십 랭킹</h2>
-                <button 
-                    onClick={() => setIsLeagueTierInfoModalOpen(true)}
-                    className="text-xs bg-gray-600 hover:bg-gray-500 text-white font-bold px-2 py-1 rounded-md transition-colors"
-                >
-                    티어 안내
-                </button>
+                <span className="text-xs text-gray-400">{getLastUpdatedText()}</span>
             </div>
-            <div className="flex flex-nowrap justify-start bg-gray-900/50 p-1 rounded-lg mb-3 flex-shrink-0 gap-1 tier-tabs-container overflow-x-auto">
-                {LEAGUE_DATA.map(league => (
+            
+            {/* 탭 메뉴 */}
+            <div className="flex gap-2 mb-3 flex-shrink-0">
+                {(['neighborhood', 'national', 'world'] as TournamentType[]).map(type => (
                     <button
-                        key={league.tier}
-                        onClick={() => setSelectedTier(league.tier)}
-                        className={`p-1 rounded-md transition-all duration-200 flex-shrink-0 ${selectedTier === league.tier ? 'bg-purple-600 ring-2 ring-purple-400' : 'hover:bg-gray-600'}`}
-                        title={league.name}
+                        key={type}
+                        onClick={() => setSelectedTab(type)}
+                        className={`flex-1 px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                            selectedTab === type
+                                ? 'bg-purple-600 text-white'
+                                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                        }`}
                     >
-                        <img src={league.icon} alt={league.name} className="w-10 h-10" />
+                        {TOURNAMENT_DEFINITIONS[type].name}
                     </button>
                 ))}
             </div>
-            {myOwnLeagueData.user && (
+            {/* 내 랭킹 - 항상 최상단에 표시 */}
+            {myOwnRankData.user && (
               <div className="flex-shrink-0 mb-3">
-                  <RankItem user={myOwnLeagueData.user} rank={myOwnLeagueData.rank} isMyRankDisplay={true} />
+                  <div className="flex items-center rounded-lg bg-yellow-900/40 border border-yellow-700 p-1.5 lg:p-2">
+                      <div className="w-12 text-center flex-shrink-0 flex flex-col items-center justify-center">
+                          {myOwnRankData.rank === -1 ? (
+                              <span className="text-2xl font-bold text-gray-400">-</span>
+                          ) : myOwnRankData.rank === 1 ? (
+                              <span className="text-3xl">🥇</span>
+                          ) : myOwnRankData.rank === 2 ? (
+                              <span className="text-3xl">🥈</span>
+                          ) : myOwnRankData.rank === 3 ? (
+                              <span className="text-3xl">🥉</span>
+                          ) : (
+                              <span className="text-2xl font-bold text-gray-300">{myOwnRankData.rank}</span>
+                          )}
+                      </div>
+                      <Avatar userId={myOwnRankData.user.id} userName={myOwnRankData.user.nickname} size={32} 
+                              avatarUrl={AVATAR_POOL.find(a => a.id === myOwnRankData.user!.avatarId)?.url}
+                              borderUrl={BORDER_POOL.find(b => b.id === myOwnRankData.user!.borderId)?.url} />
+                      <div className="ml-2 lg:ml-3 flex-grow overflow-hidden">
+                          <p className="font-semibold text-sm truncate">{myOwnRankData.user.nickname}</p>
+                          <div className="flex gap-2 text-xs">
+                              <span className="text-yellow-400">최고 {myOwnRankData.maxStage}단계</span>
+                              <span className="text-blue-400">{myOwnRankData.score.toLocaleString()}점</span>
+                          </div>
+                      </div>
+                  </div>
               </div>
             )}
-            <ul key={selectedTier} className="space-y-2 overflow-y-auto pr-2 flex-grow min-h-0">
+            <ul className="space-y-2 overflow-y-auto pr-2 flex-grow min-h-0">
                  {topUsers.length > 0 ? (
                      <>
-                         {topUsers.map((user, index) => <RankItem key={user.id} user={user} rank={index + 1} isMyRankDisplay={false} />)}
+                         {topUsers
+                             .filter(user => user.id !== currentUserWithStatus?.id) // 내 랭킹은 제외 (이미 위에 표시됨)
+                             .map((user, index) => {
+                             // 일일 랭킹 데이터 사용
+                             const rankingData = user.dailyRankings?.championship?.[selectedTab];
+                             let maxStage = 0;
+                             let score = 0;
+                             
+                             if (rankingData) {
+                                 maxStage = rankingData.maxStage;
+                                 // 점수 계산
+                                 const progress = user.dungeonProgress?.[selectedTab];
+                                 if (progress && progress.stageResults) {
+                                     for (const [stageStr, result] of Object.entries(progress.stageResults)) {
+                                         if (result.cleared && result.dailyScore) {
+                                             score += result.dailyScore;
+                                         }
+                                     }
+                                 }
+                             } else {
+                                 // 일일 랭킹 데이터가 없으면 실시간 계산
+                                 const progress = user.dungeonProgress?.[selectedTab];
+                                 if (progress) {
+                                     maxStage = progress.currentStage || 0;
+                                     // 점수 계산
+                                     if (progress.stageResults) {
+                                         for (const [stageStr, result] of Object.entries(progress.stageResults)) {
+                                             if (result.cleared && result.dailyScore) {
+                                                 score += result.dailyScore;
+                                             }
+                                         }
+                                     }
+                                 }
+                             }
+                             
+                             const rank = rankingData?.rank || (index + 1);
+                             const rankDisplay = useMemo(() => {
+                                 if (rank === 1) return <span className="text-3xl">🥇</span>;
+                                 if (rank === 2) return <span className="text-3xl">🥈</span>;
+                                 if (rank === 3) return <span className="text-3xl">🥉</span>;
+                                 return <span className="text-2xl font-bold text-gray-300">{rank}</span>;
+                             }, [rank]);
+                             
+                             const isCurrentUser = user.id === currentUserWithStatus?.id;
+                             const avatarUrl = AVATAR_POOL.find(a => a.id === user.avatarId)?.url;
+                             const borderUrl = BORDER_POOL.find(b => b.id === user.borderId)?.url;
+                             const isClickable = !isCurrentUser;
+                             
+                             return (
+                                 <li
+                                     key={user.id}
+                                     className={`flex items-center rounded-lg ${isCurrentUser ? 'bg-yellow-900/40 border border-yellow-700' : 'bg-gray-900/50'} p-1.5 lg:p-2 ${isClickable ? 'cursor-pointer hover:bg-gray-700/50' : ''}`}
+                                     onClick={isClickable ? () => handlers.openViewingUser(user.id) : undefined}
+                                     title={isClickable ? `${user.nickname} 프로필 보기` : ''}
+                                 >
+                                     <div className="w-12 text-center flex-shrink-0 flex flex-col items-center justify-center">
+                                         {rankDisplay}
+                                     </div>
+                                     <Avatar userId={user.id} userName={user.nickname} size={32} avatarUrl={avatarUrl} borderUrl={borderUrl} />
+                                     <div className="ml-2 lg:ml-3 flex-grow overflow-hidden">
+                                         <p className="font-semibold text-sm truncate">{user.nickname}</p>
+                                         <div className="flex gap-2 text-xs">
+                                             <span className="text-yellow-400">최고 {maxStage}단계</span>
+                                             <span className="text-blue-400">{score.toLocaleString()}점</span>
+                                         </div>
+                                     </div>
+                                 </li>
+                             );
+                         })}
                          {displayCount < sortedUsers.length && (
                              <li ref={loadMoreRef} className="text-center text-gray-500 py-2 text-xs">
                                  로딩 중...
@@ -170,7 +383,7 @@ const ChampionshipRankingPanel: React.FC = () => {
                          )}
                      </>
                  ) : (
-                    <p className="text-center text-gray-500 pt-8">{selectedTier} 리그에 랭크된 유저가 없습니다.</p>
+                    <p className="text-center text-gray-500 pt-8">랭크된 유저가 없습니다.</p>
                  )}
             </ul>
         </div>
