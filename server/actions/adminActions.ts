@@ -13,6 +13,8 @@ import { calculateTotalStats } from '../statService.js';
 import * as tournamentService from '../tournamentService.js';
 import { getStartOfDayKST } from '../../utils/timeUtils.js';
 import { clearAiSession } from '../aiSessionManager.js';
+import { getCachedUser, updateUserCache, removeUserFromCache } from '../gameCache.js';
+import { invalidateUserCache } from '../db.js';
 
 type HandleActionResult = { 
     clientResponse?: any;
@@ -560,7 +562,7 @@ export const handleAdminAction = async (volatileState: VolatileState, action: Se
         
         case 'ADMIN_RESET_TOURNAMENT_SESSION': {
             const { targetUserId, tournamentType } = payload as { targetUserId: string; tournamentType: TournamentType };
-            const targetUser = await db.getUser(targetUserId);
+            const targetUser = await getCachedUser(targetUserId) || await db.getUser(targetUserId);
             if (!targetUser) return { error: '대상 사용자를 찾을 수 없습니다.' };
 
             // 토너먼트 타입에 따른 stateKey 결정
@@ -594,13 +596,18 @@ export const handleAdminAction = async (volatileState: VolatileState, action: Se
                 }
             }
             
+            // 캐시 무효화
+            invalidateUserCache(targetUserId);
+            removeUserFromCache(targetUserId);
+            
             await db.updateUser(targetUser);
 
             // 2. 새로운 토너먼트 세션 생성
             const definition = TOURNAMENT_DEFINITIONS[tournamentType];
             if (!definition) return { error: '유효하지 않은 토너먼트 타입입니다.' };
 
-            const freshUser = await db.getUser(targetUserId);
+            // 캐시에서 최신 데이터 가져오기
+            const freshUser = await getCachedUser(targetUserId) || await db.getUser(targetUserId);
             if (!freshUser) return { error: '사용자를 찾을 수 없습니다.' };
 
             const allUsers = await db.getAllUsers();
@@ -705,6 +712,9 @@ export const handleAdminAction = async (volatileState: VolatileState, action: Se
             (freshUser as any)[playedDateKey] = now;
             
             await db.updateUser(freshUser);
+            
+            // 캐시 업데이트
+            updateUserCache(freshUser);
 
             // volatileState에 새로운 토너먼트 추가
             if (!volatileState.activeTournaments) {
@@ -715,12 +725,12 @@ export const handleAdminAction = async (volatileState: VolatileState, action: Se
             await createAdminLog(user, 'reset_tournament_session', targetUser, { tournamentType });
 
             // 최신 사용자 데이터를 다시 가져와서 브로드캐스트 (토너먼트 상태가 반영된 최신 데이터)
-            const latestUser = await db.getUser(targetUserId);
+            const latestUser = await getCachedUser(targetUserId) || await db.getUser(targetUserId);
             if (latestUser) {
                 // WebSocket으로 사용자 업데이트 브로드캐스트 (최적화: 변경된 필드만 전송)
                 const updatedUserCopy = JSON.parse(JSON.stringify(latestUser));
                 const { broadcastUserUpdate } = await import('../socket.js');
-                broadcastUserUpdate(updatedUserCopy, ['lastNeighborhoodTournament', 'lastNationalTournament', 'lastWorldTournament']);
+                broadcastUserUpdate(updatedUserCopy, ['lastNeighborhoodTournament', 'lastNationalTournament', 'lastWorldTournament', 'dungeonProgress']);
                 
                 // HTTP 응답에도 업데이트된 사용자 데이터 포함 (즉시 반영을 위해)
                 return { 
@@ -734,7 +744,7 @@ export const handleAdminAction = async (volatileState: VolatileState, action: Se
                 // 사용자를 찾을 수 없는 경우에도 기본 브로드캐스트 (최적화: 변경된 필드만 전송)
                 const updatedUserCopy = JSON.parse(JSON.stringify(freshUser));
                 const { broadcastUserUpdate } = await import('../socket.js');
-                broadcastUserUpdate(updatedUserCopy, ['lastNeighborhoodTournament', 'lastNationalTournament', 'lastWorldTournament']);
+                broadcastUserUpdate(updatedUserCopy, ['lastNeighborhoodTournament', 'lastNationalTournament', 'lastWorldTournament', 'dungeonProgress']);
                 
                 return { 
                     clientResponse: { 
@@ -744,6 +754,122 @@ export const handleAdminAction = async (volatileState: VolatileState, action: Se
                     } 
                 };
             }
+        }
+        
+        case 'ADMIN_RESET_DUNGEON_PROGRESS': {
+            const { targetUserId, dungeonType } = payload as { targetUserId: string; dungeonType?: TournamentType };
+            const targetUser = await getCachedUser(targetUserId) || await db.getUser(targetUserId);
+            if (!targetUser) return { error: '대상 사용자를 찾을 수 없습니다.' };
+
+            // 던전 진행 상태 초기화
+            if (!targetUser.dungeonProgress) {
+                targetUser.dungeonProgress = {
+                    neighborhood: { currentStage: 0, unlockedStages: [1], stageResults: {}, dailyStageAttempts: {} },
+                    national: { currentStage: 0, unlockedStages: [1], stageResults: {}, dailyStageAttempts: {} },
+                    world: { currentStage: 0, unlockedStages: [1], stageResults: {}, dailyStageAttempts: {} },
+                };
+            } else {
+                if (dungeonType) {
+                    // 특정 던전 타입만 초기화
+                    targetUser.dungeonProgress[dungeonType] = {
+                        currentStage: 0,
+                        unlockedStages: [1],
+                        stageResults: {},
+                        dailyStageAttempts: {},
+                    };
+                } else {
+                    // 모든 던전 타입 초기화
+                    targetUser.dungeonProgress = {
+                        neighborhood: { currentStage: 0, unlockedStages: [1], stageResults: {}, dailyStageAttempts: {} },
+                        national: { currentStage: 0, unlockedStages: [1], stageResults: {}, dailyStageAttempts: {} },
+                        world: { currentStage: 0, unlockedStages: [1], stageResults: {}, dailyStageAttempts: {} },
+                    };
+                }
+            }
+
+            // 캐시 무효화 및 업데이트
+            invalidateUserCache(targetUserId);
+            removeUserFromCache(targetUserId);
+            await db.updateUser(targetUser);
+            updateUserCache(targetUser);
+
+            await createAdminLog(user, 'reset_dungeon_progress', targetUser, { dungeonType: dungeonType || 'all' });
+
+            // 브로드캐스트
+            const updatedUserCopy = JSON.parse(JSON.stringify(targetUser));
+            const { broadcastUserUpdate } = await import('../socket.js');
+            broadcastUserUpdate(updatedUserCopy, ['dungeonProgress']);
+
+            return {
+                clientResponse: {
+                    message: dungeonType 
+                        ? `${TOURNAMENT_DEFINITIONS[dungeonType].name} 던전 진행 상태가 초기화되었습니다.`
+                        : '모든 던전 진행 상태가 초기화되었습니다.',
+                    updatedUser: updatedUserCopy
+                }
+            };
+        }
+        
+        case 'ADMIN_RESET_CHAMPIONSHIP_ALL': {
+            const { targetUserId } = payload as { targetUserId: string };
+            const targetUser = await getCachedUser(targetUserId) || await db.getUser(targetUserId);
+            if (!targetUser) return { error: '대상 사용자를 찾을 수 없습니다.' };
+
+            // 1. 던전 진행 상태 초기화
+            targetUser.dungeonProgress = {
+                neighborhood: { currentStage: 0, unlockedStages: [1], stageResults: {}, dailyStageAttempts: {} },
+                national: { currentStage: 0, unlockedStages: [1], stageResults: {}, dailyStageAttempts: {} },
+                world: { currentStage: 0, unlockedStages: [1], stageResults: {}, dailyStageAttempts: {} },
+            };
+
+            // 2. 토너먼트 상태 초기화
+            targetUser.lastNeighborhoodTournament = null;
+            targetUser.lastNationalTournament = null;
+            targetUser.lastWorldTournament = null;
+            targetUser.lastNeighborhoodPlayedDate = 0;
+            targetUser.lastNationalPlayedDate = 0;
+            targetUser.lastWorldPlayedDate = 0;
+
+            // 3. 보상 수령 상태 초기화
+            targetUser.neighborhoodRewardClaimed = false;
+            targetUser.nationalRewardClaimed = false;
+            targetUser.worldRewardClaimed = false;
+
+            // 4. volatileState에서 제거
+            if (volatileState.activeTournaments?.[targetUserId]) {
+                delete volatileState.activeTournaments[targetUserId];
+            }
+
+            // 캐시 무효화 및 업데이트
+            invalidateUserCache(targetUserId);
+            removeUserFromCache(targetUserId);
+            await db.updateUser(targetUser);
+            updateUserCache(targetUser);
+
+            await createAdminLog(user, 'reset_championship_all', targetUser, {});
+
+            // 브로드캐스트
+            const updatedUserCopy = JSON.parse(JSON.stringify(targetUser));
+            const { broadcastUserUpdate } = await import('../socket.js');
+            broadcastUserUpdate(updatedUserCopy, [
+                'dungeonProgress',
+                'lastNeighborhoodTournament',
+                'lastNationalTournament',
+                'lastWorldTournament',
+                'lastNeighborhoodPlayedDate',
+                'lastNationalPlayedDate',
+                'lastWorldPlayedDate',
+                'neighborhoodRewardClaimed',
+                'nationalRewardClaimed',
+                'worldRewardClaimed'
+            ]);
+
+            return {
+                clientResponse: {
+                    message: '챔피언십 관련 모든 데이터가 초기화되었습니다.',
+                    updatedUser: updatedUserCopy
+                }
+            };
         }
         
         case 'ADMIN_CREATE_HOME_BOARD_POST': {

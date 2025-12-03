@@ -397,7 +397,10 @@ const startServer = async () => {
         }
     }
     
+    // Railway는 PORT 환경 변수를 자동으로 설정함
+    // Railway의 경우 process.env.PORT를 사용해야 함
     if (process.env.NODE_ENV === 'development') {
+        console.log(`[Server] process.env.PORT: ${process.env.PORT || 'not set (using default 4000)'}`);
         console.log(`[Server] Server will listen on port: ${port}`);
     }
 
@@ -413,15 +416,20 @@ const startServer = async () => {
         credentials: true
     };
     app.use(cors(corsOptions));
+    
+    // Ignore development tooling noise such as Vite/Esbuild status pings
+    // This route should be early in the middleware stack to avoid unnecessary processing
+    // Only needed in development when Vite dev server is running
+    if (process.env.NODE_ENV === 'development') {
+        app.use('/@esbuild', (_req, res) => {
+            res.status(204).end();
+        });
+    }
+    
     app.use(express.json({ limit: '10mb' }) as any);
     
     // 전역 에러 핸들러 미들웨어 (모든 라우트 이후에 추가)
     // 이 핸들러는 모든 라우트 정의 후에 추가됩니다
-    
-    // Ignore development tooling noise such as Vite/Esbuild status pings
-    app.use('/@esbuild', (_req, res) => {
-        res.status(204).end();
-    });
 
     // Serve static files from public directory with optimized caching
     const __filename = fileURLToPath(import.meta.url);
@@ -581,10 +589,13 @@ const startServer = async () => {
                 res.status(200).json(serverStatus);
             }
             
-            // Health Check 성공 로그 (5초마다 한 번만 출력하여 로그 스팸 방지)
+            // Health Check 로그 (첫 번째 요청과 느린 요청만 출력)
             const elapsed = Date.now() - startTime;
-            if (elapsed > 100 || !serverStatus.listening || dbStatus === 'disconnected') {
-                console.log(`[Health Check] ${serverStatus.status} (${elapsed}ms, listening: ${serverStatus.listening}, ready: ${serverStatus.ready}, db: ${dbStatus})`);
+            const isFirstCheck = !(global as any).healthCheckCount;
+            (global as any).healthCheckCount = ((global as any).healthCheckCount || 0) + 1;
+            
+            if (isFirstCheck || elapsed > 100 || !serverStatus.listening || dbStatus === 'disconnected' || (global as any).healthCheckCount % 10 === 0) {
+                console.log(`[Health Check] ${serverStatus.status} (${elapsed}ms, listening: ${serverStatus.listening}, ready: ${serverStatus.ready}, db: ${dbStatus}, count: ${(global as any).healthCheckCount})`);
             }
         } catch (error) {
             console.error('[Health Check] Error:', error);
@@ -673,73 +684,61 @@ const startServer = async () => {
 
     // 서버 리스닝 시작 (에러가 발생해도 반드시 리스닝을 시작하도록 보장)
     try {
-        server.listen(port, '0.0.0.0', () => {
-            // 절대 실패하지 않도록 보호
-            try {
-                console.log(`[Server] Server listening on port ${port}`);
-                console.log(`[Server] Process PID: ${process.pid}`);
-                console.log(`[Server] Node version: ${process.version}`);
+        server.listen(port, '0.0.0.0', async () => {
+            console.log(`[Server] ========================================`);
+            console.log(`[Server] Server listening on port ${port}`);
+            console.log(`[Server] Process PID: ${process.pid}`);
+            console.log(`[Server] Node version: ${process.version}`);
+            console.log(`[Server] Railway environment: ${process.env.RAILWAY_ENVIRONMENT || 'not set'}`);
             
-                // 즉시 메모리 사용량 로그 출력 (크래시 진단용)
-                const initialMemUsage = process.memoryUsage();
-                const initialMemMB = {
-                    rss: Math.round(initialMemUsage.rss / 1024 / 1024),
-                    heapTotal: Math.round(initialMemUsage.heapTotal / 1024 / 1024),
-                    heapUsed: Math.round(initialMemUsage.heapUsed / 1024 / 1024),
-                    external: Math.round(initialMemUsage.external / 1024 / 1024)
-                };
-                console.log(`[Server] Initial memory usage: RSS=${initialMemMB.rss}MB, Heap=${initialMemMB.heapUsed}/${initialMemMB.heapTotal}MB, External=${initialMemMB.external}MB`);
-                
-                isServerReady = true;
-                console.log('[Server] Server is ready and accepting connections');
-                console.log(`[Server] Railway environment: ${process.env.RAILWAY_ENVIRONMENT || 'not set'}`);
-                
-                // Keep-alive: 주기적으로 로그를 출력하여 프로세스가 살아있음을 확인
-                // Railway가 프로세스를 종료하지 않도록 하기 위함
-                try {
-                    setInterval(() => {
-                        try {
-                            console.log(`[Server] Keep-alive: Server is running (uptime: ${Math.round(process.uptime())}s, PID: ${process.pid})`);
-                        } catch (keepAliveError: any) {
-                            console.error('[Server] Error in keep-alive interval:', keepAliveError);
-                        }
-                    }, 300000); // 5분마다
-                } catch (intervalError: any) {
-                    console.error('[Server] Failed to set keep-alive interval:', intervalError);
-                }
-                
-                // Health check를 즉시 응답할 수 있도록 서버 리스닝 상태 확인
-                // Railway는 서버가 리스닝을 시작하면 health check를 수행하므로,
-                // 무거운 초기화 작업은 비동기로 지연 처리
-                
-                // KataGo 엔진 초기화 (서버 시작 후 비동기로 처리, 블로킹 방지)
-                setImmediate(() => {
-                    (async () => {
-                        try {
-                            // 타임아웃 추가 (60초)
-                            const timeout = new Promise((_, reject) => {
-                                setTimeout(() => reject(new Error('KataGo initialization timeout')), 60000);
-                            });
-                            await Promise.race([
-                                initializeKataGo(),
-                                timeout
-                            ]);
-                        } catch (error: any) {
-                            console.error('[Server] Failed to initialize KataGo during server startup:', error?.message || error);
-                            console.error('[Server] Server will continue without KataGo pre-initialization');
-                            // 서버는 계속 실행 (KataGo 초기화 실패는 치명적이지 않음)
-                        }
-                    })().catch((outerError: any) => {
-                        // async 함수 자체가 실패한 경우
-                        console.error('[Server] Critical error in KataGo initialization wrapper:', outerError);
-                        // 프로세스를 종료하지 않음
-                    });
+            // 즉시 메모리 사용량 로그 출력 (크래시 진단용)
+            const initialMemUsage = process.memoryUsage();
+            const initialMemMB = {
+                rss: Math.round(initialMemUsage.rss / 1024 / 1024),
+                heapTotal: Math.round(initialMemUsage.heapTotal / 1024 / 1024),
+                heapUsed: Math.round(initialMemUsage.heapUsed / 1024 / 1024),
+                external: Math.round(initialMemUsage.external / 1024 / 1024)
+            };
+            console.log(`[Server] Initial memory usage: RSS=${initialMemMB.rss}MB, Heap=${initialMemMB.heapUsed}/${initialMemMB.heapTotal}MB, External=${initialMemMB.external}MB`);
+            
+            isServerReady = true;
+            console.log('[Server] Server is ready and accepting connections');
+            console.log('[Server] Health check endpoint is available at /api/health');
+            console.log(`[Server] ========================================`);
+            
+            // Keep-alive: 주기적으로 로그를 출력하여 프로세스가 살아있음을 확인
+            // Railway가 프로세스를 종료하지 않도록 하기 위함
+            setInterval(() => {
+                console.log(`[Server] Keep-alive: Server is running (uptime: ${Math.round(process.uptime())}s, PID: ${process.pid})`);
+            }, 300000); // 5분마다
+            
+            // Health check를 즉시 응답할 수 있도록 서버 리스닝 상태 확인
+            // Railway는 서버가 리스닝을 시작하면 health check를 수행하므로,
+            // 무거운 초기화 작업은 비동기로 지연 처리
+            
+            // KataGo 엔진 초기화 (서버 시작 후 비동기로 처리, 블로킹 방지)
+            setImmediate(() => {
+                (async () => {
+                    try {
+                        // 타임아웃 추가 (60초)
+                        const timeout = new Promise((_, reject) => {
+                            setTimeout(() => reject(new Error('KataGo initialization timeout')), 60000);
+                        });
+                        await Promise.race([
+                            initializeKataGo(),
+                            timeout
+                        ]);
+                    } catch (error: any) {
+                        console.error('[Server] Failed to initialize KataGo during server startup:', error?.message || error);
+                        console.error('[Server] Server will continue without KataGo pre-initialization');
+                        // 서버는 계속 실행 (KataGo 초기화 실패는 치명적이지 않음)
+                    }
+                })().catch((outerError: any) => {
+                    // async 함수 자체가 실패한 경우
+                    console.error('[Server] Critical error in KataGo initialization wrapper:', outerError);
+                    // 프로세스를 종료하지 않음
                 });
-            } catch (listenError: any) {
-                // listen 콜백 내부에서 에러가 발생해도 프로세스를 종료하지 않음
-                console.error('[Server] Error in server.listen callback:', listenError);
-                isServerReady = true; // 서버는 리스닝 중이므로 ready로 표시
-            }
+            });
         });
     } catch (listenError: any) {
         console.error('[Server] Failed to start listening:', listenError);
@@ -1822,6 +1821,16 @@ const startServer = async () => {
         }, 5000);
     }
     
+    // 서버가 리스닝을 시작한 후 메인 루프 시작
+    console.log('[Server] Starting main game loop...');
+    try {
+        scheduleMainLoop(1000);
+        console.log('[Server] Main game loop scheduled successfully');
+    } catch (error) {
+        console.error('[Server] Failed to start main game loop:', error);
+        // 메인 루프 시작 실패는 치명적이지 않음 (서버는 계속 실행)
+    }
+    
     // --- API Endpoints ---
     // Health check endpoint는 server 생성 직후에 정의됨 (위 참조)
 
@@ -2052,9 +2061,24 @@ const startServer = async () => {
                 return res.status(400).json({ message: '올바른 이메일 형식이 아닙니다.' });
             }
     
+            // UserCredential 테이블에서 username 중복 확인
             const existingByUsername = await db.getUserCredentials(trimmedUsername);
             if (existingByUsername) {
                 return res.status(409).json({ message: '이미 사용 중인 아이디입니다.' });
+            }
+            
+            // User 테이블에서 username 필드로 직접 확인 (Prisma에서 username은 unique)
+            // Railway 최적화: equipment/inventory 없이 사용자 목록만 로드
+            try {
+                const { listUsers } = await import('./prisma/userService.js');
+                const allUsers = await listUsers({ includeEquipment: false, includeInventory: false });
+                const existingUserByUsername = allUsers.find(u => u.username === trimmedUsername);
+                if (existingUserByUsername) {
+                    return res.status(409).json({ message: '이미 사용 중인 아이디입니다.' });
+                }
+            } catch (checkError: any) {
+                // 체크 실패해도 계속 진행 (Prisma UNIQUE 제약조건이 나중에 잡아줄 것)
+                console.warn('[/api/auth/register] Failed to check username in User table:', checkError?.message);
             }
     
             // 회원탈퇴한 이메일인지 확인 (1주일 제한)
@@ -2086,16 +2110,66 @@ const startServer = async () => {
     
             // 임시 닉네임 생성 (나중에 변경 가능)
             const tempNickname = `user_${randomUUID().slice(0, 8)}`;
+            console.log('[/api/auth/register] Creating default user...');
             let newUser = createDefaultUser(`user-${randomUUID()}`, trimmedUsername, tempNickname, false);
             // newUser.email = trimmedEmail; // User 타입에 email 속성이 없으므로 주석 처리
 
+            console.log('[/api/auth/register] Resetting and generating quests...');
             newUser = await resetAndGenerateQuests(newUser);
     
-            await db.createUser(newUser);
+            console.log('[/api/auth/register] Creating user in database...');
+            try {
+                await db.createUser(newUser);
+                console.log('[/api/auth/register] User created successfully:', newUser.id);
+            } catch (createUserError: any) {
+                console.error('[/api/auth/register] Failed to create user:', createUserError);
+                console.error('[/api/auth/register] Create user error details:', {
+                    message: createUserError?.message,
+                    code: createUserError?.code,
+                    stack: createUserError?.stack
+                });
+                
+                // Prisma UNIQUE 제약조건 위반 에러 처리 (P2002)
+                if (createUserError?.code === 'P2002') {
+                    const target = createUserError?.meta?.target;
+                    if (Array.isArray(target) && target.includes('username')) {
+                        return res.status(409).json({ message: '이미 사용 중인 아이디입니다.' });
+                    }
+                    if (Array.isArray(target) && target.includes('nickname')) {
+                        return res.status(409).json({ message: '이미 사용 중인 닉네임입니다.' });
+                    }
+                    if (Array.isArray(target) && target.includes('email')) {
+                        return res.status(409).json({ message: '이미 사용 중인 이메일입니다.' });
+                    }
+                    return res.status(409).json({ message: '이미 사용 중인 정보가 있습니다.' });
+                }
+                
+                throw createUserError;
+            }
             
             // 비밀번호 해싱
+            console.log('[/api/auth/register] Hashing password...');
             const passwordHash = await hashPassword(trimmedPassword);
-            await db.createUserCredentials(trimmedUsername, passwordHash, newUser.id);
+            console.log('[/api/auth/register] Creating user credentials...');
+            try {
+                await db.createUserCredentials(trimmedUsername, passwordHash, newUser.id);
+                console.log('[/api/auth/register] User credentials created successfully');
+            } catch (createCredsError: any) {
+                console.error('[/api/auth/register] Failed to create user credentials:', createCredsError);
+                console.error('[/api/auth/register] Create credentials error details:', {
+                    message: createCredsError?.message,
+                    code: createCredsError?.code,
+                    stack: createCredsError?.stack
+                });
+                // 사용자는 생성되었지만 인증 정보 생성 실패 - 사용자 삭제 시도
+                try {
+                    await db.deleteUser(newUser.id);
+                    console.log('[/api/auth/register] Rolled back: deleted user after credentials creation failure');
+                } catch (rollbackError: any) {
+                    console.error('[/api/auth/register] Failed to rollback user creation:', rollbackError);
+                }
+                throw createCredsError;
+            }
     
             // 이메일 인증 코드 전송
             try {
@@ -2137,8 +2211,30 @@ const startServer = async () => {
                 });
             }
         } catch (e: any) {
-            console.error('Registration error:', e);
-            res.status(500).json({ message: '서버 등록 중 오류가 발생했습니다.' });
+            console.error('[/api/auth/register] Registration error:', e);
+            console.error('[/api/auth/register] Error message:', e?.message);
+            console.error('[/api/auth/register] Error stack:', e?.stack);
+            console.error('[/api/auth/register] Error code:', e?.code);
+            console.error('[/api/auth/register] Error details:', {
+                name: e?.name,
+                message: e?.message,
+                code: e?.code,
+                cause: e?.cause
+            });
+            
+            // 개발 환경에서는 더 자세한 에러 정보 제공
+            const errorMessage = process.env.NODE_ENV === 'development' 
+                ? `서버 등록 중 오류가 발생했습니다: ${e?.message || 'Unknown error'}`
+                : '서버 등록 중 오류가 발생했습니다.';
+            
+            res.status(500).json({ 
+                message: errorMessage,
+                error: process.env.NODE_ENV === 'development' ? {
+                    name: e?.name,
+                    message: e?.message,
+                    code: e?.code
+                } : undefined
+            });
         }
     });
 
@@ -2152,20 +2248,28 @@ const startServer = async () => {
             const dbConnected = await db.isDatabaseConnected();
             if (!dbConnected) {
                 console.error('[/api/auth/login] Database not connected');
+                console.error('[/api/auth/login] DATABASE_URL:', process.env.DATABASE_URL ? 'SET' : 'NOT SET');
                 if (!responseSent && !res.headersSent) {
                     responseSent = true;
                     return res.status(503).json({ 
-                        message: '데이터베이스 연결이 되지 않았습니다. 잠시 후 다시 시도해주세요.' 
+                        message: '데이터베이스 연결이 되지 않았습니다. 잠시 후 다시 시도해주세요.',
+                        error: process.env.NODE_ENV === 'development' ? 'Database connection check failed' : undefined
                     });
                 }
                 return;
             }
         } catch (dbCheckError: any) {
             console.error('[/api/auth/login] Database connection check failed:', dbCheckError);
+            console.error('[/api/auth/login] Error details:', {
+                message: dbCheckError?.message,
+                code: dbCheckError?.code,
+                stack: dbCheckError?.stack?.split('\n').slice(0, 3).join('\n')
+            });
             if (!responseSent && !res.headersSent) {
                 responseSent = true;
                 return res.status(503).json({ 
-                    message: '데이터베이스 연결 확인 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.' 
+                    message: '데이터베이스 연결 확인 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.',
+                    error: process.env.NODE_ENV === 'development' ? dbCheckError?.message : undefined
                 });
             }
             return;
@@ -2215,12 +2319,14 @@ const startServer = async () => {
             // Request body validation
             if (!req.body || typeof req.body !== 'object') {
                 console.error('[/api/auth/login] Invalid request body:', req.body);
+                console.error('[/api/auth/login] Request headers:', req.headers['content-type']);
                 sendResponse(400, { message: '잘못된 요청 형식입니다.' });
                 return;
             }
             
             const { username, password } = req.body;
             if (!username || !password) {
+                console.error('[/api/auth/login] Missing username or password:', { username: !!username, password: !!password });
                 sendResponse(400, { message: '아이디와 비밀번호를 모두 입력해주세요.' });
                 return;
             }
@@ -2341,58 +2447,91 @@ const startServer = async () => {
                 return;
             }
             console.log('[/api/auth/login] Authentication successful for username:', username, '. Getting user details.');
-            // 사용자 조회에 타임아웃 추가 (3초)
-            let user: types.User;
-            try {
-                const getUserTimeout = new Promise<null>((_, reject) => 
-                    setTimeout(() => reject(new Error('getUser timeout')), 3000)
-                );
-                const fetchedUser = await Promise.race([
-                    db.getUser(credentials.userId),
-                    getUserTimeout
-                ]) as types.User | null;
-                
-                if (!fetchedUser) {
-                    console.log('[/api/auth/login] User not found for userId:', credentials.userId);
-                    sendResponse(404, { message: '사용자를 찾을 수 없습니다.' });
-                    return;
-                }
-                user = fetchedUser;
-                console.log('[/api/auth/login] User details retrieved for userId:', credentials.userId);
-            } catch (getUserError: any) {
-                console.error('[/api/auth/login] getUser failed or timed out:', getUserError?.message);
-                sendResponse(500, { message: '사용자 정보 조회 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.' });
-                return;
-            }
-
-            const defaultBaseStats = createDefaultBaseStats();
-            if (!user.baseStats) {
-                user.baseStats = defaultBaseStats;
-                await db.updateUser(user);
-            } else {
-                // Check if baseStats needs to be reset
-                const coreStats = Object.values(types.CoreStat || {});
-                if (coreStats.length > 0 && user && (
-                    Object.keys(user.baseStats).length !== Object.keys(defaultBaseStats).length ||
-                    !coreStats.every(stat => user && (user.baseStats as Record<types.CoreStat, number>)[stat] === 100)
-                )) {
-                    user.baseStats = defaultBaseStats;
-                    await db.updateUser(user);
+            // 사용자 조회에 타임아웃 추가 (10초 - 데이터베이스 연결이 느릴 수 있음)
+            // equipment/inventory는 제외하여 빠르게 조회
+            // 재시도 로직 추가 (데이터베이스 연결이 불안정할 수 있음)
+            let user: types.User | null = null;
+            let getUserAttempts = 0;
+            const maxGetUserAttempts = 3;
+            let getUserError: any = null;
+            
+            while (getUserAttempts < maxGetUserAttempts) {
+                try {
+                    getUserAttempts++;
+                    if (getUserAttempts > 1) {
+                        console.log(`[/api/auth/login] Retrying getUser (attempt ${getUserAttempts}/${maxGetUserAttempts})...`);
+                        // 재시도 전 짧은 대기 (지수 백오프)
+                        await new Promise(resolve => setTimeout(resolve, 500 * getUserAttempts));
+                    }
+                    
+                    const getUserTimeout = new Promise<null>((_, reject) => 
+                        setTimeout(() => reject(new Error('getUser timeout')), 10000)
+                    );
+                    const fetchedUser = await Promise.race([
+                        db.getUser(credentials.userId, { includeEquipment: false, includeInventory: false }),
+                        getUserTimeout
+                    ]) as types.User | null;
+                    
+                    if (!fetchedUser) {
+                        console.log('[/api/auth/login] User not found for userId:', credentials.userId);
+                        sendResponse(404, { message: '사용자를 찾을 수 없습니다.' });
+                        return;
+                    }
+                    user = fetchedUser;
+                    console.log('[/api/auth/login] User details retrieved for userId:', credentials.userId);
+                    getUserError = null; // 성공 시 에러 초기화
+                    break; // 성공 시 루프 종료
+                } catch (err: any) {
+                    getUserError = err;
+                    console.warn(`[/api/auth/login] getUser attempt ${getUserAttempts} failed:`, err?.message);
+                    if (getUserAttempts >= maxGetUserAttempts) {
+                        // 마지막 시도 실패
+                        console.error('[/api/auth/login] getUser failed after all retries:', getUserError?.message);
+                        sendResponse(500, { message: '사용자 정보 조회 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.' });
+                        return;
+                    }
+                    // 다음 시도 계속
                 }
             }
             
-            const userBeforeUpdate = JSON.stringify(user);
+            if (getUserError || !user) {
+                console.error('[/api/auth/login] getUser failed after retries:', getUserError?.message);
+                sendResponse(500, { message: '사용자 정보 조회 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.' });
+                return;
+            }
+            
+            // TypeScript가 user가 null이 아님을 인식하도록 타입 단언
+            // (위의 체크에서 이미 null이 아님을 확인했으므로 안전함)
+            let userForLogin: types.User = user;
 
-            if (!user.ownedBorders?.includes('simple_black')) {
-                if (!user.ownedBorders) user.ownedBorders = ['default'];
-                user.ownedBorders.push('simple_black');
+            const defaultBaseStats = createDefaultBaseStats();
+            if (!userForLogin.baseStats) {
+                userForLogin.baseStats = defaultBaseStats;
+                await db.updateUser(userForLogin);
+            } else {
+                // Check if baseStats needs to be reset
+                const coreStats = Object.values(types.CoreStat || {});
+                if (coreStats.length > 0 && userForLogin && (
+                    Object.keys(userForLogin.baseStats).length !== Object.keys(defaultBaseStats).length ||
+                    !coreStats.every(stat => userForLogin && (userForLogin.baseStats as Record<types.CoreStat, number>)[stat] === 100)
+                )) {
+                    userForLogin.baseStats = defaultBaseStats;
+                    await db.updateUser(userForLogin);
+                }
+            }
+            
+            const userBeforeUpdate = JSON.stringify(userForLogin);
+
+            if (!userForLogin.ownedBorders?.includes('simple_black')) {
+                if (!userForLogin.ownedBorders) userForLogin.ownedBorders = ['default'];
+                userForLogin.ownedBorders.push('simple_black');
             }
 
-            const hadInventoryBefore = Array.isArray(user.inventory) && user.inventory.length > 0;
-            const hadEquipmentBefore = user.equipment && Object.keys(user.equipment).length > 0;
+            const hadInventoryBefore = Array.isArray(userForLogin.inventory) && userForLogin.inventory.length > 0;
+            const hadEquipmentBefore = userForLogin.equipment && Object.keys(userForLogin.equipment).length > 0;
 
             // 무거운 작업들에 타임아웃 추가 (각 5초)
-            let updatedUser = user;
+            let updatedUser = userForLogin;
             try {
                 const questTimeout = new Promise((_, reject) => 
                     setTimeout(() => reject(new Error('resetAndGenerateQuests timeout')), 5000)
@@ -2436,12 +2575,12 @@ const startServer = async () => {
             const hasEquipmentNow = updatedUser.equipment && Object.keys(updatedUser.equipment).length > 0;
 
             if (hadInventoryBefore && !hasInventoryNow) {
-                console.error(`[/api/auth/login] CRITICAL: Inventory vanished during login pipeline for user ${user.id}. Restoring previous inventory snapshot.`);
-                updatedUser.inventory = JSON.parse(JSON.stringify(user.inventory));
+                console.error(`[/api/auth/login] CRITICAL: Inventory vanished during login pipeline for user ${userForLogin.id}. Restoring previous inventory snapshot.`);
+                updatedUser.inventory = JSON.parse(JSON.stringify(userForLogin.inventory));
             }
             if (hadEquipmentBefore && !hasEquipmentNow) {
-                console.error(`[/api/auth/login] CRITICAL: Equipment vanished during login pipeline for user ${user.id}. Restoring previous equipment snapshot.`);
-                updatedUser.equipment = JSON.parse(JSON.stringify(user.equipment));
+                console.error(`[/api/auth/login] CRITICAL: Equipment vanished during login pipeline for user ${userForLogin.id}. Restoring previous equipment snapshot.`);
+                updatedUser.equipment = JSON.parse(JSON.stringify(userForLogin.equipment));
             }
 
             const userLevelSum = updatedUser.strategyLevel + updatedUser.playfulLevel;
@@ -2550,15 +2689,15 @@ const startServer = async () => {
                         db.updateUser(updatedUser),
                         updateTimeout
                     ]);
-                    user = updatedUser;
+                    userForLogin = updatedUser;
                 } catch (updateError: any) {
                     console.warn('[/api/auth/login] updateUser failed or timed out:', updateError?.message);
-                    // 사용자 업데이트 실패해도 로그인은 계속 진행 (기존 user 사용)
+                    // 사용자 업데이트 실패해도 로그인은 계속 진행 (기존 userForLogin 사용)
                 }
             }
 
-            if (volatileState.userConnections[user.id]) {
-                console.log(`[Auth] Concurrent login for ${user.nickname}. Terminating old session and establishing new one.`);
+            if (volatileState.userConnections[userForLogin.id]) {
+                console.log(`[Auth] Concurrent login for ${userForLogin.nickname}. Terminating old session and establishing new one.`);
             }
             
             // 최적화: 사용자가 참여한 게임만 찾기 (전체 게임 목록 조회 대신)
@@ -2571,7 +2710,7 @@ const startServer = async () => {
                 );
                 
                 const gamePromise = (async () => {
-                    const userStatus = volatileState.userStatuses[user.id];
+                    const userStatus = volatileState.userStatuses[userForLogin.id];
                     if (userStatus?.gameId) {
                         // 캐시에서 먼저 확인
                         const { getCachedGame } = await import('./gameCache.js');
@@ -2586,7 +2725,7 @@ const startServer = async () => {
                     } else {
                         // volatileState에 게임 ID가 없으면 DB에서 사용자 ID로 검색 (최적화: 최대 100개만)
                         const { getLiveGameByPlayerId } = await import('./prisma/gameService.js');
-                        return await getLiveGameByPlayerId(user.id);
+                        return await getLiveGameByPlayerId(userForLogin.id);
                     }
                 })();
                 
@@ -2605,14 +2744,14 @@ const startServer = async () => {
                 const gameStatePromise = (async () => {
                     if (activeGame) {
                         // 90초 내에 재접속한 경우 경기 재개
-                        if (activeGame.disconnectionState?.disconnectedPlayerId === user!.id) {
+                        if (activeGame.disconnectionState?.disconnectedPlayerId === userForLogin.id) {
                             // 90초 내에 재접속했는지 확인
                             const now = Date.now();
                             const timeSinceDisconnect = now - activeGame.disconnectionState.timerStartedAt;
                             if (timeSinceDisconnect <= 90000) {
                                 // 재접속 성공: disconnectionState 제거하고 경기 재개
                                 activeGame.disconnectionState = null;
-                                const otherPlayerId = activeGame.player1.id === user!.id ? activeGame.player2.id : activeGame.player1.id;
+                                const otherPlayerId = activeGame.player1.id === userForLogin.id ? activeGame.player2.id : activeGame.player1.id;
                                 if (activeGame.canRequestNoContest?.[otherPlayerId]) {
                                     delete activeGame.canRequestNoContest[otherPlayerId];
                                 }
@@ -2624,9 +2763,9 @@ const startServer = async () => {
                             }
                         }
                         // 재접속한 유저를 게임 상태로 설정 (자동으로 게임으로 리다이렉트)
-                        volatileState.userStatuses[user!.id] = { status: types.UserStatus.InGame, mode: activeGame.mode, gameId: activeGame.id };
+                        volatileState.userStatuses[userForLogin.id] = { status: types.UserStatus.InGame, mode: activeGame.mode, gameId: activeGame.id };
                     } else {
-                        volatileState.userStatuses[user!.id] = { status: types.UserStatus.Online };
+                        volatileState.userStatuses[userForLogin.id] = { status: types.UserStatus.Online };
                     }
                 })();
                 
@@ -2634,10 +2773,10 @@ const startServer = async () => {
             } catch (gameStateError: any) {
                 console.warn('[/api/auth/login] Failed to update game state:', gameStateError?.message);
                 // 게임 상태 업데이트 실패해도 기본 상태로 설정
-                volatileState.userStatuses[user!.id] = { status: types.UserStatus.Online };
+                volatileState.userStatuses[userForLogin.id] = { status: types.UserStatus.Online };
             }
             
-            const sanitizedUser = JSON.parse(JSON.stringify(user));
+            const sanitizedUser = JSON.parse(JSON.stringify(userForLogin));
             sendResponse(200, { user: sanitizedUser });
         } catch (e: any) {
             clearTimeout(requestTimeout);
@@ -2846,13 +2985,14 @@ const startServer = async () => {
                 return res.status(400).json({ error: 'User ID is required' });
             }
             
-            // 공개 정보만 반환 (equipment/inventory 제외하여 빠르게)
-            const user = await db.getUser(userId, { includeEquipment: false, includeInventory: false });
+            // 공개 정보 반환 (장비 정보 포함, 인벤토리는 제외하여 빠르게)
+            // 장비 정보는 작은 데이터(약 1-2KB)이므로 포함해도 데이터 사용량 증가가 미미함
+            const user = await db.getUser(userId, { includeEquipment: true, includeInventory: false });
             if (!user) {
                 return res.status(404).json({ error: 'User not found' });
             }
             
-            // 공개 정보만 반환
+            // 공개 정보 반환 (장비 정보 포함)
             const publicUser = {
                 id: user.id,
                 username: user.username,
@@ -2877,6 +3017,7 @@ const startServer = async () => {
                 towerFloor: (user as any).towerFloor,
                 monthlyTowerFloor: (user as any).monthlyTowerFloor,
                 isAdmin: user.isAdmin,
+                equipment: user.equipment || {}, // 장비 정보 포함
             };
             
             res.json(publicUser);
@@ -3319,6 +3460,119 @@ const startServer = async () => {
         }
     });
     
+    // 관리자용 사용자 목록 조회 엔드포인트
+    app.get('/api/admin/users', async (req, res) => {
+        try {
+            // 세션 확인 (기존 로그인 엔드포인트와 동일한 방식 사용)
+            const sessionId = req.cookies?.sessionId;
+            if (!sessionId) {
+                return res.status(401).json({ error: 'Unauthorized' });
+            }
+            
+            // 세션 ID에서 사용자 ID 추출 (세션 ID 형식: userId-timestamp-random)
+            // 또는 userConnections에서 역으로 찾기
+            let userId: string | null = null;
+            
+            // 세션 ID가 userId를 포함하는 형식인 경우
+            if (sessionId.includes('-')) {
+                const parts = sessionId.split('-');
+                if (parts.length >= 1) {
+                    userId = parts[0];
+                }
+            } else {
+                // 세션 ID가 직접 userId인 경우
+                userId = sessionId;
+            }
+            
+            // userConnections에서 확인
+            if (!userId || !volatileState.userConnections[userId]) {
+                // 세션 ID가 userId가 아닌 경우, userConnections를 순회하여 찾기
+                // (일반적으로는 세션 ID가 userId를 포함하므로 이 경우는 드뭄)
+                for (const [uid, connectionCount] of Object.entries(volatileState.userConnections)) {
+                    if (connectionCount > 0) {
+                        // 간단한 검증: 세션 ID에 userId가 포함되어 있는지 확인
+                        if (sessionId.includes(uid)) {
+                            userId = uid;
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            if (!userId) {
+                return res.status(401).json({ error: 'Invalid session' });
+            }
+            
+            const user = await db.getUser(userId);
+            if (!user || !user.isAdmin) {
+                return res.status(403).json({ error: 'Forbidden: Admin access required' });
+            }
+            
+            // 사용자 목록 조회 (equipment/inventory 제외하여 빠르게)
+            const users = await db.getAllUsers({ includeEquipment: false, includeInventory: false });
+            
+            res.json({ 
+                users,
+                count: users.length
+            });
+        } catch (error: any) {
+            console.error('[Admin] Error getting users list:', error);
+            res.status(500).json({ error: error.message });
+        }
+    });
+    
+    // KataGo 시작 엔드포인트 (관리자 전용)
+    app.post('/api/admin/katago-start', async (req, res) => {
+        try {
+            const { getKataGoManager, initializeKataGo } = await import('./kataGoService.js');
+            const manager = getKataGoManager();
+            
+            // HTTP API 모드인 경우 시작 불가
+            const USE_HTTP_API = !!(process.env.KATAGO_API_URL && process.env.KATAGO_API_URL.trim() !== '');
+            if (USE_HTTP_API) {
+                return res.status(400).json({ 
+                    error: 'KataGo is configured to use HTTP API mode. Local process cannot be started.',
+                    message: 'HTTP API 모드에서는 로컬 KataGo 프로세스를 시작할 수 없습니다.'
+                });
+            }
+            
+            // 이미 실행 중이면 에러 반환
+            const processRunning = manager && (manager as any).process && !(manager as any).process.killed;
+            if (processRunning) {
+                return res.status(400).json({ 
+                    error: 'KataGo is already running.',
+                    message: 'KataGo가 이미 실행 중입니다.'
+                });
+            }
+            
+            // 시작 중이면 에러 반환
+            const isStarting = (manager as any).isStarting || false;
+            if (isStarting) {
+                return res.status(400).json({ 
+                    error: 'KataGo is already starting.',
+                    message: 'KataGo가 이미 시작 중입니다.'
+                });
+            }
+            
+            console.log('[Admin] Starting KataGo engine...');
+            
+            // KataGo 초기화 시작 (비동기로 처리)
+            initializeKataGo().then(() => {
+                console.log('[Admin] KataGo engine started successfully');
+            }).catch((error: any) => {
+                console.error('[Admin] Failed to start KataGo engine:', error);
+            });
+            
+            res.json({ 
+                success: true,
+                message: 'KataGo 엔진 시작을 요청했습니다. 상태를 확인하려면 새로고침 버튼을 클릭하세요.'
+            });
+        } catch (error: any) {
+            console.error('[Admin] Error starting KataGo:', error);
+            res.status(500).json({ error: error.message });
+        }
+    });
+    
     app.post('/api/admin/recover-bot-scores', async (req, res) => {
         try {
             console.log('[Admin] ========== 봇 점수 복구 시작 ==========');
@@ -3569,23 +3823,8 @@ process.on('SIGINT', () => {
     console.log('[Server] SIGINT received. This is normal for Railway deployments.');
 });
 
-// 프로세스가 종료되려고 할 때 감지 및 방지
-process.on('beforeExit', (code) => {
-    console.error(`[Server] Process about to exit with code: ${code}`);
-    console.error(`[Server] BeforeExit time: ${new Date().toISOString()}`);
-    console.error(`[Server] Attempting to prevent exit...`);
-    
-    // Railway 환경에서는 프로세스 종료를 방지
-    if (process.env.RAILWAY_ENVIRONMENT) {
-        console.error(`[Server] Railway environment detected. Preventing exit to avoid restart loop.`);
-        // 프로세스를 종료하지 않고 계속 실행
-        // beforeExit 이벤트에서 아무것도 하지 않으면 프로세스가 종료되지 않음
-        // 하지만 이벤트 루프가 비어있으면 종료되므로, keep-alive 추가
-        setInterval(() => {
-            // 이벤트 루프를 활성 상태로 유지
-        }, 1000);
-    }
-});
+// beforeExit 핸들러 제거 - 이 핸들러는 프로세스 종료를 방해할 수 있음
+// Railway는 정상적인 종료 시그널(SIGTERM)을 보내므로 beforeExit 핸들러가 필요 없음
 
 // 메모리 사용량 모니터링 (주기적으로 로그) - 프로덕션에서는 간격 증가
 if (process.env.RAILWAY_ENVIRONMENT) {
@@ -3613,6 +3852,7 @@ if (process.env.RAILWAY_ENVIRONMENT) {
         }
     }, memCheckInterval);
 }
+// 메모리 사용량 모니터링은 메인 루프에서도 처리됨 (중복 방지)
 
 // Start server with error handling
 // 서버가 반드시 리스닝을 시작하도록 보장
@@ -3665,18 +3905,5 @@ if (process.env.RAILWAY_ENVIRONMENT) {
     console.log('[Server] Startup wrapper completed. Process will continue running.');
 })();
 
-// 프로세스가 종료되지 않도록 강제 keep-alive (Railway 환경)
-if (process.env.RAILWAY_ENVIRONMENT) {
-    // 이벤트 루프가 비어있어도 프로세스가 종료되지 않도록 함
-    const keepAliveInterval = setInterval(() => {
-        // 아무 작업도 하지 않지만 이벤트 루프를 활성 상태로 유지
-        if (Math.floor(process.uptime()) % 60 === 0 && process.uptime() > 0) {
-            console.log(`[Server] Keep-alive: Process still running (uptime: ${Math.round(process.uptime())}s)`);
-        }
-    }, 1000);
-    
-    // 프로세스 종료 시 interval 정리
-    process.on('exit', () => {
-        clearInterval(keepAliveInterval);
-    });
-}
+// Keep-alive는 startServer 내부의 server.listen 콜백에서 이미 처리됨
+// 여기서는 추가 keep-alive가 필요 없음

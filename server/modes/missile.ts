@@ -1,6 +1,7 @@
 
 import * as types from '../../types/index.js';
 import { getGoLogic } from '../goLogic.js';
+import { pauseGameTimer, resumeGameTimer } from './shared.js';
 
 type HandleActionResult = types.HandleActionResult;
 
@@ -132,65 +133,20 @@ export const updateMissileState = (game: types.LiveGameSession, now: number): bo
         }
         
         // 원래 경기 시간 복원 (턴 유지)
-        if (game.settings.timeLimit > 0) {
-            if (game.pausedTurnTimeLeft !== undefined) {
-                const currentPlayerTimeKey = timedOutPlayerEnum === types.Player.Black ? 'blackTimeLeft' : 'whiteTimeLeft';
-                game[currentPlayerTimeKey] = game.pausedTurnTimeLeft;
-                game.turnDeadline = now + game[currentPlayerTimeKey] * 1000;
-                game.turnStartTime = now;
-            } else {
-                // pausedTurnTimeLeft가 없으면 현재 시간 사용
-                const currentPlayerTimeKey = timedOutPlayerEnum === types.Player.Black ? 'blackTimeLeft' : 'whiteTimeLeft';
-                const currentTime = game[currentPlayerTimeKey] ?? 0;
-                if (currentTime > 0) {
-                    game.turnDeadline = now + currentTime * 1000;
-                    game.turnStartTime = now;
-                } else {
-                    game.turnDeadline = undefined;
-                    game.turnStartTime = undefined;
-                }
-            }
-        } else {
-            game.turnDeadline = undefined;
-            game.turnStartTime = undefined;
-        }
-        
-        game.itemUseDeadline = undefined;
-        game.pausedTurnTimeLeft = undefined;
+        resumeGameTimer(game, now, timedOutPlayerEnum);
         return true; // 게임 상태가 변경되었음을 반환
     }
     
     // 애니메이션 처리
     if (game.gameStatus === 'missile_animating') {
-        // animation이 null인데 gameStatus가 여전히 missile_animating인 경우 정리
-        if (!game.animation) {
-            console.warn(`[updateMissileState] Game ${game.id} has missile_animating status but no animation, cleaning up...`);
-            game.gameStatus = 'playing';
-            const playerWhoMoved = game.currentPlayer;
-            if (game.pausedTurnTimeLeft !== undefined) {
-                if (playerWhoMoved === types.Player.Black) {
-                    game.blackTimeLeft = game.pausedTurnTimeLeft ?? 0;
-                } else {
-                    game.whiteTimeLeft = game.pausedTurnTimeLeft ?? 0;
-                }
+            // animation이 null인데 gameStatus가 여전히 missile_animating인 경우 정리
+            if (!game.animation) {
+                console.warn(`[updateMissileState] Game ${game.id} has missile_animating status but no animation, cleaning up...`);
+                game.gameStatus = 'playing';
+                const playerWhoMoved = game.currentPlayer;
+                resumeGameTimer(game, now, playerWhoMoved);
+                return true;
             }
-            if (game.settings.timeLimit > 0) {
-                const currentPlayerTimeKey = playerWhoMoved === types.Player.Black ? 'blackTimeLeft' : 'whiteTimeLeft';
-                const timeLeft = game[currentPlayerTimeKey] ?? 0;
-                if (timeLeft > 0) {
-                    game.turnDeadline = now + timeLeft * 1000;
-                    game.turnStartTime = now;
-                } else {
-                    game.turnDeadline = undefined;
-                    game.turnStartTime = undefined;
-                }
-            } else {
-                game.turnDeadline = undefined;
-                game.turnStartTime = undefined;
-            }
-            game.pausedTurnTimeLeft = undefined;
-            return true;
-        }
         
         // 미사일 애니메이션인 경우에만 처리
         const anim = game.animation;
@@ -298,33 +254,8 @@ export const updateMissileState = (game: types.LiveGameSession, now: number): bo
                     }
                 }
                 
-                // 타이머 복원 (아이템 사용 시간이 마감되고 원래 턴 시간으로 복귀)
-                if (game.pausedTurnTimeLeft !== undefined) {
-                    if (playerWhoMoved === types.Player.Black) {
-                        game.blackTimeLeft = game.pausedTurnTimeLeft ?? 0;
-                    } else {
-                        game.whiteTimeLeft = game.pausedTurnTimeLeft ?? 0;
-                    }
-                }
-                
-                // 타이머 재개 (턴 유지)
-                if (game.settings.timeLimit > 0) {
-                    const currentPlayerTimeKey = playerWhoMoved === types.Player.Black ? 'blackTimeLeft' : 'whiteTimeLeft';
-                    const timeLeft = (game[currentPlayerTimeKey] ?? 0) as number;
-                    if (timeLeft > 0) {
-                        game.turnDeadline = now + timeLeft * 1000;
-                        game.turnStartTime = now;
-                    } else {
-                        game.turnDeadline = undefined;
-                        game.turnStartTime = undefined;
-                    }
-                } else {
-                    game.turnDeadline = undefined;
-                    game.turnStartTime = undefined;
-                }
-                
-                game.pausedTurnTimeLeft = undefined;
-                game.itemUseDeadline = undefined;
+                // 타이머 복원 및 재개 (턴 유지)
+                resumeGameTimer(game, now, playerWhoMoved);
                 
                 return true;
             }
@@ -503,15 +434,8 @@ export const handleMissileAction = (game: types.LiveGameSession, action: types.S
             // 게임 상태를 missile_selecting으로 변경
             game.gameStatus = 'missile_selecting';
             
-            // 원래 경기 시간 일시 정지
-            if (game.settings.timeLimit > 0 && game.turnDeadline) {
-                game.pausedTurnTimeLeft = (game.turnDeadline - now) / 1000;
-            }
-            game.turnDeadline = undefined;
-            game.turnStartTime = undefined;
-            
-            // 아이템 사용 시간 30초 부여
-            game.itemUseDeadline = now + 30000;
+            // 원래 경기 시간 일시 정지 및 아이템 사용 시간 부여
+            pauseGameTimer(game, now, 30000);
             
             console.log(`[Missile Go] START_MISSILE_SELECTION: gameStatus changed to missile_selecting, gameId=${game.id}`);
             return { clientResponse: { gameUpdated: true } };

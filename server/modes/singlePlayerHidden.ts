@@ -1,5 +1,6 @@
 import * as types from '../../types/index.js';
 import * as db from '../db.js';
+import { pauseGameTimer, resumeGameTimer } from './shared.js';
 
 type HandleActionResult = types.HandleActionResult;
 
@@ -54,19 +55,8 @@ export const updateSinglePlayerHiddenState = async (game: types.LiveGameSession,
         }
         
         // 원래 경기 시간 복원 (턴 유지)
-        if (game.settings.timeLimit > 0 && game.pausedTurnTimeLeft !== undefined) {
-            const currentPlayerTimeKey = timedOutPlayerEnum === types.Player.Black ? 'blackTimeLeft' : 'whiteTimeLeft';
-            game[currentPlayerTimeKey] = game.pausedTurnTimeLeft;
-            game.turnDeadline = now + game[currentPlayerTimeKey] * 1000;
-            game.turnStartTime = now;
-            console.log(`[updateSinglePlayerHiddenState] Turn maintained: ${currentPlayerTimeKey}=${game[currentPlayerTimeKey]}, turnDeadline=${game.turnDeadline}, gameId=${game.id}`);
-        } else {
-            game.turnDeadline = undefined;
-            game.turnStartTime = undefined;
-        }
-        
-        game.itemUseDeadline = undefined;
-        game.pausedTurnTimeLeft = undefined;
+        resumeGameTimer(game, now, timedOutPlayerEnum);
+        console.log(`[updateSinglePlayerHiddenState] Turn maintained: player=${timedOutPlayerEnum}, gameId=${game.id}`);
         
         // 상태 변경을 표시하여 상위 함수에서 브로드캐스트하도록 함
         (game as any)._itemTimeoutStateChanged = true;
@@ -90,15 +80,8 @@ export const updateSinglePlayerHiddenState = async (game: types.LiveGameSession,
                 
                 // 히든 아이템 사용 후 게임 상태 복원
                 game.gameStatus = 'playing';
-                game.itemUseDeadline = undefined;
-                if (game.pausedTurnTimeLeft) {
-                    const myPlayerEnum = pendingCapture?.move.player || game.currentPlayer;
-                    const currentPlayerTimeKey = myPlayerEnum === types.Player.Black ? 'blackTimeLeft' : 'whiteTimeLeft';
-                    game[currentPlayerTimeKey] = game.pausedTurnTimeLeft;
-                    game.turnDeadline = now + game[currentPlayerTimeKey] * 1000;
-                    game.turnStartTime = now;
-                    game.pausedTurnTimeLeft = undefined;
-                }
+                const myPlayerEnum = pendingCapture?.move.player || game.currentPlayer;
+                resumeGameTimer(game, now, myPlayerEnum);
                 
                 if (pendingCapture) {
                     const myPlayerEnum = pendingCapture.move.player;
@@ -273,12 +256,7 @@ export const handleSinglePlayerHiddenAction = (volatileState: types.VolatileStat
             
             console.log(`[handleSinglePlayerHiddenAction] START_HIDDEN_PLACEMENT: Changing gameStatus from ${game.gameStatus} to hidden_placing`);
             game.gameStatus = 'hidden_placing';
-            if(game.turnDeadline) {
-                game.pausedTurnTimeLeft = (game.turnDeadline - now) / 1000;
-            }
-            game.turnDeadline = undefined;
-            game.turnStartTime = undefined;
-            game.itemUseDeadline = now + 30000;
+            pauseGameTimer(game, now, 30000);
             console.log(`[handleSinglePlayerHiddenAction] START_HIDDEN_PLACEMENT: SUCCESS - gameStatus=${game.gameStatus}, itemUseDeadline=${game.itemUseDeadline}, ${hiddenKey}=${currentHidden}`);
             return {};
         case 'START_SCANNING':
@@ -293,12 +271,7 @@ export const handleSinglePlayerHiddenAction = (volatileState: types.VolatileStat
             }
             console.log(`[handleSinglePlayerHiddenAction] START_SCANNING: Changing gameStatus from ${game.gameStatus} to scanning`);
             game.gameStatus = 'scanning';
-             if(game.turnDeadline) {
-                game.pausedTurnTimeLeft = (game.turnDeadline - now) / 1000;
-            }
-            game.turnDeadline = undefined;
-            game.turnStartTime = undefined;
-            game.itemUseDeadline = now + 30000;
+            pauseGameTimer(game, now, 30000);
             console.log(`[handleSinglePlayerHiddenAction] START_SCANNING: SUCCESS - gameStatus=${game.gameStatus}, itemUseDeadline=${game.itemUseDeadline}`);
             return {};
         case 'SCAN_BOARD':
@@ -327,19 +300,7 @@ export const handleSinglePlayerHiddenAction = (volatileState: types.VolatileStat
             game.gameStatus = 'scanning_animating';
 
             // After using the item, restore my time, reset timers and KEEP THE TURN
-            if (game.pausedTurnTimeLeft) {
-                if (myPlayerEnum === types.Player.Black) {
-                    game.blackTimeLeft = game.pausedTurnTimeLeft;
-                } else {
-                    game.whiteTimeLeft = game.pausedTurnTimeLeft;
-                }
-            }
-            game.itemUseDeadline = undefined;
-            game.pausedTurnTimeLeft = undefined;
-
-            const currentPlayerTimeKey = myPlayerEnum === types.Player.Black ? 'blackTimeLeft' : 'whiteTimeLeft';
-            game.turnDeadline = now + game[currentPlayerTimeKey] * 1000;
-            game.turnStartTime = now;
+            resumeGameTimer(game, now, myPlayerEnum);
             
             // The `updateSinglePlayerHiddenState` will transition from 'scanning_animating' to 'playing'
             // after the animation, but the timer is already correctly running for the current player.

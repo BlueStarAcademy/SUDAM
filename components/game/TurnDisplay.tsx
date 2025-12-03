@@ -222,13 +222,8 @@ const TurnDisplay: React.FC<TurnDisplayProps> = ({
             setTimeLeft(clampedRemaining);
             
             // 아이템 시간이 초과되었는데 게임 상태가 여전히 아이템 모드인 경우
-            // 싱글플레이에서는 서버의 게임 루프가 제대로 작동하지 않을 수 있으므로
-            // 클라이언트에서 서버에 게임 상태 업데이트를 요청
-            if (remaining === 0 && session.gameStatus === 'missile_selecting' && onAction && session.id) {
-                console.log(`[TurnDisplay] Item use deadline expired but gameStatus is still missile_selecting, requesting game state update, gameId=${session.id}`);
-                // 서버의 게임 루프가 처리하도록 하기 위해 빈 액션을 보내서 게임 상태를 갱신
-                // 실제로는 서버의 processGame이 updateMissileState를 호출하여 처리
-            }
+            // 서버의 게임 루프가 자동으로 처리하므로 클라이언트에서 추가 통신 불필요
+            // WebSocket으로 상태 업데이트가 자동으로 전파됨
         };
 
         updateTimer();

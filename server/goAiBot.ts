@@ -904,7 +904,13 @@ export async function makeGoAiBotMove(
                     delete (gameToBroadcast as any).boardState;
                     broadcastToGameParticipants(game.id, { type: 'GAME_UPDATE', payload: { [game.id]: gameToBroadcast } }, game);
                     const { getGameResult } = await import('./gameModes.js');
-                    await getGameResult(game);
+                    try {
+                        await getGameResult(game);
+                    } catch (scoringError: any) {
+                        console.error(`[GoAiBot][${gameType}] Error during auto-scoring for game ${game.id}:`, scoringError?.message);
+                        console.error(`[GoAiBot][${gameType}] Scoring error stack:`, scoringError instanceof Error ? scoringError.stack : 'No stack trace');
+                        // 에러가 발생해도 게임은 계속 진행 (fallback 로직이 처리함)
+                    }
                     return;
                 } else {
                     const gameType = game.isSinglePlayer ? 'SinglePlayer' : 'AiGame';
@@ -917,7 +923,13 @@ export async function makeGoAiBotMove(
                     delete (gameToBroadcast as any).boardState;
                     broadcastToGameParticipants(game.id, { type: 'GAME_UPDATE', payload: { [game.id]: gameToBroadcast } }, game);
                     const { getGameResult } = await import('./gameModes.js');
-                    await getGameResult(game);
+                    try {
+                        await getGameResult(game);
+                    } catch (scoringError: any) {
+                        console.error(`[GoAiBot][${gameType}] Error during forced auto-scoring for game ${game.id}:`, scoringError?.message);
+                        console.error(`[GoAiBot][${gameType}] Scoring error stack:`, scoringError instanceof Error ? scoringError.stack : 'No stack trace');
+                        // 에러가 발생해도 게임은 계속 진행 (fallback 로직이 처리함)
+                    }
                     return;
                 }
             } else {

@@ -623,9 +623,15 @@ export const initializeKataGo = async (): Promise<void> => {
     // HTTP API를 사용하는 경우 프로세스 초기화 불필요
     // 자기 자신의 /api/katago/analyze 엔드포인트로 연결 테스트하는 것은 순환 참조를 일으킬 수 있으므로 제거
     if (USE_HTTP_API) {
-        console.log(`[KataGo] Using HTTP API: ${KATAGO_API_URL}`);
-        console.log(`[KataGo] HTTP API mode: KataGo analysis will be performed via HTTP requests to ${KATAGO_API_URL}`);
-        console.log(`[KataGo] HTTP API is ready for analysis requests.`);
+        if (!KATAGO_API_URL) {
+            console.error(`[KataGo] WARNING: USE_HTTP_API is true but KATAGO_API_URL is not set!`);
+            console.error(`[KataGo] Please set KATAGO_API_URL or DEPLOYED_SITE_URL environment variable.`);
+            console.error(`[KataGo] Auto-scoring will fall back to manual scoring if KataGo is unavailable.`);
+        } else {
+            console.log(`[KataGo] Using HTTP API: ${KATAGO_API_URL}`);
+            console.log(`[KataGo] HTTP API mode: KataGo analysis will be performed via HTTP requests to ${KATAGO_API_URL}`);
+            console.log(`[KataGo] HTTP API is ready for analysis requests.`);
+        }
         // 연결 테스트는 제거 (첫 실제 분석 요청 시 자동으로 테스트됨)
         return;
     }
@@ -789,11 +795,14 @@ export const analyzeGame = async (session: LiveGameSession, options?: { maxVisit
         };
     }
 
-    // HTTP API를 사용하는 경우 queryKataGoViaHttp 함수 정의
-    const queryKataGoViaHttp = async (analysisQuery: any, apiUrl?: string): Promise<any> => {
+    // HTTP API를 사용하는 경우 queryKataGoViaHttp 함수 정의 (재시도 로직 포함)
+    const queryKataGoViaHttp = async (analysisQuery: any, apiUrl?: string, retryCount: number = 0): Promise<any> => {
+        const MAX_RETRIES = 2; // 최대 2번 재시도 (총 3번 시도)
+        const RETRY_DELAY_MS = 2000; // 재시도 전 2초 대기
+        
         let urlToUse = apiUrl || KATAGO_API_URL || (analysisQuery.__fallbackUrl ? analysisQuery.__fallbackUrl : undefined);
         if (!urlToUse) {
-            throw new Error('KATAGO_API_URL is not set');
+            throw new Error('KATAGO_API_URL is not set. Please configure KATAGO_API_URL or DEPLOYED_SITE_URL environment variable.');
         }
         
         // 프로토콜이 없으면 자동으로 https:// 추가 (Railway는 HTTPS를 사용)
@@ -806,73 +815,95 @@ export const analyzeGame = async (session: LiveGameSession, options?: { maxVisit
         const cleanQuery = { ...analysisQuery };
         delete cleanQuery.__fallbackUrl;
         
-        console.log(`[KataGo HTTP] Sending analysis query to ${urlToUse}, queryId=${cleanQuery.id}`);
+        console.log(`[KataGo HTTP] Sending analysis query to ${urlToUse}, queryId=${cleanQuery.id}, attempt=${retryCount + 1}/${MAX_RETRIES + 1}`);
         
-        return new Promise((resolve, reject) => {
-            let url: URL;
-            try {
-                url = new URL(urlToUse);
-            } catch (error: any) {
-                return reject(new Error(`Invalid KATAGO_API_URL format: ${urlToUse}. Error: ${error.message}`));
-            }
-            const isHttps = url.protocol === 'https:';
-            const httpModule = isHttps ? https : http;
-            
-            const postData = JSON.stringify(cleanQuery);
-            
-            // 60초 타임아웃 후 자체 계가 프로그램 사용
-            const timeoutMs = 60000; // 60초
-            const timeoutSeconds = timeoutMs / 1000;
-            
-            const options = {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Content-Length': Buffer.byteLength(postData)
-                },
-                timeout: timeoutMs
-            };
-            
-            const req = httpModule.request(url, options, (res) => {
-                let responseData = '';
+        try {
+            const response = await new Promise<any>((resolve, reject) => {
+                let url: URL;
+                try {
+                    url = new URL(urlToUse);
+                } catch (error: any) {
+                    return reject(new Error(`Invalid KATAGO_API_URL format: ${urlToUse}. Error: ${error.message}`));
+                }
+                const isHttps = url.protocol === 'https:';
+                const httpModule = isHttps ? https : http;
                 
-                res.on('data', (chunk) => {
-                    responseData += chunk;
-                });
+                const postData = JSON.stringify(cleanQuery);
                 
-                res.on('end', () => {
-                    if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
-                        try {
-                            const parsed = JSON.parse(responseData);
-                            console.log(`[KataGo HTTP] Received response for queryId=${cleanQuery.id}, statusCode=${res.statusCode}, responseSize=${responseData.length} bytes`);
-                            resolve(parsed);
-                        } catch (parseError) {
-                            console.error(`[KataGo HTTP] Failed to parse response for queryId=${cleanQuery.id}:`, parseError);
-                            console.error(`[KataGo HTTP] Response data (first 500 chars): ${responseData.substring(0, 500)}`);
-                            reject(new Error(`Failed to parse KataGo API response: ${parseError instanceof Error ? parseError.message : String(parseError)}`));
+                // 60초 타임아웃 후 자체 계가 프로그램 사용
+                const timeoutMs = 60000; // 60초
+                const timeoutSeconds = timeoutMs / 1000;
+                
+                const options = {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Content-Length': Buffer.byteLength(postData)
+                    },
+                    timeout: timeoutMs
+                };
+                
+                const req = httpModule.request(url, options, (res) => {
+                    let responseData = '';
+                    
+                    res.on('data', (chunk) => {
+                        responseData += chunk;
+                    });
+                    
+                    res.on('end', () => {
+                        if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
+                            try {
+                                const parsed = JSON.parse(responseData);
+                                console.log(`[KataGo HTTP] Received response for queryId=${cleanQuery.id}, statusCode=${res.statusCode}, responseSize=${responseData.length} bytes`);
+                                resolve(parsed);
+                            } catch (parseError) {
+                                console.error(`[KataGo HTTP] Failed to parse response for queryId=${cleanQuery.id}:`, parseError);
+                                console.error(`[KataGo HTTP] Response data (first 500 chars): ${responseData.substring(0, 500)}`);
+                                reject(new Error(`Failed to parse KataGo API response: ${parseError instanceof Error ? parseError.message : String(parseError)}`));
+                            }
+                        } else {
+                            console.error(`[KataGo HTTP] API returned error status ${res.statusCode} for queryId=${cleanQuery.id}: ${responseData.substring(0, 500)}`);
+                            reject(new Error(`KataGo API returned status ${res.statusCode}: ${responseData.substring(0, 500)}`));
                         }
-                    } else {
-                        console.error(`[KataGo HTTP] API returned error status ${res.statusCode} for queryId=${cleanQuery.id}: ${responseData.substring(0, 500)}`);
-                        reject(new Error(`KataGo API returned status ${res.statusCode}: ${responseData.substring(0, 500)}`));
-                    }
+                    });
                 });
+                
+                req.on('error', (error) => {
+                    console.error(`[KataGo HTTP] Request error for queryId=${cleanQuery.id}:`, error);
+                    console.error(`[KataGo HTTP] Error details: message=${error.message}, code=${(error as any).code}, stack=${error instanceof Error ? error.stack : 'N/A'}`);
+                    reject(new Error(`KataGo API request failed: ${error.message}`));
+                });
+                
+                req.on('timeout', () => {
+                    console.error(`[KataGo HTTP] Request timeout for queryId=${cleanQuery.id} after ${timeoutSeconds} seconds`);
+                    req.destroy();
+                    reject(new Error(`KataGo API request timed out after ${timeoutSeconds} seconds`));
+                });
+                
+                req.write(postData);
+                req.end();
             });
             
-            req.on('error', (error) => {
-                console.error(`[KataGo HTTP] Request error for queryId=${cleanQuery.id}:`, error);
-                console.error(`[KataGo HTTP] Error details: message=${error.message}, code=${(error as any).code}, stack=${error instanceof Error ? error.stack : 'N/A'}`);
-                reject(new Error(`KataGo API request failed: ${error.message}`));
-            });
+            return response;
+        } catch (error: any) {
+            // 재시도 가능한 에러인지 확인 (네트워크 에러, 타임아웃 등)
+            const isRetryableError = error.message?.includes('timeout') || 
+                                   error.message?.includes('ECONNREFUSED') ||
+                                   error.message?.includes('ENOTFOUND') ||
+                                   error.message?.includes('ETIMEDOUT') ||
+                                   (error as any).code === 'ECONNREFUSED' ||
+                                   (error as any).code === 'ENOTFOUND' ||
+                                   (error as any).code === 'ETIMEDOUT';
             
-            req.on('timeout', () => {
-                console.error(`[KataGo HTTP] Request timeout for queryId=${cleanQuery.id} after ${timeoutSeconds} seconds`);
-                req.destroy();
-                reject(new Error(`KataGo API request timed out after ${timeoutSeconds} seconds`));
-            });
+            if (isRetryableError && retryCount < MAX_RETRIES) {
+                console.warn(`[KataGo HTTP] Retryable error occurred (attempt ${retryCount + 1}/${MAX_RETRIES + 1}): ${error.message}. Retrying in ${RETRY_DELAY_MS}ms...`);
+                await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
+                return queryKataGoViaHttp(analysisQuery, apiUrl, retryCount + 1);
+            }
             
-            req.write(postData);
-            req.end();
-        });
+            // 재시도 불가능하거나 최대 재시도 횟수 초과
+            throw error;
+        }
     };
 
     try {
@@ -893,6 +924,9 @@ export const analyzeGame = async (session: LiveGameSession, options?: { maxVisit
         
         // HTTP API를 사용하는 경우
         if (USE_HTTP_API) {
+            if (!KATAGO_API_URL) {
+                throw new Error('KATAGO_API_URL is not configured. Please set KATAGO_API_URL or DEPLOYED_SITE_URL environment variable.');
+            }
             console.log(`[KataGo] Using HTTP API: ${KATAGO_API_URL}`);
             response = await queryKataGoViaHttp(query);
         } else {
@@ -906,6 +940,7 @@ export const analyzeGame = async (session: LiveGameSession, options?: { maxVisit
                 }
             } else {
                 // 배포 환경에서 로컬 프로세스 사용
+                console.log(`[KataGo] Using local KataGo process (not HTTP API)`);
                 response = await getKataGoManager().query(query);
             }
         }

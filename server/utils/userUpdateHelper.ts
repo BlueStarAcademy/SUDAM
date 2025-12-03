@@ -60,8 +60,12 @@ export function getSelectiveUserUpdate(
         'USE_CONDITION_POTION': ['inventory', 'gold', 'lastNeighborhoodTournament', 'lastNationalTournament', 'lastWorldTournament'],
         'START_TOURNAMENT_SESSION': ['lastNeighborhoodTournament', 'lastNationalTournament', 'lastWorldTournament', 'actionPoints'],
         'START_TOURNAMENT_ROUND': ['lastNeighborhoodTournament', 'lastNationalTournament', 'lastWorldTournament'],
-        'ADMIN_RESET_TOURNAMENT_SESSION': ['lastNeighborhoodTournament', 'lastNationalTournament', 'lastWorldTournament'],
+        'ADMIN_RESET_TOURNAMENT_SESSION': ['lastNeighborhoodTournament', 'lastNationalTournament', 'lastWorldTournament', 'dungeonProgress'],
+        'ADMIN_RESET_DUNGEON_PROGRESS': ['dungeonProgress'],
+        'ADMIN_RESET_CHAMPIONSHIP_ALL': ['dungeonProgress', 'lastNeighborhoodTournament', 'lastNationalTournament', 'lastWorldTournament', 'lastNeighborhoodPlayedDate', 'lastNationalPlayedDate', 'lastWorldPlayedDate', 'neighborhoodRewardClaimed', 'nationalRewardClaimed', 'worldRewardClaimed'],
         'CLAIM_TOURNAMENT_REWARD': ['inventory', 'gold', 'diamonds', 'tournamentScore', 'neighborhoodRewardClaimed', 'nationalRewardClaimed', 'worldRewardClaimed', 'lastNeighborhoodTournament', 'lastNationalTournament', 'lastWorldTournament'],
+        'START_DUNGEON_STAGE': ['dungeonProgress', 'lastNeighborhoodTournament', 'lastNationalTournament', 'lastWorldTournament'],
+        'COMPLETE_DUNGEON_STAGE': ['dungeonProgress', 'inventory', 'gold', 'diamonds', 'tournamentScore', 'cumulativeTournamentScore', 'dailyDungeonScore'],
         
         // 싱글플레이어 관련
         'START_SINGLE_PLAYER_GAME': ['actionPoints', 'singlePlayerProgress'],

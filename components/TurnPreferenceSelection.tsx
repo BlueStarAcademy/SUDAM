@@ -37,11 +37,16 @@ const TurnPreferenceSelection: React.FC<TurnPreferenceSelectionProps> = (props) 
     }, []);
 
     useEffect(() => {
-        if (myTurnChoice || localChoice || !turnChoiceDeadline) return;
+        // 양쪽 선택이 완료되면 타이머 불필요 (서버에서 즉시 다음 단계로 전환)
+        if (myTurnChoice || localChoice || !turnChoiceDeadline) {
+            setCountdown(30);
+            return;
+        }
 
         const timerId = setInterval(() => {
             const remaining = Math.max(0, Math.ceil((turnChoiceDeadline - Date.now()) / 1000));
             setCountdown(remaining);
+            // 0초가 되면 서버에서 자동으로 랜덤 선택 처리 (클라이언트에서 추가 통신 불필요)
             if (remaining <= 0) {
                 clearInterval(timerId);
             }

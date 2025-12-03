@@ -1,7 +1,7 @@
 import { TournamentState, PlayerForTournament, CoreStat, CommentaryLine, Match, User, Round, TournamentType, TournamentSimulationStatus } from '../types/index.js';
 import { calculateTotalStats } from './statService.js';
 import { randomUUID } from 'crypto';
-import { TOURNAMENT_DEFINITIONS, NEIGHBORHOOD_MATCH_REWARDS, NATIONAL_MATCH_REWARDS, WORLD_MATCH_REWARDS, DUNGEON_STAGE_BOT_STATS, DUNGEON_TYPE_MULTIPLIER } from '../constants';
+import { TOURNAMENT_DEFINITIONS, NEIGHBORHOOD_MATCH_REWARDS, NATIONAL_MATCH_REWARDS, WORLD_MATCH_REWARDS, DUNGEON_STAGE_BOT_STATS } from '../constants';
 
 const EARLY_GAME_DURATION = 15;
 const MID_GAME_DURATION = 20;
@@ -285,8 +285,55 @@ export const processMatchCompletion = (state: TournamentState, user: User, compl
         }
     });
 
-    if (state.type === 'neighborhood') {
-        // 동네바둑리그: 유저의 경기 완료 시 골드 누적
+    // 던전 모드에서는 리그 기반 보상을 사용하지 않음 (단계별 보상 사용)
+    const isDungeonMode = !!state.currentStageAttempt;
+    
+    // 던전 모드: 경기 완료 시 단계별 기본 보상 누적
+    if (isDungeonMode && completedMatch.isUserMatch && completedMatch.winner) {
+        const stage = state.currentStageAttempt || 1;
+        const isUserWinner = completedMatch.winner.id === user.id;
+        
+        // 골드 보상 누적
+        const { DUNGEON_STAGE_BASE_REWARDS_GOLD } = await import('../../constants/tournaments.js');
+        const goldReward = DUNGEON_STAGE_BASE_REWARDS_GOLD[stage] || 0;
+        if (goldReward > 0) {
+            if (!state.accumulatedGold) {
+                state.accumulatedGold = 0;
+            }
+            state.accumulatedGold += goldReward;
+        }
+        
+        // 재료 보상 누적 (전국바둑대회, 월드챔피언십)
+        if (state.type === 'national' || state.type === 'world') {
+            const { DUNGEON_STAGE_BASE_REWARDS_MATERIAL } = await import('../../constants/tournaments.js');
+            const materialReward = DUNGEON_STAGE_BASE_REWARDS_MATERIAL[stage];
+            if (materialReward) {
+                if (!state.accumulatedMaterials) {
+                    state.accumulatedMaterials = {};
+                }
+                const currentQuantity = state.accumulatedMaterials[materialReward.materialName] || 0;
+                state.accumulatedMaterials[materialReward.materialName] = currentQuantity + materialReward.quantity;
+            }
+        }
+        
+        // 장비상자 보상 누적 (월드챔피언십)
+        if (state.type === 'world') {
+            const { DUNGEON_STAGE_BASE_REWARDS_EQUIPMENT } = await import('../../constants/tournaments.js');
+            const equipmentReward = DUNGEON_STAGE_BASE_REWARDS_EQUIPMENT[stage];
+            if (equipmentReward) {
+                if (!state.accumulatedEquipmentBoxes) {
+                    state.accumulatedEquipmentBoxes = {};
+                }
+                for (const box of equipmentReward.boxes) {
+                    const currentQuantity = state.accumulatedEquipmentBoxes[box.boxName] || 0;
+                    state.accumulatedEquipmentBoxes[box.boxName] = currentQuantity + box.quantity;
+                }
+            }
+        }
+    }
+    
+    if (state.type === 'neighborhood' && !isDungeonMode) {
+        // 동네바둑리그 (일반 토너먼트 모드): 유저의 경기 완료 시 골드 누적
         if (completedMatch.isUserMatch && completedMatch.winner) {
             const isUserWinner = completedMatch.winner.id === user.id;
             const matchReward = NEIGHBORHOOD_MATCH_REWARDS[user.league];
@@ -346,8 +393,8 @@ export const processMatchCompletion = (state: TournamentState, user: User, compl
     
     const loser = completedMatch.players.find(p => p && p.id !== completedMatch.winner?.id) || null;
 
-    // 전국바둑대회: 유저의 경기 완료 시 재료 누적
-    if (state.type === 'national' && completedMatch.isUserMatch && completedMatch.winner) {
+    // 전국바둑대회 (일반 토너먼트 모드): 유저의 경기 완료 시 재료 누적
+    if (state.type === 'national' && !isDungeonMode && completedMatch.isUserMatch && completedMatch.winner) {
         const isUserWinner = completedMatch.winner.id === user.id;
         const matchReward = NATIONAL_MATCH_REWARDS[user.league];
         if (matchReward) {
@@ -360,8 +407,8 @@ export const processMatchCompletion = (state: TournamentState, user: User, compl
         }
     }
 
-    // 월드챔피언십: 유저의 경기 완료 시 장비상자 누적
-    if (state.type === 'world' && completedMatch.isUserMatch && completedMatch.winner) {
+    // 월드챔피언십 (일반 토너먼트 모드): 유저의 경기 완료 시 장비상자 누적
+    if (state.type === 'world' && !isDungeonMode && completedMatch.isUserMatch && completedMatch.winner) {
         const isUserWinner = completedMatch.winner.id === user.id;
         const matchReward = WORLD_MATCH_REWARDS[user.league];
         if (matchReward) {
@@ -1731,9 +1778,9 @@ export const createDungeonStageBot = (
         }
     }
     
-    console.log(`[createDungeonStageBot] Creating bot for stage ${stage}, stats range: ${stageStats.minStat}-${stageStats.maxStat}`);
+    console.log(`[createDungeonStageBot] Creating bot for stage ${stage}, dungeonType: ${dungeonType}, stats range: ${stageStats.minStat}-${stageStats.maxStat}`);
     
-    // 각 능력치를 독립적으로 단계별 범위에서 생성 (던전 타입 배율 없이 1.0으로 통일)
+    // 각 능력치를 독립적으로 단계별 범위에서 생성
     const baseStats: Record<CoreStat, number> = {} as any;
     
     // 각 능력치를 minStat~maxStat 범위에서 랜덤 생성
@@ -1742,7 +1789,7 @@ export const createDungeonStageBot = (
         baseStats[stat] = baseValue;
     }
     
-    console.log(`[createDungeonStageBot] Bot ${botName} (stage ${stage}) created with stats:`, baseStats);
+    console.log(`[createDungeonStageBot] Bot ${botName} (stage ${stage}, ${dungeonType}) created with stats:`, baseStats);
     
     // 컨디션 랜덤 설정 (40~100)
     const condition = Math.floor(Math.random() * 61) + 40;

@@ -5,6 +5,7 @@ import Button from '../Button.js';
 import { useAppContext } from '../../hooks/useAppContext.js';
 import TrainingQuestLevelUpModal from './TrainingQuestLevelUpModal.js';
 import ClaimAllTrainingQuestRewardsModal from './ClaimAllTrainingQuestRewardsModal.js';
+import { audioService } from '../../services/audioService.js';
 
 interface TrainingQuestPanelProps {
     currentUser: UserWithStatus;
@@ -176,6 +177,9 @@ const TrainingQuestPanel: React.FC<TrainingQuestPanelProps> = ({ currentUser }) 
     // 재화 수령
     const handleCollectReward = async (missionId: string) => {
         try {
+            // 아이템 획득 사운드 재생
+            audioService.claimReward();
+            
             // 액션만 호출하고 모달은 useApp에서 처리
             await handlers.handleAction({
                 type: 'CLAIM_SINGLE_PLAYER_MISSION_REWARD',
@@ -243,6 +247,9 @@ const TrainingQuestPanel: React.FC<TrainingQuestPanelProps> = ({ currentUser }) 
         
         setIsClaimingAll(true);
         try {
+            // 아이템 획득 사운드 재생
+            audioService.claimReward();
+            
             const result = await handlers.handleAction({
                 type: 'CLAIM_ALL_TRAINING_QUEST_REWARDS'
             }) as any;

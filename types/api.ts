@@ -243,6 +243,8 @@ export type ServerAction =
     | { type: 'ADMIN_APPLY_GUILD_SANCTION', payload: { guildId: string; sanctionType: 'recruitment'; durationHours: number } }
     | { type: 'ADMIN_DELETE_GUILD', payload: { guildId: string } }
     | { type: 'ADMIN_RESET_TOURNAMENT_SESSION', payload: { targetUserId: string; tournamentType: TournamentType } }
+    | { type: 'ADMIN_RESET_DUNGEON_PROGRESS', payload: { targetUserId: string; dungeonType?: TournamentType } }
+    | { type: 'ADMIN_RESET_CHAMPIONSHIP_ALL', payload: { targetUserId: string } }
     | { type: 'ADMIN_CLEAR_USER_GUILD', payload: { targetUserId: string } }
     | { type: 'ADMIN_CREATE_HOME_BOARD_POST', payload: { title: string; content: string; isPinned: boolean } }
     | { type: 'ADMIN_UPDATE_HOME_BOARD_POST', payload: { postId: string; title: string; content: string; isPinned: boolean } }

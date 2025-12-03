@@ -849,7 +849,7 @@ export type AdminLog = {
   adminNickname: string;
   targetUserId: string;
   targetNickname: string;
-  action: 'reset_stats' | 'reset_full' | 'delete_user' | 'force_logout' | 'force_delete_game' | 'send_mail' | 'set_game_description' | 'update_user_details' | 'apply_sanction' | 'lift_sanction' | 'force_win' | 'reset_tournament_session' | 'clear_user_guild' | 'create_home_board_post' | 'update_home_board_post' | 'delete_home_board_post';
+  action: 'reset_stats' | 'reset_full' | 'delete_user' | 'force_logout' | 'force_delete_game' | 'send_mail' | 'set_game_description' | 'update_user_details' | 'apply_sanction' | 'lift_sanction' | 'force_win' | 'reset_tournament_session' | 'reset_dungeon_progress' | 'reset_championship_all' | 'clear_user_guild' | 'create_home_board_post' | 'update_home_board_post' | 'delete_home_board_post';
   backupData: Partial<User> | { status: UserStatusInfo } | LiveGameSession | { mailTitle: string } | SanctionLogData | { gameId: string, winnerId: string } | { postId: string, title: string } | { oldGuildId: string | undefined };
 };
 

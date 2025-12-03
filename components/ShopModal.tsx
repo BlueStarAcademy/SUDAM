@@ -121,6 +121,7 @@ const ShopItemCard: React.FC<{
     const priceAmount = price.gold || price.diamonds || 0;
     const PriceIcon = isGold ? <img src="/images/icon/Gold.png" alt="골드" className="w-5 h-5 drop-shadow-md" /> : <img src="/images/icon/Zem.png" alt="다이아" className="w-5 h-5 drop-shadow-md" />;
     const refinedDescription = formatDescription(description);
+    const [showDescription, setShowDescription] = useState(false);
 
     const now = Date.now();
     const purchaseRecord = currentUser.dailyShopPurchases?.[item.itemId];
@@ -149,15 +150,24 @@ const ShopItemCard: React.FC<{
         <div className="group relative overflow-hidden rounded-xl bg-gradient-to-br from-[#1f2239]/95 via-[#0f172a]/95 to-[#060b12]/95 p-3 border border-indigo-400/35 shadow-[0_22px_55px_-30px_rgba(99,102,241,0.65)] flex flex-col items-center text-center transition-transform duration-300 hover:-translate-y-1 hover:shadow-[0_30px_70px_-32px_rgba(129,140,248,0.65)]">
             <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-indigo-300/80 to-transparent pointer-events-none" />
             <div className="absolute inset-0 opacity-0 group-hover:opacity-20 transition-opacity duration-500 bg-[radial-gradient(circle_at_top,rgba(79,70,229,0.35),transparent_65%)] pointer-events-none" />
-            <div className="w-16 h-16 bg-gradient-to-br from-[#312e81]/35 via-[#1e1b4b]/20 to-transparent rounded-lg mb-2 flex items-center justify-center shadow-[0_0_25px_-8px_rgba(129,140,248,0.65)]">
+            <div 
+                className="w-16 h-16 bg-gradient-to-br from-[#312e81]/35 via-[#1e1b4b]/20 to-transparent rounded-lg mb-2 flex items-center justify-center shadow-[0_0_25px_-8px_rgba(129,140,248,0.65)] cursor-pointer hover:scale-105 transition-transform"
+                onClick={() => setShowDescription(!showDescription)}
+                onMouseEnter={() => setShowDescription(true)}
+                onMouseLeave={() => setShowDescription(false)}
+            >
                 <img src={image} alt={name} className="w-full h-full object-contain p-1.5 drop-shadow-[0_6px_12px_rgba(30,64,175,0.4)]" />
             </div>
             <h3 className="text-sm font-semibold tracking-wide text-white drop-shadow-[0_2px_12px_rgba(99,102,241,0.55)] line-clamp-1">
                 {name}
             </h3>
-            <p className="text-[10px] text-slate-200/80 mt-1 leading-relaxed line-clamp-2">
-                {refinedDescription}
-            </p>
+            {showDescription && (
+                <div className="absolute z-50 top-20 left-1/2 -translate-x-1/2 w-48 bg-gray-900/95 border border-indigo-400/50 rounded-lg p-2 shadow-xl">
+                    <p className="text-[10px] text-slate-200/90 leading-relaxed">
+                        {refinedDescription}
+                    </p>
+                </div>
+            )}
             <div className="flex flex-col items-stretch justify-center gap-1.5 mt-2 w-full">
                 <Button
                     onClick={handleBuyClick}

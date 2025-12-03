@@ -3308,8 +3308,8 @@ export const useApp = () => {
             setViewingUser({ 
                 ...userData, 
                 status: statusInfo?.status || UserStatus.Offline,
-                equipment: {},
-                inventory: []
+                equipment: userData.equipment || {}, // 서버에서 받은 장비 정보 사용
+                inventory: [] // 인벤토리는 제외 (데이터 사용량 절약)
             } as UserWithStatus);
         } catch (error) {
             console.error(`[handleViewUser] Error fetching user ${userId}:`, error);

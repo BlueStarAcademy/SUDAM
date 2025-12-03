@@ -35,6 +35,84 @@ export const transitionToPlaying = (game: types.LiveGameSession, now: number) =>
     game.preGameConfirmations = {};
 };
 
+/**
+ * 게임 타이머를 일시정지하고 아이템 사용 시간을 부여합니다.
+ * 히든/미사일/스캔 아이템 사용 시 호출됩니다.
+ * @param game 게임 세션
+ * @param now 현재 시간 (밀리초)
+ * @param itemUseDurationMs 아이템 사용 시간 (밀리초, 기본값: 30000)
+ * @returns 일시정지된 시간 (초)
+ */
+export const pauseGameTimer = (game: types.LiveGameSession, now: number, itemUseDurationMs: number = 30000): number => {
+    // 현재 턴의 남은 시간 저장
+    let pausedTimeLeft = 0;
+    if (game.turnDeadline) {
+        pausedTimeLeft = Math.max(0, (game.turnDeadline - now) / 1000);
+    } else if (game.settings.timeLimit > 0) {
+        // turnDeadline이 없으면 현재 플레이어의 남은 시간 사용
+        const currentPlayerTimeKey = game.currentPlayer === types.Player.Black ? 'blackTimeLeft' : 'whiteTimeLeft';
+        pausedTimeLeft = game[currentPlayerTimeKey] ?? 0;
+    }
+    
+    game.pausedTurnTimeLeft = pausedTimeLeft;
+    game.turnDeadline = undefined;
+    game.turnStartTime = undefined;
+    game.itemUseDeadline = now + itemUseDurationMs;
+    
+    return pausedTimeLeft;
+};
+
+/**
+ * 게임 타이머를 재개합니다.
+ * 아이템 사용 완료 후 호출됩니다.
+ * @param game 게임 세션
+ * @param now 현재 시간 (밀리초)
+ * @param playerEnum 타이머를 재개할 플레이어 (기본값: 현재 플레이어)
+ * @returns 타이머가 성공적으로 재개되었는지 여부
+ */
+export const resumeGameTimer = (game: types.LiveGameSession, now: number, playerEnum?: types.Player): boolean => {
+    const playerToResume = playerEnum ?? game.currentPlayer;
+    
+    // pausedTurnTimeLeft가 없으면 재개 불가
+    if (game.pausedTurnTimeLeft === undefined) {
+        console.warn(`[resumeGameTimer] No pausedTurnTimeLeft found for game ${game.id}, cannot resume timer`);
+        return false;
+    }
+    
+    const currentPlayerTimeKey = playerToResume === types.Player.Black ? 'blackTimeLeft' : 'whiteTimeLeft';
+    game[currentPlayerTimeKey] = game.pausedTurnTimeLeft;
+    
+    // 타이머 재설정
+    if (game.settings.timeLimit > 0) {
+        const timeLeft = game[currentPlayerTimeKey] ?? 0;
+        if (timeLeft > 0) {
+            game.turnDeadline = now + timeLeft * 1000;
+            game.turnStartTime = now;
+        } else {
+            // 시간이 0이면 초읽기 모드 확인
+            const isFischer = game.mode === types.GameMode.Speed || (game.mode === types.GameMode.Mix && game.settings.mixedModes?.includes(types.GameMode.Speed));
+            const byoyomiKey = playerToResume === types.Player.Black ? 'blackByoyomiPeriodsLeft' : 'whiteByoyomiPeriodsLeft';
+            const isInByoyomi = game[byoyomiKey] > 0 && game.settings.byoyomiCount > 0 && !isFischer;
+            
+            if (isInByoyomi) {
+                game.turnDeadline = now + game.settings.byoyomiTime * 1000;
+            } else {
+                game.turnDeadline = undefined;
+            }
+            game.turnStartTime = now;
+        }
+    } else {
+        game.turnDeadline = undefined;
+        game.turnStartTime = undefined;
+    }
+    
+    // 아이템 사용 관련 필드 정리
+    game.itemUseDeadline = undefined;
+    game.pausedTurnTimeLeft = undefined;
+    
+    return true;
+};
+
 
 const transitionFromTurnPreference = (game: LiveGameSession, p1Choice: 'first' | 'second', p2Choice: 'first' | 'second', now: number) => {
     const p1Id = game.player1.id;
@@ -80,21 +158,21 @@ export const updateSharedGameState = (game: LiveGameSession, now: number): boole
         const p2Choice = game.turnChoices?.[p2Id];
         const deadlinePassed = game.turnChoiceDeadline && now > game.turnChoiceDeadline;
 
-        if ((p1Choice && p2Choice) || deadlinePassed) {
-            let finalP1Choice = p1Choice;
-            let finalP2Choice = p2Choice;
+        // 양쪽 선택이 완료되면 즉시 다음 단계로 전환 (타임아웃 대기 불필요)
+        if (p1Choice && p2Choice) {
+            transitionFromTurnPreference(game, p1Choice, p2Choice, now);
+            return true;
+        }
+        
+        // 타임아웃 처리 (30초 초과 시 랜덤 선택)
+        if (deadlinePassed) {
             const choices = ['first', 'second'] as const;
-
-            if (deadlinePassed) {
-                if (!game.turnChoices) game.turnChoices = {};
-                if (!finalP1Choice) finalP1Choice = choices[Math.floor(Math.random() * 2)];
-                if (!finalP2Choice) finalP2Choice = choices[Math.floor(Math.random() * 2)];
-            }
+            if (!game.turnChoices) game.turnChoices = {};
+            const finalP1Choice = p1Choice || choices[Math.floor(Math.random() * 2)];
+            const finalP2Choice = p2Choice || choices[Math.floor(Math.random() * 2)];
             
-            if (finalP1Choice && finalP2Choice) {
-                transitionFromTurnPreference(game, finalP1Choice, finalP2Choice, now);
-                return true;
-            }
+            transitionFromTurnPreference(game, finalP1Choice, finalP2Choice, now);
+            return true;
         }
     }
     

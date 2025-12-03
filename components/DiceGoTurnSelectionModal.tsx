@@ -32,9 +32,16 @@ const DiceGoTurnSelectionModal: React.FC<DiceGoTurnSelectionModalProps> = (props
             const update = () => {
                 const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
                 setCountdown(remaining);
+                // 0초가 되면 서버에서 자동으로 처리 (클라이언트에서 추가 통신 불필요)
+                if (remaining <= 0) {
+                    if (timerId) clearInterval(timerId);
+                }
             };
             update();
             timerId = window.setInterval(update, 1000);
+        } else {
+            // deadline이 없으면 기본값으로 리셋
+            setCountdown(gameStatus === 'dice_turn_rolling' ? DICE_GO_TURN_ROLL_TIME : DICE_GO_TURN_CHOICE_TIME);
         }
         
         return () => {

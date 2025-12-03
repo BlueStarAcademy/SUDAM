@@ -4,7 +4,7 @@ import { UserWithStatus, TournamentState, PlayerForTournament, ServerAction, Use
 import Button from './Button.js';
 import { useButtonClickThrottle } from '../hooks/useButtonClickThrottle.js';
 import { useTournamentSimulation } from '../hooks/useTournamentSimulation.js';
-import { TOURNAMENT_DEFINITIONS, BASE_TOURNAMENT_REWARDS, TOURNAMENT_SCORE_REWARDS, CONSUMABLE_ITEMS, MATERIAL_ITEMS, AVATAR_POOL, BORDER_POOL, CORE_STATS_DATA, LEAGUE_DATA } from '../constants';
+import { TOURNAMENT_DEFINITIONS, BASE_TOURNAMENT_REWARDS, TOURNAMENT_SCORE_REWARDS, CONSUMABLE_ITEMS, MATERIAL_ITEMS, AVATAR_POOL, BORDER_POOL, CORE_STATS_DATA, LEAGUE_DATA, DUNGEON_STAGE_BASE_SCORE, DUNGEON_STAGE_BASE_REWARDS_GOLD, DUNGEON_STAGE_BASE_REWARDS_MATERIAL, DUNGEON_STAGE_BASE_REWARDS_EQUIPMENT, DUNGEON_RANK_SCORE_BONUS, DUNGEON_DEFAULT_SCORE_BONUS } from '../constants';
 import Avatar from './Avatar.js';
 import RadarChart from './RadarChart.js';
 import SgfViewer from './SgfViewer.js';
@@ -1413,80 +1413,171 @@ const FinalRewardPanel: React.FC<{ tournamentState: TournamentState; currentUser
                 </div>
             )}
             
-            {/* 던전 모드 순위 보상 표시 */}
-            {((isTournamentFullyComplete || isUserEliminated || isClaimed) && tournamentState.currentStageAttempt && (() => {
+            {/* 던전 모드 보상 표시 (단계별 기본 보상 + 순위 보상) */}
+            {tournamentState.currentStageAttempt && (() => {
                 const { DUNGEON_RANK_REWARDS } = require('../constants/tournaments');
-                const dungeonRankReward = DUNGEON_RANK_REWARDS?.[type]?.[tournamentState.currentStageAttempt];
-                if (dungeonRankReward) {
-                    // 순위 계산 (wins/losses 기준, 모든 라운드의 경기 결과 확인)
-                    const playerWins: Record<string, number> = {};
-                    const playerLosses: Record<string, number> = {};
-                    tournamentState.players.forEach(p => { 
-                        playerWins[p.id] = 0; 
-                        playerLosses[p.id] = 0;
-                    });
-                    
-                    // 모든 라운드의 모든 경기 결과 확인
-                    tournamentState.rounds.forEach(round => {
-                        if (round.matches) {
-                            round.matches.forEach(m => {
-                                if (m.isFinished && m.winner) {
-                                    playerWins[m.winner.id] = (playerWins[m.winner.id] || 0) + 1;
-                                    const loser = m.players.find(p => p && p.id !== m.winner?.id);
-                                    if (loser) {
-                                        playerLosses[loser.id] = (playerLosses[loser.id] || 0) + 1;
-                                    }
+                const stage = tournamentState.currentStageAttempt;
+                
+                // 순위 계산 (wins/losses 기준, 모든 라운드의 경기 결과 확인)
+                const playerWins: Record<string, number> = {};
+                const playerLosses: Record<string, number> = {};
+                tournamentState.players.forEach(p => { 
+                    playerWins[p.id] = 0; 
+                    playerLosses[p.id] = 0;
+                });
+                
+                // 모든 라운드의 모든 경기 결과 확인
+                tournamentState.rounds.forEach(round => {
+                    if (round.matches) {
+                        round.matches.forEach(m => {
+                            if (m.isFinished && m.winner) {
+                                playerWins[m.winner.id] = (playerWins[m.winner.id] || 0) + 1;
+                                const loser = m.players.find(p => p && p.id !== m.winner?.id);
+                                if (loser) {
+                                    playerLosses[loser.id] = (playerLosses[loser.id] || 0) + 1;
                                 }
-                            });
-                        }
-                    });
-                    
-                    // 순위 정렬: 승수 → 패수 → 승률
-                    const sortedPlayers = [...tournamentState.players].sort((a, b) => {
-                        if (playerWins[b.id] !== playerWins[a.id]) {
-                            return playerWins[b.id] - playerWins[a.id];
-                        }
-                        if (playerLosses[a.id] !== playerLosses[b.id]) {
-                            return playerLosses[a.id] - playerLosses[b.id];
-                        }
-                        const aWinRate = (playerWins[a.id] + playerLosses[a.id]) > 0 ? playerWins[a.id] / (playerWins[a.id] + playerLosses[a.id]) : 0;
-                        const bWinRate = (playerWins[b.id] + playerLosses[b.id]) > 0 ? playerWins[b.id] / (playerWins[b.id] + playerLosses[b.id]) : 0;
-                        return bWinRate - aWinRate;
-                    });
-                    
-                    const userRank = sortedPlayers.findIndex(p => p.id === currentUser.id) + 1;
-                    const rankReward = dungeonRankReward[userRank];
-                    if (rankReward && rankReward.items) {
-                        return (
-                            <div className="mt-2 pt-2 border-t border-gray-700">
-                                <div className="text-xs font-semibold text-gray-300 mb-1 text-center">순위 보상 ({userRank}위)</div>
+                            }
+                        });
+                    }
+                });
+                
+                // 순위 정렬: 승수 → 패수 → 승률
+                const sortedPlayers = [...tournamentState.players].sort((a, b) => {
+                    if (playerWins[b.id] !== playerWins[a.id]) {
+                        return playerWins[b.id] - playerWins[a.id];
+                    }
+                    if (playerLosses[a.id] !== playerLosses[b.id]) {
+                        return playerLosses[a.id] - playerLosses[b.id];
+                    }
+                    const aWinRate = (playerWins[a.id] + playerLosses[a.id]) > 0 ? playerWins[a.id] / (playerWins[a.id] + playerLosses[a.id]) : 0;
+                    const bWinRate = (playerWins[b.id] + playerLosses[b.id]) > 0 ? playerWins[b.id] / (playerWins[b.id] + playerLosses[b.id]) : 0;
+                    return bWinRate - aWinRate;
+                });
+                
+                const userRank = sortedPlayers.findIndex(p => p.id === currentUser.id) + 1;
+                
+                // 단계별 기본 점수 계산
+                const baseScore = DUNGEON_STAGE_BASE_SCORE[stage] || 0;
+                const rankBonus = DUNGEON_RANK_SCORE_BONUS[userRank] || DUNGEON_DEFAULT_SCORE_BONUS;
+                const totalScore = Math.round(baseScore * (1 + rankBonus));
+                
+                return (
+                    <>
+                        {/* 단계별 기본 점수 보상 */}
+                        {totalScore > 0 && (
+                            <div className={`mb-1 bg-green-900/30 px-1.5 py-1 rounded-lg border border-green-700/50 ${isClaimed ? 'opacity-75' : ''}`}>
+                                <div className="flex items-center gap-1.5">
+                                    <span className="text-base">🏆</span>
+                                    <div className="flex-1 min-w-0">
+                                        <div className="text-xs font-semibold text-green-300">랭킹 점수: +{totalScore}점</div>
+                                        <div className="text-[10px] text-gray-400">
+                                            ({stage}단계 기본 {baseScore}점 {rankBonus > 0 ? `+ 순위 보너스 ${Math.round(rankBonus * 100)}%` : ''})
+                                        </div>
+                                        {userRank > 0 && (
+                                            <div className="text-[10px] text-gray-400">(현재 순위: {userRank}위)</div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                        
+                        {/* 단계별 기본 보상 (골드/재료/장비상자) */}
+                        {type === 'neighborhood' && DUNGEON_STAGE_BASE_REWARDS_GOLD[stage] && (
+                            <div className={`mb-1 bg-yellow-900/30 px-1.5 py-1 rounded-lg border border-yellow-700/50 ${isClaimed ? 'opacity-75' : ''}`}>
+                                <div className="flex items-center gap-1.5">
+                                    <img src="/images/icon/Gold.png" alt="골드" className="w-5 h-5 flex-shrink-0" loading="lazy" decoding="async" />
+                                    <div className="flex-1 min-w-0">
+                                        <div className="text-xs font-semibold text-yellow-300">단계 보상: {DUNGEON_STAGE_BASE_REWARDS_GOLD[stage].toLocaleString()} 골드</div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                        
+                        {type === 'national' && DUNGEON_STAGE_BASE_REWARDS_MATERIAL[stage] && (
+                            <div className={`mb-1 ${isClaimed ? 'opacity-75' : ''}`}>
+                                <div className="text-xs font-semibold text-blue-300 mb-1">
+                                    단계 보상 (재료):
+                                </div>
                                 <div className="flex flex-col gap-1">
-                                    {rankReward.items.map((item: any, index: number) => {
-                                        const itemName = 'itemId' in item ? item.itemId : (item as any).name;
-                                        const itemTemplate = CONSUMABLE_ITEMS.find(i => i.name === itemName);
-                                        const imageUrl = itemTemplate?.image || '';
-                                        const isGold = itemName.includes('골드');
-                                        const isDiamond = itemName.includes('다이아');
-                                        const bgColor = isGold ? 'bg-yellow-900/30' : isDiamond ? 'bg-blue-900/30' : 'bg-purple-900/30';
-                                        const borderColor = isGold ? 'border-yellow-700/50' : isDiamond ? 'border-blue-700/50' : 'border-purple-700/50';
-                                        const textColor = isGold ? 'text-yellow-300' : isDiamond ? 'text-blue-300' : 'text-purple-300';
-                                        
+                                    <div className="flex items-center gap-1.5 bg-blue-900/30 px-1.5 py-1 rounded-lg border border-blue-700/50">
+                                        <img src={MATERIAL_ITEMS[DUNGEON_STAGE_BASE_REWARDS_MATERIAL[stage].materialName]?.image || ''} alt={DUNGEON_STAGE_BASE_REWARDS_MATERIAL[stage].materialName} className="w-5 h-5 flex-shrink-0" loading="lazy" decoding="async" />
+                                        <div className="flex-1 min-w-0">
+                                            <div className="text-xs font-semibold text-blue-300 truncate">
+                                                {DUNGEON_STAGE_BASE_REWARDS_MATERIAL[stage].materialName} x{DUNGEON_STAGE_BASE_REWARDS_MATERIAL[stage].quantity}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                        
+                        {type === 'world' && DUNGEON_STAGE_BASE_REWARDS_EQUIPMENT[stage] && (
+                            <div className={`mb-1 ${isClaimed ? 'opacity-75' : ''}`}>
+                                <div className="text-xs font-semibold text-purple-300 mb-1">
+                                    단계 보상 (장비상자):
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                    {DUNGEON_STAGE_BASE_REWARDS_EQUIPMENT[stage].boxes.map((box: any, index: number) => {
+                                        const boxTemplate = CONSUMABLE_ITEMS.find(i => i.name === box.boxName);
+                                        const imageUrl = boxTemplate?.image || '';
                                         return (
-                                            <div key={index} className={`flex items-center gap-1.5 ${bgColor} px-1.5 py-1 rounded-lg border ${borderColor} ${isClaimed ? 'opacity-75' : ''}`}>
-                                                <img src={imageUrl} alt={itemName} className="w-5 h-5 flex-shrink-0" loading="lazy" decoding="async" />
+                                            <div key={index} className="flex items-center gap-1.5 bg-purple-900/30 px-1.5 py-1 rounded-lg border border-purple-700/50">
+                                                <img src={imageUrl} alt={box.boxName} className="w-5 h-5 flex-shrink-0" loading="lazy" decoding="async" />
                                                 <div className="flex-1 min-w-0">
-                                                    <div className={`text-xs font-semibold ${textColor} truncate`}>{itemName} x{item.quantity}</div>
+                                                    <div className="text-xs font-semibold text-purple-300 truncate">{box.boxName} x{box.quantity}</div>
                                                 </div>
                                             </div>
                                         );
                                     })}
+                                    {DUNGEON_STAGE_BASE_REWARDS_EQUIPMENT[stage].changeTickets > 0 && (
+                                        <div className="flex items-center gap-1.5 bg-purple-900/30 px-1.5 py-1 rounded-lg border border-purple-700/50">
+                                            <img src="/images/icon/ChangeTicket.png" alt="변경권" className="w-5 h-5 flex-shrink-0" loading="lazy" decoding="async" />
+                                            <div className="flex-1 min-w-0">
+                                                <div className="text-xs font-semibold text-purple-300">변경권 x{DUNGEON_STAGE_BASE_REWARDS_EQUIPMENT[stage].changeTickets}</div>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
-                        );
-                    }
-                }
-                return null;
-            })())}
+                        )}
+                        
+                        {/* 순위 보상 (경기 종료 후에만 표시) */}
+                        {((isTournamentFullyComplete || isUserEliminated || isClaimed) && (() => {
+                            const dungeonRankReward = DUNGEON_RANK_REWARDS?.[type]?.[stage];
+                            const rankReward = dungeonRankReward?.[userRank];
+                            if (rankReward && rankReward.items) {
+                                return (
+                                    <div className="mt-2 pt-2 border-t border-gray-700">
+                                        <div className="text-xs font-semibold text-gray-300 mb-1 text-center">순위 보상 ({userRank}위)</div>
+                                        <div className="flex flex-col gap-1">
+                                            {rankReward.items.map((item: any, index: number) => {
+                                                const itemName = 'itemId' in item ? item.itemId : (item as any).name;
+                                                const itemTemplate = CONSUMABLE_ITEMS.find(i => i.name === itemName);
+                                                const imageUrl = itemTemplate?.image || '';
+                                                const isGold = itemName.includes('골드');
+                                                const isDiamond = itemName.includes('다이아');
+                                                const bgColor = isGold ? 'bg-yellow-900/30' : isDiamond ? 'bg-blue-900/30' : 'bg-purple-900/30';
+                                                const borderColor = isGold ? 'border-yellow-700/50' : isDiamond ? 'border-blue-700/50' : 'border-purple-700/50';
+                                                const textColor = isGold ? 'text-yellow-300' : isDiamond ? 'text-blue-300' : 'text-purple-300';
+                                                
+                                                return (
+                                                    <div key={index} className={`flex items-center gap-1.5 ${bgColor} px-1.5 py-1 rounded-lg border ${borderColor} ${isClaimed ? 'opacity-75' : ''}`}>
+                                                        <img src={imageUrl} alt={itemName} className="w-5 h-5 flex-shrink-0" loading="lazy" decoding="async" />
+                                                        <div className="flex-1 min-w-0">
+                                                            <div className={`text-xs font-semibold ${textColor} truncate`}>{itemName} x{item.quantity}</div>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                );
+                            }
+                            return null;
+                        })())}
+                    </>
+                );
+            })()}
             
             {/* 최종 순위 보상 (일반 토너먼트 모드, 경기 종료 후 또는 보상 수령 후에도 표시) - 가로 막대 형태 */}
             {((isTournamentFullyComplete || isUserEliminated || isClaimed) && reward && !tournamentState.currentStageAttempt) && (
@@ -2677,10 +2768,10 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = (props) => {
                         }
                         setAutoNextCountdown(null);
                         
-                        // 상태 초기화: SGF 뷰어, 실시간 중계, 스코어 보드, 선수 정보 클리어
+                        // 상태 초기화: SGF 뷰어, 실시간 중계, 스코어 보드만 클리어
+                        // 선수 정보는 START_TOURNAMENT_MATCH 후 round_in_progress 상태가 되었을 때 업데이트됨
                         setLastUserMatchSgfIndex(null);
-                        setInitialMatchPlayers({ p1: null, p2: null });
-                        initialMatchPlayersSetRef.current = false;
+                        // initialMatchPlayers는 리셋하지 않음 - round_in_progress 상태가 되었을 때 자동으로 업데이트됨
                         
                         // 다음 경기 시작: 바로 START_TOURNAMENT_MATCH 액션 호출 (더 빠른 반응)
                         try {
@@ -2863,7 +2954,10 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = (props) => {
             const isNewMatch = prevStatus !== 'round_in_progress';
             const isEarlyTime = tournament.timeElapsed === 0 || tournament.timeElapsed === 1;
             
-            if (matchInfo && (isNewMatch || (isEarlyTime && !initialMatchPlayersSetRef.current))) {
+            // bracket_ready에서 round_in_progress로 변경되었을 때는 항상 선수 정보 업데이트
+            const shouldForceUpdate = isNewMatch || (isEarlyTime && !initialMatchPlayersSetRef.current);
+            
+            if (matchInfo && shouldForceUpdate) {
                 const match = safeRounds[matchInfo.roundIndex]?.matches[matchInfo.matchIndex];
                 if (match) {
                     const p1 = tournament.players.find(p => p.id === match.players[0]?.id) || null;
@@ -2879,6 +2973,14 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = (props) => {
                                 originalStats: player.originalStats ? { ...player.originalStats } : (player.stats ? { ...player.stats } : undefined)
                             };
                         };
+                        
+                        console.log('[TournamentBracket] 선수 정보 업데이트:', { 
+                            p1Id: p1?.id, 
+                            p2Id: p2?.id, 
+                            isNewMatch, 
+                            isEarlyTime, 
+                            timeElapsed: tournament.timeElapsed 
+                        });
                         
                         setInitialMatchPlayers({
                             p1: p1 ? createPlayerCopy(p1) : null,
@@ -3711,7 +3813,14 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = (props) => {
                     <img src="/images/button/back.png" alt="Back" className="w-10 h-10 sm:w-12 sm:h-12" loading="lazy" decoding="async" />
                 </button>
                 <div className="flex-1 text-center">
-                    <h1 className="text-lg sm:text-xl lg:text-2xl font-bold">{TOURNAMENT_DEFINITIONS[tournament.type].name}</h1>
+                    <h1 className="text-lg sm:text-xl lg:text-2xl font-bold">
+                        {TOURNAMENT_DEFINITIONS[tournament.type].name}
+                        {tournament.currentStageAttempt && (
+                            <span className="ml-2 text-base sm:text-lg lg:text-xl text-yellow-400">
+                                {tournament.currentStageAttempt}단계
+                            </span>
+                        )}
+                    </h1>
                 </div>
                 <button 
                     onClick={() => setIsSimulationHelpOpen(true)}

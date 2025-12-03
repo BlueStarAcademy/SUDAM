@@ -1,6 +1,7 @@
 import * as types from '../../types/index.js';
 import * as db from '../db.js';
 import { getGameResult } from '../gameModes.js';
+import { pauseGameTimer, resumeGameTimer } from './shared.js';
 
 type HandleActionResult = types.HandleActionResult;
 
@@ -41,18 +42,7 @@ export const updateHiddenState = (game: types.LiveGameSession, now: number) => {
         }
         
         // 원래 경기 시간 복원 (턴 유지)
-        if (game.settings.timeLimit > 0 && game.pausedTurnTimeLeft !== undefined) {
-            const currentPlayerTimeKey = timedOutPlayerEnum === types.Player.Black ? 'blackTimeLeft' : 'whiteTimeLeft';
-            game[currentPlayerTimeKey] = game.pausedTurnTimeLeft;
-            game.turnDeadline = now + game[currentPlayerTimeKey] * 1000;
-            game.turnStartTime = now;
-        } else {
-            game.turnDeadline = undefined;
-            game.turnStartTime = undefined;
-        }
-        
-        game.itemUseDeadline = undefined;
-        game.pausedTurnTimeLeft = undefined;
+        resumeGameTimer(game, now, timedOutPlayerEnum);
         
         return;
     }
@@ -158,22 +148,12 @@ export const handleHiddenAction = (volatileState: types.VolatileState, game: typ
         case 'START_HIDDEN_PLACEMENT':
             if (!isMyTurn || game.gameStatus !== 'playing') return { error: "Not your turn to use an item." };
             game.gameStatus = 'hidden_placing';
-            if(game.turnDeadline) {
-                game.pausedTurnTimeLeft = (game.turnDeadline - now) / 1000;
-            }
-            game.turnDeadline = undefined;
-            game.turnStartTime = undefined;
-            game.itemUseDeadline = now + 30000;
+            pauseGameTimer(game, now, 30000);
             return {};
         case 'START_SCANNING':
             if (!isMyTurn || game.gameStatus !== 'playing') return { error: "Not your turn to use an item." };
             game.gameStatus = 'scanning';
-             if(game.turnDeadline) {
-                game.pausedTurnTimeLeft = (game.turnDeadline - now) / 1000;
-            }
-            game.turnDeadline = undefined;
-            game.turnStartTime = undefined;
-            game.itemUseDeadline = now + 30000;
+            pauseGameTimer(game, now, 30000);
             return {};
         case 'SCAN_BOARD':
             if (game.gameStatus !== 'scanning') return { error: "Not in scanning mode." };
@@ -196,19 +176,7 @@ export const handleHiddenAction = (volatileState: types.VolatileState, game: typ
             game.gameStatus = 'scanning_animating';
 
             // After using the item, restore my time, reset timers and KEEP THE TURN
-            if (game.pausedTurnTimeLeft) {
-                if (myPlayerEnum === types.Player.Black) {
-                    game.blackTimeLeft = game.pausedTurnTimeLeft;
-                } else {
-                    game.whiteTimeLeft = game.pausedTurnTimeLeft;
-                }
-            }
-            game.itemUseDeadline = undefined;
-            game.pausedTurnTimeLeft = undefined;
-
-            const currentPlayerTimeKey = myPlayerEnum === types.Player.Black ? 'blackTimeLeft' : 'whiteTimeLeft';
-            game.turnDeadline = now + game[currentPlayerTimeKey] * 1000;
-            game.turnStartTime = now;
+            resumeGameTimer(game, now, myPlayerEnum);
             
             // The `updateHiddenState` will transition from 'scanning_animating' to 'playing'
             // after the animation, but the timer is already correctly running for the current player.

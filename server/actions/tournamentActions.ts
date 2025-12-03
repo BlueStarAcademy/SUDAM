@@ -415,75 +415,24 @@ export const handleTournamentAction = async (volatileState: VolatileState, actio
 
             const existingState = (user as any)[stateKey] as TournamentState | null;
 
-            if (existingState) {
-                // 던전 모드인 경우: 기존 상태를 무시하고 항상 새로 시작 (티어 로직 잔존 방지)
-                // 던전 모드는 START_DUNGEON_STAGE 액션으로만 시작되므로, START_TOURNAMENT_SESSION에서는 무시
-                if (existingState.currentStageAttempt) {
-                    console.log(`[START_TOURNAMENT_SESSION] 던전 모드 감지 - 기존 상태 무시하고 새로 시작`);
-                    // 기존 상태를 null로 설정하여 새로 시작하도록 함
-                    (user as any)[stateKey] = null;
-                    // 계속 진행하여 새 토너먼트 생성 (일반 토너먼트 모드로)
-                } else {
-                    // 일반 토너먼트 모드: 기존 상태 재사용
-                    // Session exists. Update the user's stats within it before returning.
-                const userInTournament = existingState.players.find(p => p.id === user.id);
-                if (userInTournament) {
-                    userInTournament.stats = calculateTotalStats(user);
-                    userInTournament.avatarId = user.avatarId;
-                    userInTournament.borderId = user.borderId;
-                }
-                
-                // round_complete 상태는 그대로 유지 (다음 경기 버튼을 누르기 전 상태 보존)
-                // round_in_progress 상태가 저장되어 있으면 round_complete로 복원하지 않음 (이미 진행 중인 경기가 있을 수 있음)
-                // 단, round_in_progress 상태에서 뒤로가기를 했다가 다시 들어온 경우는 상태를 유지
-                
-                // bracket_ready 상태에서 컨디션이 부여되지 않은 경우 컨디션 부여
-                // 뒤로가기 후 다시 들어왔을 때 컨디션 유지 확인
-                if (existingState.status === 'bracket_ready') {
-                    const needsConditionAssignment = existingState.players.some(p => 
-                        p.condition === undefined || p.condition === null || p.condition === 1000
-                    );
-                    
-                    if (needsConditionAssignment) {
-                        // 모든 플레이어의 컨디션을 부여 (40~100 사이 랜덤)
-                        existingState.players.forEach(p => {
-                            if (p.condition === undefined || p.condition === null || p.condition === 1000) {
-                                p.condition = Math.floor(Math.random() * 61) + 40; // 40-100
-                            }
-                        });
-                    }
-                }
-                
-                    // round_complete, bracket_ready, round_in_progress 상태는 모두 그대로 유지
-                    // (뒤로가기 후 다시 들어왔을 때 나가기 직전의 상태를 보존)
-                    
-                    (user as any)[stateKey] = existingState; // Re-assign to mark for update
-                    
-                    // volatileState.activeTournaments도 DB 상태로 동기화 (뒤로가기 후 다시 들어왔을 때 상태 보존)
-                    if (!volatileState.activeTournaments) volatileState.activeTournaments = {};
-                    volatileState.activeTournaments[user.id] = existingState;
-                    
-                    // 사용자 캐시 업데이트
-                    updateUserCache(user);
-                    // DB 저장은 비동기로 처리하여 응답 지연 최소화
-                    db.updateUser(user).catch(err => {
-                        console.error(`[TournamentActions] Failed to save user ${user.id}:`, err);
-                    });
-                    return { clientResponse: { redirectToTournament: type } };
-                }
-            }
-
-            if ((user as any)[playedDateKey] && isSameDayKST((user as any)[playedDateKey], now) && !user.isAdmin) {
-                return { error: '이미 오늘 참가한 토너먼트입니다.' };
+            // Championship은 던전 모드로만 진행됩니다.
+            // START_TOURNAMENT_SESSION은 던전 선택 화면으로 리다이렉트하는 용도로만 사용됩니다.
+            // 실제 던전 스테이지 시작은 START_DUNGEON_STAGE 액션을 사용해야 합니다.
+            
+            // 기존 일반 토너먼트 모드 상태가 있으면 제거 (던전 모드로 완전 전환)
+            if (existingState && !existingState.currentStageAttempt) {
+                console.log(`[START_TOURNAMENT_SESSION] 일반 토너먼트 모드 상태 감지 - 던전 모드로 전환을 위해 제거`);
+                (user as any)[stateKey] = null;
+                // DB에 저장
+                updateUserCache(user);
+                db.updateUser(user).catch(err => {
+                    console.error(`[TournamentActions] Failed to save user ${user.id}:`, err);
+                });
             }
             
-            // 헬퍼 함수 사용
-            const result = await startTournamentSessionForUser(user, type, false);
-            if (!result.success) {
-                return { error: result.error || '토너먼트 세션 시작 실패' };
-            }
-            
-            return { clientResponse: { redirectToTournament: type, updatedUser: result.updatedUser } };
+            // 던전 모드 세션이 이미 진행 중인 경우 또는 새로 시작하는 경우 모두 던전 선택 화면으로 리다이렉트
+            console.log(`[START_TOURNAMENT_SESSION] 던전 선택 화면으로 리다이렉트`);
+            return { clientResponse: { redirectToTournament: type } };
         }
 
         case 'START_TOURNAMENT_ROUND': {
@@ -1540,13 +1489,14 @@ export const handleTournamentAction = async (volatileState: VolatileState, actio
             }
             
             // 유저 PlayerForTournament 생성
+            // 던전 모드에서는 league를 사용하지 않음 (단계별 시스템 사용)
             const userStats = calculateTotalStats(freshUser);
             const userPlayer: PlayerForTournament = {
                 id: freshUser.id,
                 nickname: freshUser.nickname,
                 avatarId: freshUser.avatarId,
                 borderId: freshUser.borderId,
-                league: freshUser.league,
+                league: 'Sprout' as any, // 던전 모드에서는 리그 정보가 필요 없음 (타입 호환성을 위해 기본값 설정)
                 stats: JSON.parse(JSON.stringify(userStats)), // Mutable copy
                 originalStats: userStats, // Original stats 저장
                 condition: 1000, // 컨디션은 createTournament에서 설정됨

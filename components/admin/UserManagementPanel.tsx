@@ -275,6 +275,73 @@ const UserManagementModal: React.FC<UserManagementModalProps> = ({ user, current
                                     </Button>
                                 </div>
                             </div>
+                            
+                            <div className="mt-6 pt-6 border-t border-color">
+                                <h3 className="text-lg font-bold text-yellow-400 mb-3">던전 진행 상태 초기화</h3>
+                                <p className="text-sm text-gray-400 mb-4">던전 진행 상태를 초기화합니다. (단계, 언락 상태, 클리어 기록 등)</p>
+                                <div className="space-y-2">
+                                    <Button 
+                                        onClick={() => {
+                                            if (window.confirm(`[${user.nickname}] 님의 동네바둑리그 던전 진행 상태를 초기화하시겠습니까?`)) {
+                                                onAction({ type: 'ADMIN_RESET_DUNGEON_PROGRESS', payload: { targetUserId: user.id, dungeonType: 'neighborhood' } });
+                                            }
+                                        }} 
+                                        colorScheme="blue" 
+                                        className="w-full"
+                                    >
+                                        동네바둑리그 던전 초기화
+                                    </Button>
+                                    <Button 
+                                        onClick={() => {
+                                            if (window.confirm(`[${user.nickname}] 님의 전국바둑대회 던전 진행 상태를 초기화하시겠습니까?`)) {
+                                                onAction({ type: 'ADMIN_RESET_DUNGEON_PROGRESS', payload: { targetUserId: user.id, dungeonType: 'national' } });
+                                            }
+                                        }} 
+                                        colorScheme="blue" 
+                                        className="w-full"
+                                    >
+                                        전국바둑대회 던전 초기화
+                                    </Button>
+                                    <Button 
+                                        onClick={() => {
+                                            if (window.confirm(`[${user.nickname}] 님의 월드챔피언십 던전 진행 상태를 초기화하시겠습니까?`)) {
+                                                onAction({ type: 'ADMIN_RESET_DUNGEON_PROGRESS', payload: { targetUserId: user.id, dungeonType: 'world' } });
+                                            }
+                                        }} 
+                                        colorScheme="blue" 
+                                        className="w-full"
+                                    >
+                                        월드챔피언십 던전 초기화
+                                    </Button>
+                                    <Button 
+                                        onClick={() => {
+                                            if (window.confirm(`[${user.nickname}] 님의 모든 던전 진행 상태를 초기화하시겠습니까?`)) {
+                                                onAction({ type: 'ADMIN_RESET_DUNGEON_PROGRESS', payload: { targetUserId: user.id } });
+                                            }
+                                        }} 
+                                        colorScheme="orange" 
+                                        className="w-full"
+                                    >
+                                        모든 던전 초기화
+                                    </Button>
+                                </div>
+                            </div>
+                            
+                            <div className="mt-6 pt-6 border-t border-color">
+                                <h3 className="text-lg font-bold text-red-400 mb-3">챔피언십 전체 초기화</h3>
+                                <p className="text-sm text-gray-400 mb-4">던전 진행 상태, 토너먼트 세션, 보상 수령 상태를 모두 초기화합니다.</p>
+                                <Button 
+                                    onClick={() => {
+                                        if (window.confirm(`[${user.nickname}] 님의 챔피언십 관련 모든 데이터를 초기화하시겠습니까?\n\n- 던전 진행 상태\n- 토너먼트 세션\n- 보상 수령 상태`)) {
+                                            onAction({ type: 'ADMIN_RESET_CHAMPIONSHIP_ALL', payload: { targetUserId: user.id } });
+                                        }
+                                    }} 
+                                    colorScheme="red" 
+                                    className="w-full"
+                                >
+                                    챔피언십 전체 초기화
+                                </Button>
+                            </div>
                         </div>
                     )}
                 </div>
@@ -304,9 +371,34 @@ const UserManagementPanel: React.FC<UserManagementPanelProps> = ({ allUsers, onA
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [nickname, setNickname] = useState('');
+    const [isLoadingUsers, setIsLoadingUsers] = useState(false);
+    const [localUsers, setLocalUsers] = useState<User[]>(allUsers);
     
-    // managingUserId가 있으면 allUsers에서 최신 데이터를 가져옴
-    const managingUser = managingUserId ? allUsers.find(u => u.id === managingUserId) || null : null;
+    // allUsers가 비어있으면 서버에서 사용자 목록 가져오기
+    React.useEffect(() => {
+        if (allUsers.length === 0 && !isLoadingUsers) {
+            setIsLoadingUsers(true);
+            fetch('/api/admin/users')
+                .then(res => res.json())
+                .then(data => {
+                    if (data.users && Array.isArray(data.users)) {
+                        setLocalUsers(data.users);
+                        console.log('[UserManagementPanel] Loaded', data.users.length, 'users from server');
+                    }
+                })
+                .catch(err => {
+                    console.error('[UserManagementPanel] Failed to fetch users:', err);
+                })
+                .finally(() => {
+                    setIsLoadingUsers(false);
+                });
+        } else {
+            setLocalUsers(allUsers);
+        }
+    }, [allUsers, isLoadingUsers]);
+    
+    // managingUserId가 있으면 localUsers에서 최신 데이터를 가져옴
+    const managingUser = managingUserId ? localUsers.find(u => u.id === managingUserId) || null : null;
 
     const handleCreateUser = (e: React.FormEvent) => {
         e.preventDefault();
@@ -316,14 +408,14 @@ const UserManagementPanel: React.FC<UserManagementPanelProps> = ({ allUsers, onA
     };
 
     const filteredUsers = useMemo(() => {
-        if (!searchQuery.trim()) return allUsers;
+        if (!searchQuery.trim()) return localUsers;
         const lowercasedQuery = searchQuery.toLowerCase();
-        return allUsers.filter(user => {
+        return localUsers.filter(user => {
             const nickname = user.nickname?.toLowerCase() || '';
             const username = user.username?.toLowerCase() || '';
             return nickname.includes(lowercasedQuery) || username.includes(lowercasedQuery);
         });
-    }, [allUsers, searchQuery]);
+    }, [localUsers, searchQuery]);
 
     return (
         <div className="space-y-8 bg-primary text-primary">
@@ -338,7 +430,10 @@ const UserManagementPanel: React.FC<UserManagementPanelProps> = ({ allUsers, onA
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 <div className="lg:col-span-2 bg-panel border border-color text-on-panel p-6 rounded-lg shadow-lg">
                     <div className="flex justify-between items-center mb-4">
-                        <h2 className="text-xl font-semibold">사용자 목록 ({filteredUsers.length})</h2>
+                        <h2 className="text-xl font-semibold">
+                            사용자 목록 ({filteredUsers.length})
+                            {isLoadingUsers && <span className="ml-2 text-sm text-gray-400">(로딩 중...)</span>}
+                        </h2>
                         <input type="text" placeholder="닉네임 또는 아이디 검색..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="bg-secondary border border-color text-primary text-sm rounded-lg focus:ring-accent focus:border-accent w-1/3 p-2.5" />
                     </div>
                     <div className="max-h-[60vh] overflow-y-auto">

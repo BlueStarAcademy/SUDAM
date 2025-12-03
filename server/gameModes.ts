@@ -475,11 +475,14 @@ export const getGameResult = async (game: LiveGameSession): Promise<LiveGameSess
             await endGame(freshGame, winner, 'score');
         })
         .catch(async (error) => {
-            console.error(`[getGameResult] KataGo analysis failed for game ${game.id}:`, error);
-            console.error(`[getGameResult] Error stack:`, error instanceof Error ? error.stack : 'No stack trace');
-            
-            // KataGo 실패 시 자체 계가 프로그램 사용
-            console.log(`[getGameResult] KataGo failed, attempting manual scoring for game ${game.id}`);
+        console.error(`[getGameResult] KataGo analysis failed for game ${game.id}:`, error);
+        console.error(`[getGameResult] Error message:`, error instanceof Error ? error.message : String(error));
+        console.error(`[getGameResult] Error stack:`, error instanceof Error ? error.stack : 'No stack trace');
+        console.error(`[getGameResult] Game details: isSinglePlayer=${game.isSinglePlayer}, stageId=${game.stageId}, mode=${game.mode}, boardSize=${game.settings.boardSize}`);
+        console.error(`[getGameResult] KataGo config: USE_HTTP_API=${process.env.KATAGO_API_URL ? 'true' : 'false'}, KATAGO_API_URL=${process.env.KATAGO_API_URL || 'not set'}`);
+        
+        // KataGo 실패 시 자체 계가 프로그램 사용
+        console.log(`[getGameResult] KataGo failed, attempting manual scoring for game ${game.id}`);
             try {
                 const { calculateScoreManually } = await import('./scoringService.js');
                 const manualAnalysis = calculateScoreManually(game);

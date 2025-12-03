@@ -28,6 +28,7 @@ const gradeBackgrounds: Record<ItemGrade, string> = {
 
 const ShopItemCard: React.FC<{ item: GuildShopItem }> = ({ item }) => {
     const { handlers, currentUserWithStatus } = useAppContext();
+    const [showDescription, setShowDescription] = useState(false);
     
     const purchaseRecord = currentUserWithStatus?.dailyShopPurchases?.[item.itemId];
     const now = Date.now();
@@ -56,15 +57,26 @@ const ShopItemCard: React.FC<{ item: GuildShopItem }> = ({ item }) => {
     };
 
     return (
-        <div className="bg-gradient-to-br from-stone-900/95 via-neutral-800/90 to-stone-900/95 rounded-xl p-3 flex flex-col items-center text-center border-2 border-stone-600/60 shadow-xl hover:shadow-2xl transition-all hover:border-stone-500/80 relative overflow-hidden h-full">
+        <div className="bg-gradient-to-br from-stone-900/95 via-neutral-800/90 to-stone-900/95 rounded-xl p-3 flex flex-col items-center text-center border-2 border-stone-600/60 shadow-xl hover:shadow-2xl transition-all hover:border-stone-500/80 relative overflow-visible h-full">
             <div className="absolute inset-0 bg-gradient-to-br from-stone-500/10 via-gray-500/5 to-stone-500/10 pointer-events-none"></div>
             <div className="relative z-10 w-full flex flex-col h-full">
-             <div className="relative w-20 h-20 bg-gradient-to-br from-stone-800/90 to-stone-900/90 rounded-lg mb-2 flex items-center justify-center border-2 border-stone-600/60 shadow-lg mx-auto flex-shrink-0">
+             <div 
+                className="relative w-20 h-20 bg-gradient-to-br from-stone-800/90 to-stone-900/90 rounded-lg mb-2 flex items-center justify-center border-2 border-stone-600/60 shadow-lg mx-auto flex-shrink-0 cursor-pointer hover:scale-105 transition-transform"
+                onClick={() => setShowDescription(!showDescription)}
+                onMouseEnter={() => setShowDescription(true)}
+                onMouseLeave={() => setShowDescription(false)}
+            >
                  <img src={gradeBackgrounds[item.grade]} alt={item.grade} className="absolute inset-0 w-full h-full object-cover rounded-lg opacity-80" />
                 <img src={item.image} alt={item.name} className="absolute object-contain p-2 z-10 drop-shadow-xl" style={{ width: '80%', height: '80%', left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }} />
             </div>
             <h3 className="text-xs font-bold text-white mb-0.5 drop-shadow-lg line-clamp-1 flex-shrink-0">{item.name}</h3>
-            <p className="text-[9px] text-stone-300/80 mb-2 h-8 leading-tight line-clamp-2 flex-shrink-0">{item.description}</p>
+            {showDescription && (
+                <div className="absolute z-50 top-24 left-1/2 -translate-x-1/2 w-48 bg-gray-900/95 border border-stone-600/50 rounded-lg p-2 shadow-xl">
+                    <p className="text-[9px] text-stone-300/90 leading-tight">
+                        {item.description}
+                    </p>
+                </div>
+            )}
             <div className="flex flex-col items-stretch justify-center gap-1.5 mt-auto w-full flex-shrink-0">
                 <button
                     onClick={handleBuy}

@@ -153,9 +153,40 @@ const ServerSettingsPanel: React.FC<ServerSettingsPanelProps> = (props) => {
                     <div className="bg-panel border border-color text-on-panel p-6 rounded-lg shadow-lg">
                         <div className="flex justify-between items-center mb-4 border-b border-color pb-2">
                             <h2 className="text-xl font-semibold">KataGo 상태</h2>
-                            <Button onClick={fetchKataGoStatus} className="!text-xs" disabled={kataGoLoading}>
-                                {kataGoLoading ? '로딩 중...' : '새로고침'}
-                            </Button>
+                            <div className="flex gap-2">
+                                {kataGoStatus && kataGoStatus.status === 'stopped' && !kataGoStatus.config.USE_HTTP_API && (
+                                    <Button 
+                                        onClick={async () => {
+                                            setKataGoLoading(true);
+                                            setKataGoError(null);
+                                            try {
+                                                const response = await fetch('/api/admin/katago-start', { method: 'POST' });
+                                                const data = await response.json();
+                                                if (!response.ok) {
+                                                    throw new Error(data.error || data.message || 'KataGo 시작 실패');
+                                                }
+                                                // 시작 요청 후 잠시 대기 후 상태 새로고침
+                                                setTimeout(() => {
+                                                    fetchKataGoStatus();
+                                                }, 2000);
+                                            } catch (err: any) {
+                                                setKataGoError(err.message);
+                                                console.error('[ServerSettings] Failed to start KataGo:', err);
+                                            } finally {
+                                                setKataGoLoading(false);
+                                            }
+                                        }} 
+                                        colorScheme="green" 
+                                        className="!text-xs" 
+                                        disabled={kataGoLoading}
+                                    >
+                                        {kataGoLoading ? '시작 중...' : '시작'}
+                                    </Button>
+                                )}
+                                <Button onClick={fetchKataGoStatus} className="!text-xs" disabled={kataGoLoading}>
+                                    {kataGoLoading ? '로딩 중...' : '새로고침'}
+                                </Button>
+                            </div>
                         </div>
                         {kataGoError && (
                             <div className="mb-4 p-3 bg-red-900/50 border border-red-500 rounded text-red-200 text-sm">
