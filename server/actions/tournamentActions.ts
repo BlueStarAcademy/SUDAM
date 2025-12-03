@@ -601,7 +601,7 @@ export const handleTournamentAction = async (volatileState: VolatileState, actio
             }
             
             if (tournamentState) {
-                tournamentService.forfeitCurrentMatch(tournamentState, user);
+                await tournamentService.forfeitCurrentMatch(tournamentState, user);
             
                 (user as any)[stateKey] = tournamentState;
                 // 사용자 캐시 업데이트
@@ -988,7 +988,7 @@ export const handleTournamentAction = async (volatileState: VolatileState, actio
             (tournamentState as any).__clientTimestamp = timestamp;
             
             const prevStatus = tournamentState.status;
-            const advanced = advanceSimulation(tournamentState, freshUser);
+            const advanced = await advanceSimulation(tournamentState, freshUser);
             if (!advanced) {
                 return {}; // 아직 진행할 시간이 안 됨
             }
@@ -1274,7 +1274,7 @@ export const handleTournamentAction = async (volatileState: VolatileState, actio
             // 매치 완료 처리
             const { processMatchCompletion } = await import('../tournamentService.js');
             const prevStatus = tournamentState.status;
-            processMatchCompletion(tournamentState, freshUser, match, roundIndex);
+            await processMatchCompletion(tournamentState, freshUser, match, roundIndex);
 
             // 모든 경기가 완료되었는지 확인
             const allMatchesFinished = tournamentState.rounds.every(r => r.matches.every(m => m.isFinished));

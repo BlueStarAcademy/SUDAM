@@ -778,7 +778,7 @@ const startServer = async () => {
                         return;
                     }
 
-                    const advanced = tournamentService.advanceSimulation(tournamentState, user);
+                    const advanced = await tournamentService.advanceSimulation(tournamentState, user);
                     if (!advanced) {
                         return;
                     }

@@ -269,7 +269,7 @@ export const prepareNextRound = (state: TournamentState, user: User) => {
     }
 };
 
-export const processMatchCompletion = (state: TournamentState, user: User, completedMatch: Match, roundIndex: number) => {
+export const processMatchCompletion = async (state: TournamentState, user: User, completedMatch: Match, roundIndex: number) => {
     state.currentSimulatingMatch = null;
     
     completedMatch.players.forEach(p => {
@@ -1185,7 +1185,7 @@ export const forfeitTournament = (state: TournamentState, userId: string) => {
     state.status = 'eliminated';
 };
 
-export const forfeitCurrentMatch = (state: TournamentState, user: User) => {
+export const forfeitCurrentMatch = async (state: TournamentState, user: User) => {
     if (state.status !== 'round_in_progress' || !state.currentSimulatingMatch) return;
 
     const { roundIndex, matchIndex } = state.currentSimulatingMatch;
@@ -1201,11 +1201,11 @@ export const forfeitCurrentMatch = (state: TournamentState, user: User) => {
         match.winner = match.players.find(p => p && p.id !== user.id) || null;
         
         // 현재 매치를 완료 처리하고 다음 단계로 진행
-        processMatchCompletion(state, user, match, roundIndex);
+        await processMatchCompletion(state, user, match, roundIndex);
     }
 };
 
-export const advanceSimulation = (state: TournamentState, user: User): boolean => {
+export const advanceSimulation = async (state: TournamentState, user: User): Promise<boolean> => {
     if (state.status !== 'round_in_progress' || !state.currentSimulatingMatch) return false;
 
     const { roundIndex, matchIndex } = state.currentSimulatingMatch;
@@ -1227,7 +1227,7 @@ export const advanceSimulation = (state: TournamentState, user: User): boolean =
     if (!match.players[0] || !match.players[1]) {
         match.winner = match.players[0] || null;
         match.isFinished = true;
-        processMatchCompletion(state, user, match, roundIndex);
+        await processMatchCompletion(state, user, match, roundIndex);
         return true;
     }
 
@@ -1603,7 +1603,7 @@ export const advanceSimulation = (state: TournamentState, user: User): boolean =
         match.commentary = [...state.currentMatchCommentary];
         match.finalScore = { player1: finalP1ScorePercent, player2: 100 - finalP1ScorePercent };
         
-        processMatchCompletion(state, user, match, roundIndex);
+        await processMatchCompletion(state, user, match, roundIndex);
     }
 
     return true;

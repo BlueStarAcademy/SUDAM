@@ -105,12 +105,25 @@ export const createWebSocketServer = (server: Server) => {
         }
 
         // 초기 상태를 비동기로 전송 (연결이 끊어지지 않도록)
-        // 타임아웃 추가 (30초로 증가 - 1000명 처리 시간 고려)
+        // 타임아웃 추가 (로컬 개발: 10초, 프로덕션: 30초)
         (async () => {
+            const timeoutDuration = process.env.NODE_ENV === 'development' ? 10000 : 30000;
             const initTimeout = setTimeout(() => {
                 console.warn('[WebSocket] Initial state load timeout');
                 isClosed = true;
-            }, 30000); // 30초 타임아웃 (1000명 처리 시간 고려)
+                clearTimeout(initTimeout);
+                // 클라이언트에 타임아웃 에러 전송
+                if (ws.readyState === WebSocket.OPEN) {
+                    try {
+                        ws.send(JSON.stringify({ 
+                            type: 'ERROR', 
+                            payload: { message: 'Initial state load timeout. Please refresh the page.' } 
+                        }));
+                    } catch (sendError) {
+                        // 에러 전송 실패는 무시
+                    }
+                }
+            }, timeoutDuration);
             
             try {
                 // 연결 상태를 더 자주 체크하기 위한 헬퍼 함수
@@ -122,6 +135,11 @@ export const createWebSocketServer = (server: Server) => {
                     clearTimeout(initTimeout);
                     // 연결이 이미 끊어진 경우 조용히 반환
                     return;
+                }
+                
+                // 초기 상태 로드 시작 로그 (로컬 개발 환경에서만)
+                if (process.env.NODE_ENV === 'development') {
+                    console.log(`[WebSocket] Starting initial state load (timeout: ${timeoutDuration}ms)`);
                 }
                 
                 // 성능 최적화: 온라인 사용자만 로드 (1000명 동시 사용자 대응)
@@ -143,6 +161,7 @@ export const createWebSocketServer = (server: Server) => {
                 // 배치별로 순차 처리 (데이터베이스 연결 풀 부하 방지)
                 for (const batch of batches) {
                     if (!checkConnection()) {
+                        clearTimeout(initTimeout);
                         break; // 연결이 끊어지면 중단
                     }
                     
@@ -194,6 +213,7 @@ export const createWebSocketServer = (server: Server) => {
                 // 데이터 로드 후 연결 상태 재확인
                 if (!checkConnection()) {
                     // 연결이 끊어진 것은 정상적인 재연결 흐름의 일부이므로 조용히 처리
+                    clearTimeout(initTimeout);
                     return;
                 }
                 
@@ -307,11 +327,13 @@ export const createWebSocketServer = (server: Server) => {
                 // 전송 전 최종 연결 상태 확인
                 if (!checkConnection()) {
                     // 연결이 끊어진 경우 조용히 반환
+                    clearTimeout(initTimeout);
                     return;
                 }
                 
                 // 연결이 여전히 열려있는지 확인 후 전송
                 if (!checkConnection()) {
+                    clearTimeout(initTimeout);
                     return;
                 }
                 
@@ -355,9 +377,12 @@ export const createWebSocketServer = (server: Server) => {
                 
                 try {
                     ws.send(JSON.stringify({ type: 'INITIAL_STATE', payload }));
+                    // 성공적으로 전송했으므로 타임아웃 정리
+                    clearTimeout(initTimeout);
                 } catch (sendError) {
                     console.error('[WebSocket] Error sending message:', sendError);
                     isClosed = true;
+                    clearTimeout(initTimeout);
                 }
             } catch (error) {
                 console.error('[WebSocket] Error sending initial state:', error);

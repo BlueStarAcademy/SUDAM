@@ -163,5 +163,8 @@ export default defineConfig({
     // },
     // CSS 코드 스플리팅
     cssCodeSplit: true,
+    // 빌드 시 타입 체크 건너뛰기 (Docker 빌드 환경에서 문제 발생 시)
+    // esbuild는 기본적으로 타입 체크를 하지 않지만, 명시적으로 설정
+    target: 'esnext',
   },
 })

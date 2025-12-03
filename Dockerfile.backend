@@ -15,14 +15,21 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
 FROM base AS build-deps
-# Install all dependencies including dev for Prisma generation
+# Install all dependencies including dev for Prisma generation and Vite build
 # Also install wget and unzip for KataGo download
 # Install build tools for mozjpeg (imagemin-mozjpeg dependency)
 RUN apk add --no-cache wget unzip autoconf automake libtool pkgconfig nasm
+# Set NODE_ENV to development to ensure devDependencies are installed
+ENV NODE_ENV=development
 COPY package.json package-lock.json ./
 RUN echo "=== Installing npm dependencies (this may take a while) ===" && \
-    npm ci && \
-    echo "=== npm dependencies installed ==="
+    NODE_ENV=development npm ci && \
+    echo "=== npm dependencies installed ===" && \
+    echo "=== Verifying vite installation ===" && \
+    (test -f node_modules/.bin/vite && echo "=== vite binary found ===" || (echo "ERROR: vite not found in node_modules/.bin" && ls -la node_modules/.bin/ | head -20 && exit 1)) && \
+    (test -d node_modules/vite && echo "=== vite package found ===" || (echo "ERROR: vite package not found" && exit 1)) && \
+    npx vite --version && \
+    echo "=== vite verification complete ==="
 
 FROM build-deps AS build
 # Override NODE_ENV to ensure devDependencies are installed
@@ -41,8 +48,16 @@ RUN echo "=== Generating Prisma client ===" && \
     echo "=== Prisma client generated ==="
 
 # Build frontend - use npx to ensure vite is found
-RUN echo "=== Building frontend with Vite ===" && \
-    npx vite build && \
+# Increase Node.js memory limit for large builds
+# Set NODE_ENV to production for build (Vite uses this for optimizations)
+RUN echo "=== Checking vite availability ===" && \
+    (test -f node_modules/.bin/vite && echo "=== vite binary exists ===" || echo "WARNING: vite binary not found")) && \
+    (test -d node_modules/vite && echo "=== vite package exists ===" || (echo "ERROR: vite package not found" && ls -la node_modules/ | grep -i vite || echo "No vite-related packages found" && exit 1)) && \
+    echo "=== Verifying vite via npx ===" && \
+    (npx vite --version || (echo "ERROR: vite not found via npx" && echo "NODE_ENV=$NODE_ENV" && echo "Current directory: $(pwd)" && ls -la node_modules/.bin/ | head -10 && exit 1)) && \
+    echo "=== Building frontend with Vite ===" && \
+    NODE_ENV=production NODE_OPTIONS="--max-old-space-size=4096" npx vite build || \
+    (echo "=== Vite build failed ===" && exit 1) && \
     echo "=== Frontend build complete ==="
 
 # Download KataGo Linux binary and model
