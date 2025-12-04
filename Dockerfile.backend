@@ -90,30 +90,33 @@ RUN echo "=== Checking vite availability ===" && \
     (echo "=== Vite build failed ===" && exit 1) && \
     echo "=== Frontend build complete ==="
 
-# Download KataGo Linux binary and model
+# Download KataGo Linux binary and model (optional - can use HTTP API mode instead)
 # Use eigenavx2 build for CPU-only Railway deployment (faster than eigen)
-# Simplified download with single version and clear error messages
+# Model download failure is non-fatal - server can use HTTP API mode
 RUN echo "=== Starting KataGo download ===" && \
     mkdir -p /app/katago /tmp/katago_extract && \
     cd /tmp && \
     echo "[1/4] Downloading KataGo binary v1.16.4..." && \
-    wget --progress=dot:giga --no-check-certificate --timeout=120 --tries=2 --read-timeout=120 --dns-timeout=20 --connect-timeout=60 \
+    (wget --progress=dot:giga --no-check-certificate --timeout=120 --tries=2 --read-timeout=120 --dns-timeout=20 --connect-timeout=60 \
         https://github.com/lightvector/KataGo/releases/download/v1.16.4/katago-v1.16.4-eigenavx2-linux-x64.zip -O katago.zip && \
     echo "[2/4] Verifying download..." && \
-    test -f katago.zip && test -s katago.zip || (echo "ERROR: katago.zip download failed or empty" && exit 1) && \
+    test -f katago.zip && test -s katago.zip && \
     echo "[3/4] Extracting KataGo binary..." && \
-    unzip -q katago.zip -d katago_extract || (echo "ERROR: unzip failed" && exit 1) && \
+    unzip -q katago.zip -d katago_extract && \
     KATAGO_BIN=$(find katago_extract -name "katago" -type f | head -1) && \
-    test -n "$KATAGO_BIN" || (echo "ERROR: katago binary not found in extract" && find katago_extract -type f && exit 1) && \
-    cp "$KATAGO_BIN" /app/katago/katago || (echo "ERROR: failed to copy katago" && exit 1) && \
-    chmod +x /app/katago/katago || (echo "ERROR: failed to chmod katago" && exit 1) && \
-    echo "[4/4] Downloading KataGo model..." && \
+    test -n "$KATAGO_BIN" && \
+    cp "$KATAGO_BIN" /app/katago/katago && \
+    chmod +x /app/katago/katago && \
+    echo "[4/4] Downloading KataGo model (optional)..." && \
     cd /app/katago && \
-    wget --progress=dot:giga --no-check-certificate --timeout=300 --tries=2 --read-timeout=300 --dns-timeout=20 --connect-timeout=120 \
+    (wget --progress=dot:giga --no-check-certificate --timeout=300 --tries=2 --read-timeout=300 --dns-timeout=20 --connect-timeout=120 \
         https://media.katagotraining.org/uploaded/models/kata1-b28c512nbt-s9853922560-d5031756885.bin.gz && \
-    test -f kata1-b28c512nbt-s9853922560-d5031756885.bin.gz || (echo "ERROR: KataGo model download failed" && exit 1) && \
-    echo "=== KataGo installation complete ===" && \
-    rm -rf /tmp/katago.zip /tmp/katago_extract
+    test -f kata1-b28c512nbt-s9853922560-d5031756885.bin.gz && \
+    echo "=== KataGo binary and model installation complete ===" || \
+    echo "WARNING: KataGo model download failed (403 Forbidden). Server will use HTTP API mode if configured.") && \
+    rm -rf /tmp/katago.zip /tmp/katago_extract) || \
+    (echo "WARNING: KataGo binary download failed. Server can still run with HTTP API mode if KATAGO_API_URL is configured." && \
+    echo "=== Continuing build without KataGo binary ===")
 
 FROM base AS runner
 WORKDIR /app
