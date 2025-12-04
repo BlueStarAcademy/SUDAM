@@ -3,7 +3,7 @@ import { PrismaClient } from "../generated/prisma/client.ts";
 
 // DATABASE_URL에 연결 풀링 파라미터 추가 (없는 경우)
 const getDatabaseUrl = () => {
-  const url = process.env.DATABASE_URL || '';
+  let url = process.env.DATABASE_URL || '';
   if (!url) {
     console.error('[Prisma] DATABASE_URL is not set! Please set DATABASE_URL to Railway PostgreSQL connection string.');
     return url;
@@ -18,8 +18,23 @@ const getDatabaseUrl = () => {
     console.error('[Prisma] ⚠️ Railway DATABASE_URL should look like: postgresql://postgres:****@postgres.railway.internal:5432/railway');
   }
   
-  // Railway URL 확인
+  // Railway URL 확인 및 내부 네트워크로 변환
   const isRailway = url.includes('railway') || process.env.RAILWAY_ENVIRONMENT;
+  if (isRailway && url.includes('.up.railway.app')) {
+    // Railway 공개 URL을 내부 네트워크로 자동 변환
+    // postgres-production-xxx.up.railway.app:5432 -> postgres.railway.internal:5432
+    const urlPattern = /(postgresql:\/\/[^@]+@)([^:]+):(\d+)(\/.*)/;
+    const match = url.match(urlPattern);
+    if (match) {
+      const [, protocol, host, port, path] = match;
+      if (host.includes('.up.railway.app')) {
+        const newHost = 'postgres.railway.internal';
+        url = `${protocol}${newHost}:${port}${path}`;
+        console.log('[Prisma] Converted Railway public URL to internal network:', `${protocol}${newHost}:${port}${path}`.replace(/:[^:@]+@/, ':****@'));
+      }
+    }
+  }
+  
   if (!isRailway && !url.includes('supabase')) {
     console.warn('[Prisma] DATABASE_URL does not appear to be Railway or Supabase. Make sure this is correct.');
   }
