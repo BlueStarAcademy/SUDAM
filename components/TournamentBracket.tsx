@@ -4,7 +4,7 @@ import { UserWithStatus, TournamentState, PlayerForTournament, ServerAction, Use
 import Button from './Button.js';
 import { useButtonClickThrottle } from '../hooks/useButtonClickThrottle.js';
 import { useTournamentSimulation } from '../hooks/useTournamentSimulation.js';
-import { TOURNAMENT_DEFINITIONS, BASE_TOURNAMENT_REWARDS, TOURNAMENT_SCORE_REWARDS, CONSUMABLE_ITEMS, MATERIAL_ITEMS, AVATAR_POOL, BORDER_POOL, CORE_STATS_DATA, LEAGUE_DATA, DUNGEON_STAGE_BASE_SCORE, DUNGEON_STAGE_BASE_REWARDS_GOLD, DUNGEON_STAGE_BASE_REWARDS_MATERIAL, DUNGEON_STAGE_BASE_REWARDS_EQUIPMENT, DUNGEON_RANK_SCORE_BONUS, DUNGEON_DEFAULT_SCORE_BONUS } from '../constants';
+import { TOURNAMENT_DEFINITIONS, BASE_TOURNAMENT_REWARDS, TOURNAMENT_SCORE_REWARDS, CONSUMABLE_ITEMS, MATERIAL_ITEMS, AVATAR_POOL, BORDER_POOL, CORE_STATS_DATA, LEAGUE_DATA, DUNGEON_STAGE_BASE_SCORE, DUNGEON_STAGE_BASE_REWARDS_GOLD, DUNGEON_STAGE_BASE_REWARDS_MATERIAL, DUNGEON_STAGE_BASE_REWARDS_EQUIPMENT, DUNGEON_RANK_SCORE_BONUS, DUNGEON_DEFAULT_SCORE_BONUS, DUNGEON_RANK_REWARDS } from '../constants';
 import Avatar from './Avatar.js';
 import RadarChart from './RadarChart.js';
 import SgfViewer from './SgfViewer.js';
@@ -1415,7 +1415,6 @@ const FinalRewardPanel: React.FC<{ tournamentState: TournamentState; currentUser
             
             {/* 던전 모드 보상 표시 (단계별 기본 보상 + 순위 보상) */}
             {tournamentState.currentStageAttempt && (() => {
-                const { DUNGEON_RANK_REWARDS } = require('../constants/tournaments');
                 const stage = tournamentState.currentStageAttempt;
                 
                 // 순위 계산 (wins/losses 기준, 모든 라운드의 경기 결과 확인)

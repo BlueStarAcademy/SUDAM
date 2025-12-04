@@ -5,6 +5,8 @@ import { audioService } from '../services/audioService.js';
 import Button from './Button.js';
 import DraggableWindow from './DraggableWindow.js';
 import { PLAYFUL_GAME_MODES, AVATAR_POOL, BORDER_POOL, CONSUMABLE_ITEMS, SPECIAL_GAME_MODES } from '../constants';
+import { TOWER_STAGES } from '../constants/towerConstants.js';
+import { SINGLE_PLAYER_STAGES } from '../constants/singlePlayerConstants.js';
 import { getMannerRank as getMannerRankShared } from '../services/manner.js';
 
 interface GameSummaryModalProps {
@@ -398,7 +400,6 @@ const GameSummaryModal: React.FC<GameSummaryModalProps> = ({ session, currentUse
                     const isTower = session.gameCategory === 'tower';
                     if (isTower) {
                         try {
-                            const { TOWER_STAGES } = require('../constants/towerConstants.js');
                             const currentStage = TOWER_STAGES.find((s: any) => s.id === session.stageId);
                             if (currentStage?.blackTurnLimit) {
                                 return <p className={`text-center ${isMobile ? 'text-sm' : 'text-lg'} text-red-400`} style={{ fontSize: isMobile ? `${12 * mobileTextScale}px` : undefined }}>제한 턴이 다 되어 패배했습니다.</p>;
@@ -408,7 +409,6 @@ const GameSummaryModal: React.FC<GameSummaryModalProps> = ({ session, currentUse
                         }
                     } else if (session.isSinglePlayer) {
                         try {
-                            const { SINGLE_PLAYER_STAGES } = require('../constants/singlePlayerConstants.js');
                             const currentStage = SINGLE_PLAYER_STAGES.find((s: any) => s.id === session.stageId);
                             if (currentStage?.blackTurnLimit) {
                                 return <p className={`text-center ${isMobile ? 'text-sm' : 'text-lg'} text-red-400`} style={{ fontSize: isMobile ? `${12 * mobileTextScale}px` : undefined }}>제한 턴이 다 되어 패배했습니다.</p>;
