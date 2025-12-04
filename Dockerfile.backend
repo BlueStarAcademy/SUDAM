@@ -51,7 +51,7 @@ RUN echo "=== Generating Prisma client ===" && \
 # Increase Node.js memory limit for large builds
 # Set NODE_ENV to production for build (Vite uses this for optimizations)
 RUN echo "=== Checking vite availability ===" && \
-    (test -f node_modules/.bin/vite && echo "=== vite binary exists ===" || echo "WARNING: vite binary not found")) && \
+    (test -f node_modules/.bin/vite && echo "=== vite binary exists ===" || echo "WARNING: vite binary not found") && \
     (test -d node_modules/vite && echo "=== vite package exists ===" || (echo "ERROR: vite package not found" && ls -la node_modules/ | grep -i vite || echo "No vite-related packages found" && exit 1)) && \
     echo "=== Verifying vite via npx ===" && \
     (npx vite --version || (echo "ERROR: vite not found via npx" && echo "NODE_ENV=$NODE_ENV" && echo "Current directory: $(pwd)" && ls -la node_modules/.bin/ | head -10 && exit 1)) && \
