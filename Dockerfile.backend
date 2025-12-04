@@ -46,16 +46,22 @@ RUN echo "=== Verifying node_modules before COPY ===" && \
 # Copy source code selectively (excluding node_modules via .dockerignore)
 # Copy essential files for Vite build
 COPY package.json package-lock.json ./
-COPY vite.config.ts tsconfig.json tsconfig.base.json ./
-COPY index.html ./
+COPY vite.config.ts tsconfig.json tsconfig.base.json tsconfig.node.json ./
+COPY postcss.config.js ./
+COPY vite-env.d.ts ./
+COPY index.html index.tsx index.css ./
+COPY App.tsx Game.tsx ./
+COPY constants.ts types.ts gameRules.ts ./
+COPY assets.ts profanity.ts ./
 COPY public ./public
 COPY components ./components
 COPY hooks ./hooks
 COPY utils ./utils
 COPY constants ./constants
 COPY types ./types
-COPY assets.ts ./
-COPY profanity.ts ./
+COPY contexts ./contexts
+COPY client ./client
+COPY services ./services
 COPY server ./server
 COPY prisma ./prisma
 
